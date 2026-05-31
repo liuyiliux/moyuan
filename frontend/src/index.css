@@ -1,0 +1,761 @@
+@import "tailwindcss";
+
+@custom-variant dark (.dark &);
+
+/* ═══════════════════════════════════════════════════
+   MOYUAN — CYBER DAOIST DESIGN SYSTEM
+   Ink · Void · Jade · Gold palette
+   Qi Flow · Bagua · Cyber Taoist Aesthetic
+   ═══════════════════════════════════════════════════ */
+
+:root {
+  /* Fonts */
+  --font-serif: "Noto Serif SC", "Source Han Serif SC", "STSong", serif;
+  --font-body: "Geist", -apple-system, system-ui, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", "SF Mono", monospace;
+
+  /* Cyber Daoist Palette - 四色主调 */
+  --ink: #08080c;           /* 墨色 - 主背景 */
+  --void: #0d1117;          /* 玄青色 - 层次背景/侧边栏 */
+  --jade: #10b981;          /* 翠玉色 - 主交互色 */
+  --gold: #c9a84c;          /* 丹金色 - 点缀色 */
+  
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --bg-elevated: #ffffff;
+  --bg-sunken: #e2e8f0;
+  --bg-sidebar: #f1f5f9;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-inverse: #f8fafc;
+
+  --border-subtle: rgba(15, 23, 42, 0.06);
+  --border-default: rgba(15, 23, 42, 0.10);
+  --border-strong: rgba(15, 23, 42, 0.16);
+
+  /* Accent colors */
+  --accent: var(--jade);
+  --accent-hover: #059669;
+  --accent-soft: rgba(16, 185, 129, 0.08);
+  --accent-text: var(--jade);
+  --accent-glow: rgba(16, 185, 129, 0.4);
+  
+  --gold-glow: rgba(201, 168, 76, 0.3);
+
+  --success: var(--jade);
+  --success-soft: rgba(16, 185, 129, 0.08);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.08);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.08);
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.03);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.05), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 24px rgba(15, 23, 42, 0.06), 0 4px 8px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 24px 40px rgba(15, 23, 42, 0.08), 0 8px 12px rgba(15, 23, 42, 0.04);
+  --shadow-glow: 0 0 0 1px rgba(16, 185, 129, 0.18), 0 0 20px rgba(16, 185, 129, 0.08);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --space-1: 4px;    --space-2: 8px;    --space-3: 12px;
+  --space-4: 16px;   --space-5: 20px;   --space-6: 24px;
+  --space-8: 32px;   --space-10: 40px;  --space-12: 48px;
+  --space-16: 64px;  --space-20: 80px;  --space-24: 96px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+}
+
+/* Dark Mode - 道 */
+.dark {
+  --bg-primary: var(--ink);
+  --bg-secondary: rgba(13, 17, 23, 0.8);
+  --bg-card: rgba(13, 17, 23, 0.9);
+  --bg-elevated: rgba(30, 41, 59, 0.7);
+  --bg-sunken: #020617;
+  --bg-sidebar: var(--void);
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #08080c;
+
+  --border-subtle: rgba(148, 163, 184, 0.08);
+  --border-default: rgba(148, 163, 184, 0.12);
+  --border-strong: rgba(148, 163, 184, 0.18);
+
+  --accent: var(--jade);
+  --accent-hover: #34d399;
+  --accent-soft: rgba(16, 185, 129, 0.12);
+  --accent-text: #6ee7b7;
+  --accent-glow: rgba(16, 185, 129, 0.3);
+
+  --success-soft: rgba(16, 185, 129, 0.12);
+  --warning-soft: rgba(217, 119, 6, 0.12);
+  --danger-soft: rgba(220, 38, 38, 0.12);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.25);
+  --shadow-xl: 0 24px 40px rgba(0, 0, 0, 0.45), 0 8px 12px rgba(0, 0, 0, 0.3);
+  --shadow-glow: 0 0 0 1px rgba(16, 185, 129, 0.25), 0 0 24px rgba(16, 185, 129, 0.1);
+}
+
+/* ═══════════════════════════════════════
+   BASE
+   ═══════════════════════════════════════ */
+
+html, body, #root { height: 100%; margin: 0; }
+
+#root {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 墨绿网格背景 - 电子经络 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(16, 185, 129, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16, 185, 129, 0.02) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+.dark body::before {
+  background-image:
+    linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
+}
+
+/* Ambient gradient light */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(16, 185, 129, 0.04), transparent),
+    radial-gradient(ellipse 60% 40% at 85% 85%, rgba(201, 168, 76, 0.02), transparent);
+}
+
+.dark body::after {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(16, 185, 129, 0.06), transparent),
+    radial-gradient(ellipse 60% 40% at 85% 85%, rgba(201, 168, 76, 0.03), transparent);
+}
+
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.35);
+  border-radius: var(--radius-full);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--jade); }
+
+/* Firefox 滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 185, 129, 0.35) transparent;
+}
+
+::selection { background: rgba(16, 185, 129, 0.2); color: inherit; }
+
+/* ═══════════════════════════════════════
+   DAOIST COMPONENT SYSTEM
+   ═══════════════════════════════════════ */
+
+/* dao-card - 灵气卡片 */
+.dao-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+.dao-card:hover {
+  border-color: var(--jade);
+  box-shadow: var(--shadow-glow), var(--shadow-md);
+}
+
+/* dao-btn - 道符按钮 */
+.dao-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.dao-btn-primary {
+  background: var(--jade);
+  color: var(--text-inverse);
+  border: none;
+}
+.dao-btn-primary:hover {
+  box-shadow: 0 0 20px var(--gold-glow);
+}
+.dao-btn-primary:active { transform: scale(0.97); }
+
+.dao-btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+.dao-btn-secondary:hover {
+  border-color: var(--jade);
+  box-shadow: var(--shadow-glow);
+  background: var(--accent-soft);
+}
+
+.dao-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+}
+.dao-btn-ghost:hover {
+  color: var(--jade);
+  background: var(--accent-soft);
+}
+
+.dao-btn-danger {
+  background: var(--danger);
+  color: var(--text-inverse);
+  border: none;
+}
+.dao-btn-danger:hover { background: #b91c1c; }
+
+/* dao-input - 符纹输入框 */
+.dao-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  transition: all var(--duration-fast) var(--ease-out);
+  position: relative;
+}
+.dao-input:focus {
+  border-color: var(--jade);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 16px var(--accent-glow);
+}
+.dao-input::placeholder { color: var(--text-muted); }
+
+/* dao-badge - 符印徽章 */
+.dao-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--jade);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.dao-badge-gold {
+  background: rgba(201, 168, 76, 0.15);
+  color: var(--gold);
+}
+
+/* dao-dialog - 结界对话框 */
+.dao-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in var(--duration-normal) var(--ease-out);
+}
+
+.dao-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  width: 90%;
+  max-width: 480px;
+  max-height: 80vh;
+  overflow: hidden;
+  animation: dialog-in var(--duration-normal) var(--ease-out);
+}
+
+.dao-dialog-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.dao-dialog-header::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 20%;
+  right: 20%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.dao-dialog-body {
+  padding: var(--space-4);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.dao-dialog-footer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* dao-divider */
+.dao-divider {
+  position: relative;
+  height: 1px;
+  background: transparent;
+  border: none;
+  margin: var(--space-6) 0;
+}
+.dao-divider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--gold) 20%, var(--gold) 80%, transparent 100%);
+  opacity: 0.4;
+}
+.dao-divider::after {
+  content: "☰";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--gold);
+  font-size: 12px;
+  opacity: 0.6;
+  background: var(--bg-primary);
+  padding: 0 8px;
+}
+
+/* dao-section-divider - 丹金分隔线（无八卦符文） */
+.dao-section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--gold) 30%, var(--gold) 70%, transparent 100%);
+  opacity: 0.3;
+  border: none;
+  margin: var(--space-4) 0;
+}
+
+/* ═══════════════════════════════════════
+   BAGUA BORDER DECORATIONS
+   八卦结界装饰
+   ═══════════════════════════════════════ */
+
+/* 八卦结界 - 卡片边框光晕 */
+.dao-bagua-card {
+  position: relative;
+}
+.dao-bagua-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--gold) 0%, transparent 30%, transparent 70%, var(--jade) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+.dao-bagua-card:hover::before {
+  opacity: 1;
+}
+
+/* 八卦结界 - 角落装饰 */
+.dao-bagua-corner {
+  position: relative;
+}
+.dao-bagua-corner::before,
+.dao-bagua-corner::after {
+  content: "⚉";
+  position: absolute;
+  font-size: 8px;
+  color: var(--gold);
+  opacity: 0.3;
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+.dao-bagua-corner::before {
+  top: 4px;
+  left: 4px;
+}
+.dao-bagua-corner::after {
+  bottom: 4px;
+  right: 4px;
+}
+.dao-bagua-corner:hover::before,
+.dao-bagua-corner:hover::after {
+  opacity: 0.8;
+}
+
+/* 八卦结界 - 边框线 */
+.dao-bagua-border {
+  border: 1px solid transparent;
+  background: linear-gradient(var(--bg-card), var(--bg-card)) padding-box,
+              linear-gradient(135deg, var(--gold) 0%, var(--jade) 50%, var(--gold) 100%) border-box;
+  opacity: 0.5;
+}
+
+/* ═══════════════════════════════════════
+   DAOIST MOTION SYSTEM
+   ═══════════════════════════════════════ */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes dao-page-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dao-page-enter {
+  animation: dao-page-in var(--duration-slow) var(--ease-out) forwards;
+}
+
+.dao-toast-enter {
+  animation: dao-toast-in var(--duration-normal) var(--ease-out) forwards;
+}
+
+@keyframes dao-toast-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes dao-fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dao-stagger > * {
+  animation: dao-fade-up var(--duration-slow) var(--ease-out) both;
+}
+.dao-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.dao-stagger > *:nth-child(2) { animation-delay: 50ms; }
+.dao-stagger > *:nth-child(3) { animation-delay: 100ms; }
+.dao-stagger > *:nth-child(4) { animation-delay: 150ms; }
+.dao-stagger > *:nth-child(5) { animation-delay: 200ms; }
+.dao-stagger > *:nth-child(6) { animation-delay: 250ms; }
+
+@keyframes dao-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.dao-skeleton {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  animation: dao-pulse 2s var(--ease-in-out) infinite;
+}
+
+@keyframes qi-glow {
+  0%, 100% { 
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    border-color: var(--border-subtle);
+  }
+  50% { 
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+}
+
+/* 灵气感应 hover 光晕系统 */
+.dao-glow-hover {
+  position: relative;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.dao-glow-hover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+  background: radial-gradient(circle at center, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
+}
+.dao-glow-hover:hover::after {
+  opacity: 1;
+}
+
+.dao-ring-hover {
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.dao-ring-hover:hover {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3), 0 0 16px rgba(16, 185, 129, 0.2);
+}
+
+.dao-glow-pulse {
+  animation: qi-glow 2s var(--ease-in-out) infinite;
+}
+
+/* ═══════════════════════════════════════
+   DAOIST NAVIGATION
+   ═══════════════════════════════════════ */
+
+.dao-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  z-index: 50;
+  transition: width var(--duration-normal) var(--ease-out);
+  overflow: hidden;
+}
+
+.dao-sidebar:hover,
+.dao-sidebar.expanded {
+  width: 200px;
+}
+
+.dao-sidebar-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-3);
+}
+
+.dao-sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast);
+}
+
+.dao-sidebar-logo:hover {
+  background: var(--bg-secondary);
+}
+
+.dao-sidebar-logo-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--jade);
+  color: var(--text-inverse);
+  border-radius: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1;
+  letter-spacing: normal;
+}
+
+.dao-sidebar:not(:hover):not(.expanded) .dao-sidebar-logo {
+  justify-content: center;
+  padding: var(--space-2) 0;
+}
+
+.dao-sidebar:not(:hover):not(.expanded) .dao-sidebar-logo-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.dao-sidebar-logo-text {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dao-sidebar-logo-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.dao-sidebar-logo-subtitle {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.dao-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.dao-sidebar-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--space-2) var(--space-2) var(--space-1);
+}
+
+.dao-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all var(--duration-fast);
+}
+
+.dao-sidebar-link:hover {
+  background: var(--bg-secondary);
+  color: var(--jade);
+}
+
+.dao-sidebar-link.active {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--jade);
+  box-shadow: inset 0 0 12px rgba(16, 185, 129, 0.2), 0 0 8px rgba(16, 185, 129, 0.15);
+  position: relative;
+}
+.dao-sidebar-link.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: var(--jade);
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 8px var(--jade);
+}
+
+.dao-sidebar-link-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.dao-sidebar-link-text {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dao-sidebar-spacer {
+  flex: 1;
+}
+
+/* ═══════════════════════════════════════
+   ACCESSIBILITY
+   ═══════════════════════════════════════ */
+
+*:focus-visible {
+  outline: 2px solid var(--jade);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .dao-glow-hover::after,
+  .dao-ring-hover:hover,
+  .dao-bagua-card::before,
+  .dao-bagua-corner::before,
+  .dao-bagua-corner::after {
+    display: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════
+   TYPOGRAPHY
+   ═══════════════════════════════════════ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+h1 { font-size: 1.875rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+h4 { font-size: 1rem; }
+
+.dao-serif {
+  font-family: var(--font-serif);
+}
+
+.dao-mono {
+  font-family: var(--font-mono);
+}

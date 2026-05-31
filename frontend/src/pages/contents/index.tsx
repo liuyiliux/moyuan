@@ -1,0 +1,448 @@
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { fileApi, contentApi, type FileListResponse } from "../../api/content";
+import UploadArea, { type UploadResult } from "../../components/UploadArea";
+import {
+  UploadCloud, Search, Grid3x3, List,
+  FileText, FileAudio, FileVideo, Image, FileSpreadsheet,
+  File, Trash2, ExternalLink, RefreshCw, Loader2, Pin,
+  BookOpen,
+} from "lucide-react";
+import { Card, Button } from "../../components";
+
+const TYPE_FILTERS = [
+  { value: "", label: "万象" },
+  { value: "note", label: "墨宝" },
+  { value: "image", label: "图录" },
+  { value: "video", label: "影集" },
+  { value: "audio", label: "音箓" },
+  { value: "pdf", label: "经卷" },
+  { value: "doc", label: "典籍" },
+  { value: "web", label: "云游" },
+] as const;
+
+const TYPE_ICON_MAP: Record<string, React.ReactNode> = {
+  note: <FileText className="w-4 h-4 text-[var(--accent-text)]" />,
+  image: <Image className="w-4 h-4 text-[var(--success)]" />,
+  video: <FileVideo className="w-4 h-4 text-purple-500" />,
+  audio: <FileAudio className="w-4 h-4 text-orange-500" />,
+  pdf: <FileText className="w-4 h-4 text-[var(--danger)]" />,
+  doc: <FileSpreadsheet className="w-4 h-4 text-indigo-500" />,
+  web: <ExternalLink className="w-4 h-4 text-cyan-500" />,
+};
+
+function getTypeIcon(type: string) {
+  return TYPE_ICON_MAP[type] ?? <File className="w-4 h-4 text-text-muted" />;
+}
+
+function formatSize(bytes: number | null): string {
+  if (bytes == null) return "-";
+  if (bytes < 1024) return `${bytes} 字节`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
+
+export default function ContentsPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const [data, setData] = useState<FileListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState(searchParams.get("type") || "");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+  const [showUpload, setShowUpload] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [pinningId, setPinningId] = useState<string | null>(null);
+
+  const PAGE_SIZE = 20;
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fileApi.list({
+        content_type: typeFilter || undefined,
+        page,
+        page_size: PAGE_SIZE,
+      });
+      const sorted = [...(res.items || [])].sort((a, b) => {
+        if (a.is_pinned && !b.is_pinned) return -1;
+        if (!a.is_pinned && b.is_pinned) return 1;
+        return 0;
+      });
+      setData({ ...res, items: sorted });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, [typeFilter, page]);
+
+  async function handleDelete(id: string) {
+    if (!confirm("确定要将此典籍归入归墟吗？")) return;
+    setDeletingId(id);
+    try {
+      await fileApi.delete(id);
+      await load();
+    } catch (err) {
+      alert(`归入归墟失败: ${(err as Error).message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function handleRetry(id: string) {
+    setRetryingId(id);
+    try {
+      await fetch(`/api/files/${id}/enqueue`, { method: "POST" });
+      await load();
+    } catch (err) {
+      alert(`重新炼化失败: ${(err as Error).message}`);
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
+  async function handlePin(id: string) {
+    setPinningId(id);
+    try {
+      const res = await contentApi.pin(id);
+      setData(prev => {
+        if (!prev) return prev;
+        const items = prev.items.map(item => 
+          item.id === id ? { ...item, is_pinned: res.is_pinned } : item
+        );
+        items.sort((a, b) => {
+          if (a.is_pinned && !b.is_pinned) return -1;
+          if (!a.is_pinned && b.is_pinned) return 1;
+          return 0;
+        });
+        return { ...prev, items };
+      });
+    } catch (err) {
+      console.error("Pin failed:", err);
+      alert(`加持失败: ${(err as Error).message}`);
+    } finally {
+      setPinningId(null);
+    }
+  }
+
+  function handleUploaded(_results: UploadResult[]) {
+    setShowUpload(false);
+    setPage(1);
+    load();
+  }
+
+  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+
+  return (
+    <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-2xl font-serif font-semibold text-text-primary">
+            道藏
+          </h1>
+          <p className="text-sm text-text-muted mt-1.5">
+            收纳天地万象，传承千古智慧
+          </p>
+        </div>
+        <Button onClick={() => setShowUpload(v => !v)}>
+          <UploadCloud className="w-4 h-4" />
+          收录典籍
+        </Button>
+      </div>
+
+      {showUpload && (
+        <Card className="mb-6 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-serif font-semibold text-text-primary">收录典籍</h2>
+            <Button variant="ghost" onClick={() => setShowUpload(false)}>
+              取消
+            </Button>
+          </div>
+          <UploadArea onUploaded={handleUploaded} />
+        </Card>
+      )}
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="flex flex-wrap gap-1.5">
+          {TYPE_FILTERS.map(f => (
+            <button
+              key={f.value}
+              onClick={() => { setTypeFilter(f.value); setPage(1); }}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all ${
+                typeFilter === f.value
+                  ? "bg-jade text-text-inverse"
+                  : "bg-bg-secondary text-text-secondary hover:bg-accent-soft hover:text-jade"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <input
+              type="text"
+              placeholder="探寻道藏..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && search.trim()) navigate(`/search?q=${encodeURIComponent(search.trim())}`); }}
+              className="dao-input w-48"
+            />
+          </div>
+          <button
+            onClick={() => setViewMode("list")}
+            className={`p-1.5 rounded-md transition-all ${
+              viewMode === "list" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
+            }`}
+            title="卷轴视图"
+          >
+            <List className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setViewMode("grid")}
+            className={`p-1.5 rounded-md transition-all ${
+              viewMode === "grid" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
+            }`}
+            title="宝匣视图"
+          >
+            <Grid3x3 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-jade" />
+        </div>
+      )}
+      {error && (
+        <Card className="p-6 text-center border-danger/20 bg-danger-soft">
+          <p className="text-sm text-danger">气机紊乱：{error}</p>
+          <Button variant="secondary" onClick={() => load()} className="mt-4">
+            <RefreshCw className="w-4 h-4" />
+            重新感应
+          </Button>
+        </Card>
+      )}
+      {!loading && !error && (!data || data.items.length === 0) && (
+        <div className="text-center py-16">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-xl bg-accent-soft mb-6">
+            <BookOpen className="w-10 h-10 text-jade/60" />
+          </div>
+          <p className="text-text-muted mb-4">道藏空虚</p>
+          <p className="text-sm text-text-muted mb-6">尚无收录任何典籍</p>
+          <Button onClick={() => setShowUpload(true)}>
+            <UploadCloud className="w-4 h-4" />
+            收录典籍
+          </Button>
+        </div>
+      )}
+
+      {!loading && !error && data && data.items.length > 0 && viewMode === "list" && (
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-bg-secondary text-left text-xs text-text-muted uppercase tracking-[0.1em] font-medium">
+                <th className="px-4 py-3">典籍</th>
+                <th className="px-4 py-3">品类</th>
+                <th className="px-4 py-3">容量</th>
+                <th className="px-4 py-3">状态</th>
+                <th className="px-4 py-3">收录日</th>
+                <th className="px-4 py-3 text-right">法诀</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-subtle">
+              {data.items.map(item => (
+                <tr
+                  key={item.id}
+                  className="group hover:bg-bg-secondary transition-colors cursor-pointer"
+                  onClick={() => navigate(`/contents/${item.id}`)}
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      {item.is_pinned && (
+                        <Pin className="w-3.5 h-3.5 text-jade fill-jade" />
+                      )}
+                      <div className="p-2 rounded-lg bg-bg-secondary group-hover:bg-accent-soft transition-colors">
+                        {getTypeIcon(item.content_type)}
+                      </div>
+                      <div>
+                        <p className="text-text-primary font-medium truncate max-w-sm">
+                          {item.title}
+                        </p>
+                        {item.text_content && (
+                          <p className="text-xs text-text-muted truncate max-w-sm mt-0.5">
+                            {item.text_content.slice(0, 80)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-text-muted capitalize">
+                    {TYPE_FILTERS.find(f => f.value === item.content_type)?.label || item.content_type}
+                  </td>
+                  <td className="px-4 py-3 text-text-muted">
+                    {formatSize(item.file_size)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={item.processing_status} />
+                      {item.processing_status === "failed" && (
+                        <button
+                          onClick={e => { e.stopPropagation(); handleRetry(item.id); }}
+                          disabled={retryingId === item.id}
+                          className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {retryingId === item.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3" />
+                          )}
+                          重炼
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-text-muted">
+                    {formatDate(item.created_at)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={e => { e.stopPropagation(); handlePin(item.id); }}
+                        disabled={pinningId === item.id}
+                        className="p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-bg-secondary transition-all"
+                        title={item.is_pinned ? "取消加持" : "加持置顶"}
+                      >
+                        <Pin className={`w-4 h-4 ${item.is_pinned ? "text-jade fill-jade" : "text-text-muted"}`} />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
+                        disabled={deletingId === item.id}
+                        className="p-1.5 rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-danger transition-all"
+                        title="归入归墟"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {!loading && !error && data && data.items.length > 0 && viewMode === "grid" && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {data.items.map(item => (
+            <Card
+              key={item.id}
+              onClick={() => navigate(`/contents/${item.id}`)}
+              className="group relative p-4 cursor-pointer hover:border-jade/30 transition-all"
+            >
+              {item.is_pinned && (
+                <Pin className="absolute top-2 left-2 w-3.5 h-3.5 text-jade fill-jade" />
+              )}
+              <div className="flex items-start justify-between mb-3">
+                <div className="p-2 rounded-lg bg-bg-secondary group-hover:bg-accent-soft transition-colors">
+                  {getTypeIcon(item.content_type)}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={e => { e.stopPropagation(); handlePin(item.id); }}
+                    disabled={pinningId === item.id}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-bg-secondary transition-all"
+                    title={item.is_pinned ? "取消加持" : "加持置顶"}
+                  >
+                    <Pin className={`w-4 h-4 ${item.is_pinned ? "text-jade fill-jade" : "text-text-muted"}`} />
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
+                    disabled={deletingId === item.id}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded text-text-muted hover:text-danger transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <h3 className="text-sm font-medium text-text-primary truncate mb-1">
+                {item.title}
+              </h3>
+              <p className="text-xs text-text-muted">
+                {formatSize(item.file_size)} · {formatDate(item.created_at)}
+              </p>
+              <div className="mt-2">
+                <StatusBadge status={item.processing_status} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-8">
+          <Button 
+            variant="secondary"
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page <= 1}
+          >
+            上卷
+          </Button>
+          <span className="text-sm text-text-secondary px-2 tabular-nums">
+            第 {page} / {totalPages} 卷
+          </span>
+          <Button 
+            variant="secondary"
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+          >
+            下卷
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    queued: "bg-bg-secondary text-text-secondary",
+    pending: "bg-amber-50 text-amber-600",
+    processing: "bg-blue-50 text-blue-600 animate-pulse",
+    completed: "bg-accent-soft text-jade",
+    failed: "bg-danger-soft text-danger",
+  };
+  const label: Record<string, string> = {
+    queued: "待收录",
+    pending: "待炼化",
+    processing: "炼化中",
+    completed: "已入藏",
+    failed: "炼化失败",
+  };
+  return (
+    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${map[status] || map.pending}`}>
+      {label[status] || status}
+    </span>
+  );
+}

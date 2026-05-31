@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>墨渊 Moyuan - 开源多模态知识库</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #08080c;
+            --void: #0d1117;
+            --jade: #10b981;
+            --jade-dim: rgba(16, 185, 129, 0.12);
+            --jade-glow: rgba(16, 185, 129, 0.4);
+            --gold: #c9a84c;
+            --gold-dim: rgba(201, 168, 76, 0.15);
+            --mist: rgba(226, 232, 240, 0.06);
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #475569;
+            --border-subtle: rgba(148, 163, 184, 0.08);
+            --border-jade: rgba(16, 185, 129, 0.25);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Geist', 'Noto Serif SC', system-ui, -apple-system, sans-serif;
+            background-color: var(--ink);
+            color: var(--text-primary);
+            antialiased: -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            overflow-x: hidden;
+        }
+
+        ::selection {
+            background: var(--jade);
+            color: var(--ink);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--ink);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--jade-dim);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--jade-glow);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        /* ── Grid Background ── */
+        .grid-bg {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 40%, transparent 100%);
+        }
+
+        /* ── Particle Canvas ── */
+        #particles {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        /* ── Layout ── */
+        .content-layer {
+            position: relative;
+            z-index: 10;
+        }
+
+        /* ── Navigation ── */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid var(--border-subtle);
+            background: rgba(8, 8, 12, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        nav .inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo-mark {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--jade) 0%, #059669 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Noto Serif SC', serif;
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--ink);
+            box-shadow: 0 0 20px var(--jade-glow);
+            position: relative;
+        }
+
+        .logo-icon::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 12px;
+            border: 1px solid var(--jade);
+            opacity: 0.3;
+        }
+
+        .logo-text {
+            font-weight: 600;
+            font-size: 1.1rem;
+            letter-spacing: 0.02em;
+        }
+
+        .logo-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: 'Geist Mono', monospace;
+            letter-spacing: 0.08em;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 400;
+            transition: color 0.2s ease;
+            position: relative;
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 1px;
+            background: var(--jade);
+            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-links a:hover {
+            color: var(--jade);
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .nav-cta {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .cnb-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.8rem;
+            font-family: 'Geist Mono', monospace;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .cnb-link:hover {
+            color: var(--jade);
+        }
+
+        .btn-primary {
+            background: var(--jade);
+            color: var(--ink);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            padding: 0.5rem 1.25rem;
+            border-radius: 8px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary:hover {
+            background: #34d399;
+            box-shadow: 0 0 24px var(--jade-glow);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-ghost {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            padding: 0.5rem 1.25rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .btn-ghost:hover {
+            border-color: var(--jade);
+            color: var(--jade);
+            background: var(--jade-dim);
+        }
+
+        /* ── Hero ── */
+        .hero {
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            padding: 6rem 2rem 4rem;
+            position: relative;
+        }
+
+        .hero-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .hero-eyebrow {
+            font-family: 'Geist Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--jade);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            opacity: 0;
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
+        }
+
+        .hero-eyebrow::before {
+            content: '';
+            width: 2rem;
+            height: 1px;
+            background: var(--jade);
+        }
+
+        .hero-title {
+            font-family: 'Noto Serif SC', serif;
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 700;
+            line-height: 1.15;
+            letter-spacing: -0.02em;
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+        }
+
+        .hero-title .accent {
+            color: var(--jade);
+            position: relative;
+        }
+
+        .hero-title .accent::after {
+            content: '';
+            position: absolute;
+            bottom: 2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--jade), transparent);
+            opacity: 0.5;
+        }
+
+        .hero-sub {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            line-height: 1.75;
+            max-width: 52ch;
+            margin-bottom: 2.5rem;
+            font-weight: 300;
+            opacity: 0;
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.35s forwards;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            opacity: 0;
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards;
+        }
+
+        .hero-visual {
+            position: relative;
+            opacity: 0;
+            animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards;
+        }
+
+        .hero-img-frame {
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid var(--border-jade);
+            box-shadow: 0 0 60px rgba(16, 185, 129, 0.08), 0 25px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .hero-img-frame::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            border: 1px solid var(--jade);
+            opacity: 0.2;
+            pointer-events: none;
+        }
+
+        .hero-img-frame img {
+            width: 100%;
+            height: auto;
+            display: block;
+            filter: saturate(0.85) brightness(0.9);
+        }
+
+        /* Hero decoration */
+        .hero-deco {
+            position: absolute;
+            pointer-events: none;
+        }
+
+        .hero-deco-1 {
+            top: -30px;
+            right: -30px;
+            width: 120px;
+            height: 120px;
+            opacity: 0.06;
+        }
+
+        .hero-deco-2 {
+            bottom: -20px;
+            left: -20px;
+            width: 80px;
+            height: 80px;
+            opacity: 0.05;
+        }
+
+        /* ── Section Shared ── */
+        section {
+            padding: 6rem 2rem;
+            position: relative;
+        }
+
+        .section-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-label {
+            font-family: 'Geist Mono', monospace;
+            font-size: 0.65rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--jade);
+            margin-bottom: 1rem;
+            display: block;
+            opacity: 0.8;
+        }
+
+        .section-title {
+            font-family: 'Noto Serif SC', serif;
+            font-size: clamp(2rem, 4vw, 2.75rem);
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 1rem;
+        }
+
+        .section-sub {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            max-width: 52ch;
+            margin: 0 auto;
+            line-height: 1.7;
+            font-weight: 300;
+        }
+
+        /* ── Features ── */
+        .features {
+            background: linear-gradient(180deg, transparent, rgba(13, 17, 23, 0.8), transparent);
+        }
+
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 1rem;
+        }
+
+        .feature-card {
+            background: rgba(13, 17, 23, 0.6);
+            border: 1px solid var(--border-subtle);
+            border-radius: 14px;
+            padding: 2rem;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 14px;
+            border: 1px solid transparent;
+            transition: border-color 0.3s;
+            pointer-events: none;
+        }
+
+        .feature-card:hover {
+            border-color: var(--border-jade);
+            background: rgba(16, 185, 129, 0.04);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(16, 185, 129, 0.06);
+        }
+
+        .feature-card:hover::before {
+            border-color: var(--jade);
+        }
+
+        .feature-card.col-span-3 { grid-column: span 3; }
+        .feature-card.col-span-2 { grid-column: span 2; }
+        .feature-card.col-span-1 { grid-column: span 1; }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.25rem;
+            font-size: 1.4rem;
+        }
+
+        .feature-icon.jade { background: var(--jade-dim); color: var(--jade); }
+        .feature-icon.gold { background: var(--gold-dim); color: var(--gold); }
+
+        .feature-title {
+            font-family: 'Noto Serif SC', serif;
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+            color: var(--text-primary);
+        }
+
+        .feature-desc {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            font-weight: 300;
+        }
+
+        .feature-card.jade-accent {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(5, 150, 105, 0.04));
+            border-color: var(--border-jade);
+        }
+
+        .feature-card.jade-accent .feature-title {
+            color: var(--jade);
+        }
+
+        .feature-card.jade-accent .feature-icon {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--jade);
+        }
+
+        /* ── How it works ── */
+        .how-it-works .timeline {
+            max-width: 640px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 23px;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: linear-gradient(to bottom, transparent, var(--jade-dim), var(--jade), var(--jade-dim), transparent);
+        }
+
+        .timeline-step {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        .timeline-step:last-child { margin-bottom: 0; }
+
+        .step-number {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: var(--jade);
+            color: var(--ink);
+            font-weight: 700;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+            box-shadow: 0 0 20px var(--jade-glow);
+        }
+
+        .step-content {
+            padding-top: 0.5rem;
+            flex: 1;
+        }
+
+        .step-title {
+            font-family: 'Noto Serif SC', serif;
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-desc {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            font-weight: 300;
+        }
+
+        /* ── Open Source ── */
+        .open-source {
+            text-align: center;
+            background: linear-gradient(180deg, transparent, rgba(13, 17, 23, 0.5), transparent);
+        }
+
+        .opensource-icon {
+            width: 72px;
+            height: 72px;
+            border-radius: 18px;
+            background: rgba(13, 17, 23, 0.8);
+            border: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 2rem;
+            font-size: 1.8rem;
+            color: var(--jade);
+        }
+
+        .opensource-stats {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-top: 2.5rem;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: 'Geist Mono', monospace;
+        }
+
+        .stat-dot {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            opacity: 0.4;
+        }
+
+        /* ── CTA ── */
+        .cta-section {
+            text-align: center;
+            background: linear-gradient(to bottom, rgba(16, 185, 129, 0.03), transparent);
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .cta-section .section-title {
+            font-size: clamp(1.8rem, 3.5vw, 2.5rem);
+        }
+
+        /* ── Footer ── */
+        footer {
+            border-top: 1px solid var(--border-subtle);
+            padding: 3rem 2rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        .footer-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .footer-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .footer-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.8rem;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--jade);
+        }
+
+        .footer-copy {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: 'Geist Mono', monospace;
+        }
+
+        /* ── Animations ── */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+        }
+
+        .reveal {
+            opacity: 0;
+            transform: translateY(24px);
+            transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ── Bagua SVG Decoration ── */
+        .bagua-decoration {
+            position: absolute;
+            pointer-events: none;
+            opacity: 0.04;
+        }
+
+        /* ── Binary stream decoration ── */
+        .binary-stream {
+            position: absolute;
+            font-family: 'Geist Mono', monospace;
+            font-size: 0.6rem;
+            color: var(--jade);
+            writing-mode: vertical-rl;
+            opacity: 0.08;
+            letter-spacing: 0.1em;
+            pointer-events: none;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 900px) {
+            .hero-inner {
+                grid-template-columns: 1fr;
+                gap: 3rem;
+            }
+            .hero-visual {
+                order: -1;
+            }
+            .bento-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .feature-card.col-span-3,
+            .feature-card.col-span-2,
+            .feature-card.col-span-1 {
+                grid-column: span 2;
+            }
+            .nav-links {
+                display: none;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .bento-grid {
+                grid-template-columns: 1fr;
+            }
+            .feature-card.col-span-3,
+            .feature-card.col-span-2,
+            .feature-card.col-span-1 {
+                grid-column: span 1;
+            }
+            section {
+                padding: 4rem 1.25rem;
+            }
+            .hero {
+                padding: 5rem 1.25rem 3rem;
+            }
+            .hero-title {
+                font-size: 2.2rem;
+            }
+            .footer-links {
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Background -->
+    <div class="grid-bg"></div>
+    <canvas id="particles"></canvas>
+
+    <div class="content-layer">
+
+        <!-- Navigation -->
+        <nav>
+            <div class="inner">
+                <a href="/" class="logo-mark">
+                    <div class="logo-icon">墨</div>
+                    <div>
+                        <div class="logo-text">墨渊</div>
+                        <div class="logo-sub">Moyuan</div>
+                    </div>
+                </a>
+                <div class="nav-links">
+                    <a href="#features">功能</a>
+                    <a href="#how-it-works">原理</a>
+                    <a href="#open-source">开源</a>
+                    <a href="#about">关于</a>
+                </div>
+                <div class="nav-cta">
+                    <a href="https://cnb.cool/yiliu/moyuan" class="cnb-link">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                        CNB
+                    </a>
+                    <a href="#" class="btn-primary">开始使用</a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Hero -->
+        <section class="hero">
+            <div class="hero-inner">
+                <div class="hero-left">
+                    <div class="hero-eyebrow">开源多模态知识库</div>
+                    <h1 class="hero-title">
+                        您的个人<br>
+                        <span class="accent">知识管理中心</span>
+                    </h1>
+                    <p class="hero-sub">
+                        墨渊统一存储、智能检索、高效管理文本、图片、视频等知识内容。
+                        二进制01与天地乾坤同源，万物信息皆为道。
+                    </p>
+                    <div class="hero-actions">
+                        <a href="#" class="btn-primary">免费开始</a>
+                        <a href="https://cnb.cool/yiliu/moyuan" class="btn-ghost">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                            CNB 星标
+                        </a>
+                    </div>
+                </div>
+                <div class="hero-visual">
+                    <div class="hero-img-frame">
+                        <img src="https://picsum.photos/seed/moyuan-dashboard/800/600" alt="墨渊知识库界面截图" loading="eager">
+                    </div>
+                    <!-- Bagua decoration -->
+                    <svg class="hero-deco hero-deco-1" viewBox="0 0 100 100" fill="none">
+                        <circle cx="50" cy="50" r="45" stroke="rgba(16,185,129,0.6)" stroke-width="1"/>
+                        <circle cx="50" cy="50" r="30" stroke="rgba(16,185,129,0.4)" stroke-width="0.5"/>
+                        <line x1="50" y1="5" x2="50" y2="95" stroke="rgba(16,185,129,0.3)" stroke-width="0.5"/>
+                        <line x1="5" y1="50" x2="95" y2="50" stroke="rgba(16,185,129,0.3)" stroke-width="0.5"/>
+                        <line x1="15" y1="15" x2="85" y2="85" stroke="rgba(16,185,129,0.2)" stroke-width="0.5"/>
+                        <line x1="85" y1="15" x2="15" y2="85" stroke="rgba(16,185,129,0.2)" stroke-width="0.5"/>
+                    </svg>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features -->
+        <section id="features" class="features">
+            <div class="section-inner">
+                <div class="section-header reveal">
+                    <span class="section-label">核心功能</span>
+                    <h2 class="section-title">道法归一，万象归藏</h2>
+                    <p class="section-sub">五蕴皆空，诸相非相。墨渊将您的知识化为一气，归藏于道。</p>
+                </div>
+                <div class="bento-grid">
+                    <div class="feature-card col-span-3 reveal">
+                        <div class="feature-icon jade">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                        </div>
+                        <h3 class="feature-title">多模态支持</h3>
+                        <p class="feature-desc">文本、图片、音频、视频，统一存储。自动识别格式，智能分类，如气机归经，各归其位。</p>
+                    </div>
+                    <div class="feature-card col-span-2 reveal">
+                        <div class="feature-icon jade">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        </div>
+                        <h3 class="feature-title">智能检索</h3>
+                        <p class="feature-desc">以意寻物，即问即答。AI 语义搜索，如神识遍照。</p>
+                    </div>
+                    <div class="feature-card col-span-1 jade-accent reveal">
+                        <div class="feature-icon" style="font-size:1.6rem; margin-bottom:1rem;">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                        </div>
+                        <h3 class="feature-title" style="font-size:1rem;">毫秒响应</h3>
+                        <p class="feature-desc" style="font-size:0.8rem;">气机一动，周天运转。零等待。</p>
+                    </div>
+                    <div class="feature-card col-span-2 reveal">
+                        <div class="feature-icon gold">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
+                        </div>
+                        <h3 class="feature-title">快速部署</h3>
+                        <p class="feature-desc">本地或云端，Docker 一键起动。道在咫尺。</p>
+                    </div>
+                    <div class="feature-card col-span-2 reveal">
+                        <div class="feature-icon jade">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                        </div>
+                        <h3 class="feature-title">安全可靠</h3>
+                        <p class="feature-desc">数据本地存储，无云端追踪。隐私如道，道法不外传。</p>
+                    </div>
+                    <div class="feature-card col-span-2 reveal">
+                        <div class="feature-icon gold">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                        </div>
+                        <h3 class="feature-title">开源免费</h3>
+                        <p class="feature-desc">MIT 协议，无隐藏费用。众妙之门，玄之又玄。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- How it works -->
+        <section id="how-it-works" class="how-it-works">
+            <div class="section-inner">
+                <div class="section-header reveal">
+                    <span class="section-label">工作原理</span>
+                    <h2 class="section-title">三步入道</h2>
+                    <p class="section-sub">道生一、一生二、二生三、三生万物。简单三步，即可驾驭知识之道。</p>
+                </div>
+                <div class="timeline">
+                    <div class="timeline-step reveal">
+                        <div class="step-number">一</div>
+                        <div class="step-content">
+                            <h3 class="step-title">部署道场</h3>
+                            <p class="step-desc">克隆项目，本地或云端部署。Docker 一键起动，数分钟完成，如开山立观。</p>
+                        </div>
+                    </div>
+                    <div class="timeline-step reveal">
+                        <div class="step-number">二</div>
+                        <div class="step-content">
+                            <h3 class="step-title">汇入真元</h3>
+                            <p class="step-desc">上传文本、图片、音频、视频，如采集天地灵气。自动识别，分类存储。</p>
+                        </div>
+                    </div>
+                    <div class="timeline-step reveal">
+                        <div class="step-number">三</div>
+                        <div class="step-content">
+                            <h3 class="step-title">神识检索</h3>
+                            <p class="step-desc">自然语言提问，AI 即时回应。气机一动，真相即现。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Open Source -->
+        <section id="open-source" class="open-source">
+            <div class="section-inner">
+                <div class="opensource-icon reveal">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                </div>
+                <h2 class="section-title reveal">开源免费，道法永传</h2>
+                <p class="section-sub reveal" style="margin: 0 auto;">
+                    墨渊遵循 MIT 协议，完全开源。您可自由使用、修改、分发。道法不藏于私，天下共修。
+                </p>
+                <div class="opensource-stats reveal">
+                    <div class="stat-item">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                        <span style="color: var(--gold);">1.2k CNB Stars</span>
+                    </div>
+                    <div class="stat-dot"></div>
+                    <div class="stat-item">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span>500+ 下载</span>
+                    </div>
+                    <div class="stat-dot"></div>
+                    <div class="stat-item">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                        <span>MIT 协议</span>
+                    </div>
+                </div>
+                <div style="display:flex; gap:1rem; justify-content:center; margin-top:2.5rem; flex-wrap:wrap;" class="reveal">
+                    <a href="https://cnb.cool/yiliu/moyuan" class="btn-primary" style="padding: 0.75rem 2rem; font-size:1rem;">查看 CNB</a>
+                    <a href="#" class="btn-ghost" style="padding: 0.75rem 2rem; font-size:1rem;">阅读文档</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA -->
+        <section class="cta-section">
+            <div class="section-inner">
+                <h2 class="section-title reveal">加入修行，共参大道</h2>
+                <p class="section-sub reveal" style="margin: 0 auto;">开源之路，欢迎贡献代码、提出建议、报告问题。众智汇溪，道法日新。</p>
+                <div style="display:flex; gap:1rem; justify-content:center; margin-top:2rem; flex-wrap:wrap;" class="reveal">
+                    <a href="https://cnb.cool/yiliu/moyuan" class="btn-primary" style="padding:0.75rem 2rem; font-size:1rem;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                        CNB 仓库
+                    </a>
+                    <a href="#" class="btn-ghost" style="padding:0.75rem 2rem; font-size:1rem;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                        讨论区
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer id="about">
+            <div class="footer-inner">
+                <div class="footer-brand">
+                    <div class="logo-icon" style="width:30px;height:30px;font-size:0.8rem;">墨</div>
+                    <span style="font-weight:600; font-size:0.9rem;">墨渊 Moyuan</span>
+                </div>
+                <div class="footer-links">
+                    <a href="#features">功能</a>
+                    <a href="#how-it-works">原理</a>
+                    <a href="#open-source">开源</a>
+                    <a href="https://cnb.cool/yiliu/moyuan">CNB</a>
+                </div>
+                <div class="footer-copy">MIT License &copy; 2024 Moyuan. 道法自然.</div>
+            </div>
+        </footer>
+
+    </div>
+
+    <script>
+        // ── Particle System ──
+        const canvas = document.getElementById('particles');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 1.5 + 0.3;
+                this.speedX = (Math.random() - 0.5) * 0.3;
+                this.speedY = (Math.random() - 0.5) * 0.3;
+                this.opacity = Math.random() * 0.5 + 0.1;
+                this.fadeSpeed = Math.random() * 0.005 + 0.002;
+                this.growing = Math.random() > 0.5;
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                if (this.growing) {
+                    this.opacity += this.fadeSpeed;
+                    if (this.opacity >= 0.6) this.growing = false;
+                } else {
+                    this.opacity -= this.fadeSpeed;
+                    if (this.opacity <= 0.05) this.growing = true;
+                }
+                if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+                    this.reset();
+                }
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(16, 185, 129, ${this.opacity})`;
+                ctx.fill();
+            }
+        }
+
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        if (!prefersReducedMotion) {
+            for (let i = 0; i < 60; i++) {
+                particles.push(new Particle());
+            }
+            function animateParticles() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                particles.forEach(p => { p.update(); p.draw(); });
+                requestAnimationFrame(animateParticles);
+            }
+            animateParticles();
+        }
+
+        // ── Scroll Reveal ──
+        const revealEls = document.querySelectorAll('.reveal');
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+        revealEls.forEach(el => observer.observe(el));
+    </script>
+</body>
+</html>
