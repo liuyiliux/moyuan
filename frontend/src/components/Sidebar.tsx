@@ -14,9 +14,7 @@ import {
   Settings,
   Sun,
   Moon,
-  ChevronLeft,
 } from "lucide-react";
-import { useState } from "react";
 import { useTheme } from "../lib/theme";
 
 function TaijiDecor() {
@@ -57,7 +55,7 @@ interface SidebarLinkProps {
 function SidebarLink({ to, icon, label, tooltip }: SidebarLinkProps) {
   const location = useLocation();
   const isActive = location.pathname === to || (to === "/contents" && location.pathname === "/");
-  
+
   return (
     <Link
       to={to}
@@ -72,14 +70,13 @@ function SidebarLink({ to, icon, label, tooltip }: SidebarLinkProps) {
 
 export default function Sidebar() {
   const { resolved, setTheme } = useTheme();
-  const [expanded, setExpanded] = useState(false);
 
   const toggleTheme = () => {
     setTheme(resolved === "dark" ? "light" : "dark");
   };
 
   return (
-    <aside className={`dao-sidebar dao-bagua-border ${expanded ? "expanded" : ""}`}>
+    <aside className="dao-sidebar dao-bagua-border">
       <div className="dao-sidebar-content">
         {/* 太极八卦装饰 */}
         <div className="flex justify-center mb-4">
@@ -98,45 +95,45 @@ export default function Sidebar() {
         {/* 道藏模块 - 乾位 */}
         <div className="dao-sidebar-section">
           <span className="dao-sidebar-section-title">道藏</span>
-          <SidebarLink 
-            to="/search" 
-            icon={<Search className="w-4 h-4" />} 
+          <SidebarLink
+            to="/search"
+            icon={<Search className="w-4 h-4" />}
             label="问玄"
             tooltip="搜索"
           />
-          <SidebarLink 
-            to="/contents" 
-            icon={<BookOpen className="w-4 h-4" />} 
+          <SidebarLink
+            to="/contents"
+            icon={<BookOpen className="w-4 h-4" />}
             label="道藏"
             tooltip="知识库"
           />
-          <SidebarLink 
-            to="/notes" 
-            icon={<FileText className="w-4 h-4" />} 
+          <SidebarLink
+            to="/notes"
+            icon={<FileText className="w-4 h-4" />}
             label="墨宝"
             tooltip="笔记"
           />
-          <SidebarLink 
-            to="/tags" 
-            icon={<Tags className="w-4 h-4" />} 
+          <SidebarLink
+            to="/tags"
+            icon={<Tags className="w-4 h-4" />}
             label="符印"
             tooltip="标签"
           />
-          <SidebarLink 
-            to="/categories" 
-            icon={<FolderTree className="w-4 h-4" />} 
+          <SidebarLink
+            to="/categories"
+            icon={<FolderTree className="w-4 h-4" />}
             label="坤舆"
             tooltip="分类"
           />
-          <SidebarLink 
-            to="/favorites" 
-            icon={<Bookmark className="w-4 h-4" />} 
+          <SidebarLink
+            to="/favorites"
+            icon={<Bookmark className="w-4 h-4" />}
             label="珍藏"
             tooltip="收藏"
           />
-          <SidebarLink 
-            to="/collections" 
-            icon={<FolderOpen className="w-4 h-4" />} 
+          <SidebarLink
+            to="/collections"
+            icon={<FolderOpen className="w-4 h-4" />}
             label="藏经"
             tooltip="合集"
           />
@@ -145,21 +142,21 @@ export default function Sidebar() {
         {/* 丹室模块 - 坤位 */}
         <div className="dao-sidebar-section">
           <span className="dao-sidebar-section-title">丹室</span>
-          <SidebarLink 
-            to="/brains" 
-            icon={<Brain className="w-4 h-4" />} 
+          <SidebarLink
+            to="/brains"
+            icon={<Brain className="w-4 h-4" />}
             label="丹室"
             tooltip="工作区"
           />
-          <SidebarLink 
-            to="/analytics" 
-            icon={<BarChart3 className="w-4 h-4" />} 
+          <SidebarLink
+            to="/analytics"
+            icon={<BarChart3 className="w-4 h-4" />}
             label="卦象"
             tooltip="统计"
           />
-          <SidebarLink 
-            to="/backup" 
-            icon={<HardDrive className="w-4 h-4" />} 
+          <SidebarLink
+            to="/backup"
+            icon={<HardDrive className="w-4 h-4" />}
             label="封魔"
             tooltip="备份"
           />
@@ -170,17 +167,17 @@ export default function Sidebar() {
         {/* 玄台模块 - 中位 */}
         <div className="dao-sidebar-section">
           <span className="dao-sidebar-section-title">玄台</span>
-          <SidebarLink 
-            to="/settings" 
-            icon={<Settings className="w-4 h-4" />} 
+          <SidebarLink
+            to="/settings"
+            icon={<Settings className="w-4 h-4" />}
             label="玄台"
             tooltip="设置"
           />
-          <SidebarLink 
-            to="/recycle" 
-            icon={<Trash2 className="w-4 h-4" />} 
+          <SidebarLink
+            to="/recycle"
+            icon={<Trash2 className="w-4 h-4" />}
             label="归墟"
-            tooltip="回收站"
+            tooltip="归墟"
           />
         </div>
 
@@ -195,20 +192,6 @@ export default function Sidebar() {
           </span>
           <span className="dao-sidebar-link-text">
             {resolved === "dark" ? "阳间" : "道"}
-          </span>
-        </button>
-
-        {/* 侧边栏展开/收起 */}
-        <button
-          onClick={() => setExpanded(v => !v)}
-          className="dao-sidebar-link"
-          title={expanded ? "收起导航" : "展开导航"}
-        >
-          <span className="dao-sidebar-link-icon">
-            <ChevronLeft className={`w-4 h-4 transition-transform duration-300 ${expanded ? "rotate-0" : "rotate-180"}`} />
-          </span>
-          <span className="dao-sidebar-link-text">
-            {expanded ? "收起" : "展开"}
           </span>
         </button>
       </div>

@@ -11,6 +11,8 @@ const FUNCTION_LABELS: Record<string, string> = {
   summarize: "摘要生成",
   embedding: "嵌入向量",
   quiz: "题库生成",
+  ocr: "图文识别",
+  transcribe: "语音转写",
 };
 
 export default function SettingsPage() {

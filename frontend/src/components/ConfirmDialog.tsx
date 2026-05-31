@@ -26,49 +26,51 @@ export default function ConfirmDialog({
   if (!open) return null;
 
   const iconBg = variant === "danger"
-    ? "bg-red-500/10"
-    : "bg-[var(--gold)]/10";
+    ? "bg-red-500/15"
+    : "bg-[var(--gold)]/15";
   const iconColor = variant === "danger"
     ? "text-red-500"
     : "text-[var(--gold)]";
   const Icon = variant === "danger" ? AlertCircle : AlertTriangle;
 
   const confirmBg = variant === "danger"
-    ? "bg-red-500 hover:bg-red-600 text-white shadow-[0_0_12px_rgba(239,68,68,0.3)]"
-    : "bg-[var(--gold)] hover:bg-[var(--gold)]/90 text-[var(--ink)] shadow-[0_0_12px_rgba(201,168,76,0.3)]";
+    ? "bg-red-500 hover:bg-red-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)]"
+    : "bg-[var(--gold)] hover:bg-[var(--gold)]/90 text-[var(--ink)] shadow-[0_0_20px_rgba(201,168,76,0.4)]";
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      className="fixed top-0 left-0 right-0 bottom-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 min-h-screen"
       onClick={onCancel}
+      style={{ isolation: "isolate" }}
     >
       <div
-        className="bg-[var(--bg-card)] rounded-xl border border-[var(--border-subtle)] shadow-xl w-full max-w-md overflow-hidden dao-bagua-corner"
+        className="relative bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)] shadow-2xl w-full max-w-md overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className={`w-10 h-10 rounded-full ${iconBg} flex items-center justify-center`}>
-              <Icon className={`w-5 h-5 ${iconColor}`} />
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[var(--jade)] to-transparent opacity-60"></div>
+        <div className="p-7">
+          <div className="flex items-center gap-4 mb-5">
+            <div className={`w-12 h-12 rounded-xl ${iconBg} flex items-center justify-center shadow-inner`}>
+              <Icon className={`w-6 h-6 ${iconColor}`} />
             </div>
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h2>
+            <h2 className="text-xl font-semibold text-[var(--text-primary)] tracking-wide">{title}</h2>
           </div>
-          <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{message}</p>
+          <p className="text-base text-[var(--text-secondary)] leading-relaxed">{message}</p>
         </div>
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/50">
+        <div className="flex justify-end gap-3 px-7 py-5 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/70 backdrop-blur-sm">
           <button
             onClick={onCancel}
             disabled={loading}
-            className="dao-btn-ghost text-sm"
+            className="dao-btn-ghost text-sm px-5"
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
             disabled={loading}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all ${confirmBg} disabled:opacity-50`}
+            className={`inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium rounded-xl transition-all ${confirmBg} disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {confirmLabel}
           </button>
         </div>

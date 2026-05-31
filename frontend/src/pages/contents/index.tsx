@@ -2,11 +2,12 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { fileApi, contentApi, type FileListResponse } from "../../api/content";
 import UploadArea, { type UploadResult } from "../../components/UploadArea";
+import ConfirmDialog from "../../components/ConfirmDialog";
 import {
   UploadCloud, Search, Grid3x3, List,
   FileText, FileAudio, FileVideo, Image, FileSpreadsheet,
   File, Trash2, ExternalLink, RefreshCw, Loader2, Pin,
-  BookOpen,
+  BookOpen, CheckSquare, Square,
 } from "lucide-react";
 import { Card, Button } from "../../components";
 
@@ -65,6 +66,11 @@ export default function ContentsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
+  
+  // 批量选择状态
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   const PAGE_SIZE = 20;
 
@@ -83,6 +89,7 @@ export default function ContentsPage() {
         return 0;
       });
       setData({ ...res, items: sorted });
+      setSelectedIds([]);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -94,6 +101,25 @@ export default function ContentsPage() {
     load();
   }, [typeFilter, page]);
 
+  // 切换单个选择
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => 
+      prev.includes(id) 
+        ? prev.filter(itemId => itemId !== id)
+        : [...prev, id]
+    );
+  }
+
+  // 全选/取消全选
+  function toggleSelectAll() {
+    if (!data?.items) return;
+    if (selectedIds.length === data.items.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(data.items.map(item => item.id));
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!confirm("确定要将此典籍归入归墟吗？")) return;
     setDeletingId(id);
@@ -104,6 +130,20 @@ export default function ContentsPage() {
       alert(`归入归墟失败: ${(err as Error).message}`);
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleBatchDelete() {
+    if (selectedIds.length === 0) return;
+    setBatchDeleting(true);
+    try {
+      await fileApi.batch(selectedIds, "delete");
+      await load();
+      setShowBatchConfirm(false);
+    } catch (err) {
+      alert(`批量归入归墟失败: ${(err as Error).message}`);
+    } finally {
+      setBatchDeleting(false);
     }
   }
 
@@ -162,10 +202,23 @@ export default function ContentsPage() {
             收纳天地万象，传承千古智慧
           </p>
         </div>
-        <Button onClick={() => setShowUpload(v => !v)}>
-          <UploadCloud className="w-4 h-4" />
-          收录典籍
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* 批量删除按钮 */}
+          {selectedIds.length > 0 && (
+            <Button 
+              variant="danger" 
+              onClick={() => setShowBatchConfirm(true)}
+              className="flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              归入归墟 ({selectedIds.length})
+            </Button>
+          )}
+          <Button onClick={() => setShowUpload(v => !v)}>
+            <UploadCloud className="w-4 h-4" />
+            收录典籍
+          </Button>
+        </div>
       </div>
 
       {showUpload && (
@@ -263,6 +316,18 @@ export default function ContentsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-bg-secondary text-left text-xs text-text-muted uppercase tracking-[0.1em] font-medium">
+                <th className="px-4 py-3 w-12">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="flex items-center justify-center hover:text-jade transition-colors"
+                  >
+                    {selectedIds.length === data.items.length ? (
+                      <CheckSquare className="w-4 h-4" />
+                    ) : (
+                      <Square className="w-4 h-4" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-4 py-3">典籍</th>
                 <th className="px-4 py-3">品类</th>
                 <th className="px-4 py-3">容量</th>
@@ -275,9 +340,23 @@ export default function ContentsPage() {
               {data.items.map(item => (
                 <tr
                   key={item.id}
-                  className="group hover:bg-bg-secondary transition-colors cursor-pointer"
+                  className={`group hover:bg-bg-secondary transition-colors cursor-pointer ${
+                    selectedIds.includes(item.id) ? "bg-accent-soft/50" : ""
+                  }`}
                   onClick={() => navigate(`/contents/${item.id}`)}
                 >
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}
+                      className="flex items-center justify-center"
+                    >
+                      {selectedIds.includes(item.id) ? (
+                        <CheckSquare className="w-4 h-4 text-jade" />
+                      ) : (
+                        <Square className="w-4 h-4 text-text-muted" />
+                      )}
+                    </button>
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       {item.is_pinned && (
@@ -359,10 +438,23 @@ export default function ContentsPage() {
             <Card
               key={item.id}
               onClick={() => navigate(`/contents/${item.id}`)}
-              className="group relative p-4 cursor-pointer hover:border-jade/30 transition-all"
+              className={`group relative p-4 cursor-pointer hover:border-jade/30 transition-all ${
+                selectedIds.includes(item.id) ? "border-jade bg-accent-soft/30" : ""
+              }`}
             >
+              {/* 选择框 */}
+              <button
+                onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}
+                className="absolute top-3 left-3 z-10"
+              >
+                {selectedIds.includes(item.id) ? (
+                  <CheckSquare className="w-5 h-5 text-jade" />
+                ) : (
+                  <Square className="w-5 h-5 text-text-muted bg-bg-card/80" />
+                )}
+              </button>
               {item.is_pinned && (
-                <Pin className="absolute top-2 left-2 w-3.5 h-3.5 text-jade fill-jade" />
+                <Pin className="absolute top-3 left-10 w-3.5 h-3.5 text-jade fill-jade" />
               )}
               <div className="flex items-start justify-between mb-3">
                 <div className="p-2 rounded-lg bg-bg-secondary group-hover:bg-accent-soft transition-colors">
@@ -421,6 +513,19 @@ export default function ContentsPage() {
           </Button>
         </div>
       )}
+
+      {/* 批量删除确认对话框 */}
+      <ConfirmDialog
+        open={showBatchConfirm}
+        title="批量归入归墟"
+        message={`确定要将选中的 ${selectedIds.length} 部典籍归入归墟吗？此操作将一并清除相关向量记录，不可撤销。`}
+        confirmLabel="确认归入"
+        cancelLabel="取消"
+        variant="danger"
+        loading={batchDeleting}
+        onConfirm={handleBatchDelete}
+        onCancel={() => setShowBatchConfirm(false)}
+      />
     </div>
   );
 }

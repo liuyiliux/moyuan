@@ -42,6 +42,7 @@ class FileResponse(BaseModel):
     is_starred: bool
     is_pinned: bool
     is_deleted: bool
+    deleted_at: datetime | None = None
     brain_id: uuid.UUID | None
     extra_meta: dict | None
     created_at: datetime

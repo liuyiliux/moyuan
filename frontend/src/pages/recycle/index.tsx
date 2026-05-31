@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { fileApi, type DeletedItem } from "../../api/content";
+import { recycleApi } from "../../api/recycle";
 import {
   Trash2, RotateCcw, Search,
   FileText, FileAudio, FileVideo, Image, FileSpreadsheet,
-  Globe, File, Loader2,
+  Globe, File, Loader2, CheckSquare, Square,
 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 
@@ -47,7 +48,11 @@ function formatFileSize(bytes: number | null | undefined): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("zh-CN", {
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) {
+    return "未知时间";
+  }
+  return date.toLocaleDateString("zh-CN", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -65,6 +70,12 @@ export default function RecyclePage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // 批量选择状态
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [batchActionType, setBatchActionType] = useState<"restore" | "permanent">("permanent");
+  const [batchLoading, setBatchLoading] = useState(false);
 
   // Confirm dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -84,6 +95,7 @@ export default function RecyclePage() {
       const res = await fileApi.getDeleted(page, PAGE_SIZE);
       setItems(res.items);
       setTotal(res.total);
+      setSelectedIds([]);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -106,6 +118,24 @@ export default function RecyclePage() {
     return true;
   });
 
+  // ── Selection ──
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev =>
+      prev.includes(id)
+        ? prev.filter(itemId => itemId !== id)
+        : [...prev, id]
+    );
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.length === filteredItems.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredItems.map(item => item.id));
+    }
+  }
+
   // ── Actions ──
 
   function handleRestoreClick(item: DeletedItem) {
@@ -125,15 +155,48 @@ export default function RecyclePage() {
       if (type === "restore") {
         await fileApi.restore(item.id);
       } else {
-        await fileApi.permanentDelete(item.id);
+        await recycleApi.permanentDelete(item.id);
       }
-      // Reload after action
       await load();
     } catch (err) {
       alert(`${type === "restore" ? "恢复" : "永久删除"}失败: ${(err as Error).message}`);
     } finally {
       setActionLoading(null);
       setConfirmDialog({ open: false, type: "restore", item: null });
+    }
+  }
+
+  // 批量恢复
+  async function handleBatchRestore() {
+    if (selectedIds.length === 0) return;
+    setBatchLoading(true);
+    try {
+      for (const id of selectedIds) {
+        await fileApi.restore(id);
+      }
+      await load();
+      setShowBatchConfirm(false);
+    } catch (err) {
+      alert(`批量恢复失败: ${(err as Error).message}`);
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  // 批量永久删除
+  async function handleBatchPermanentDelete() {
+    if (selectedIds.length === 0) return;
+    setBatchLoading(true);
+    try {
+      for (const id of selectedIds) {
+        await recycleApi.permanentDelete(id);
+      }
+      await load();
+      setShowBatchConfirm(false);
+    } catch (err) {
+      alert(`批量永久删除失败: ${(err as Error).message}`);
+    } finally {
+      setBatchLoading(false);
     }
   }
 
@@ -144,14 +207,35 @@ export default function RecyclePage() {
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-[var(--text-primary)] dark:text-[var(--text-primary)] flex items-center gap-3">
-          <Trash2 className="w-6 h-6 text-[var(--text-secondary)] dark:text-[var(--text-muted)]" />
-          回收站
-        </h1>
-        <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-2">
-          已删除的内容将在 30 天后自动清除
-        </p>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--text-primary)] dark:text-[var(--text-primary)] flex items-center gap-3">
+            <Trash2 className="w-6 h-6 text-[var(--text-secondary)] dark:text-[var(--text-muted)]" />
+            归墟
+          </h1>
+          <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-2">
+            已删除的内容将在 30 天后自动清除
+          </p>
+        </div>
+        {/* 批量操作按钮 */}
+        {selectedIds.length > 0 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setBatchActionType("restore"); setShowBatchConfirm(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--accent-text)] bg-[var(--accent-soft)] rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              批量恢复 ({selectedIds.length})
+            </button>
+            <button
+              onClick={() => { setBatchActionType("permanent"); setShowBatchConfirm(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--danger)] bg-[var(--danger-soft)] rounded-lg hover:bg-red-100 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              批量永久删除 ({selectedIds.length})
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Filters & Search */}
@@ -212,7 +296,7 @@ export default function RecyclePage() {
           <p className="text-[var(--text-muted)] dark:text-[var(--text-muted)]">
             {search || typeFilter
               ? "没有匹配的已删除内容"
-              : "回收站为空"}
+              : "归墟为空"}
           </p>
           {!search && !typeFilter && (
             <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-2">
@@ -229,9 +313,23 @@ export default function RecyclePage() {
             {filteredItems.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-secondary)] transition-colors"
+                className={`flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-secondary)] transition-colors ${
+                  selectedIds.includes(item.id) ? "bg-[var(--accent-soft)]/30" : ""
+                }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                {/* 选择框 */}
+                <button
+                  onClick={() => toggleSelect(item.id)}
+                  className="flex items-center justify-center mr-2"
+                >
+                  {selectedIds.includes(item.id) ? (
+                    <CheckSquare className="w-4 h-4 text-[var(--jade)]" />
+                  ) : (
+                    <Square className="w-4 h-4 text-[var(--text-muted)]" />
+                  )}
+                </button>
+
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   {getTypeIcon(item.content_type)}
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-[var(--text-primary)] dark:text-[var(--text-primary)] truncate max-w-md">
@@ -269,6 +367,24 @@ export default function RecyclePage() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* 全选行 */}
+          <div className="flex items-center justify-between px-4 py-2 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)]">
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--jade)] transition-colors"
+            >
+              {selectedIds.length === filteredItems.length ? (
+                <CheckSquare className="w-4 h-4" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
+              {selectedIds.length === filteredItems.length ? "取消全选" : "全选"}
+            </button>
+            <span className="text-xs text-[var(--text-muted)]">
+              已选择 {selectedIds.length} / {filteredItems.length} 项
+            </span>
           </div>
         </div>
       )}
@@ -316,6 +432,22 @@ export default function RecyclePage() {
           setConfirmDialog({ open: false, type: "restore", item: null })
         }
         loading={actionLoading !== null}
+      />
+
+      {/* 批量操作确认对话框 */}
+      <ConfirmDialog
+        open={showBatchConfirm}
+        title={batchActionType === "restore" ? "批量恢复内容" : "批量永久删除"}
+        message={
+          batchActionType === "restore"
+            ? `确定要恢复选中的 ${selectedIds.length} 项内容吗？`
+            : `确定要永久删除选中的 ${selectedIds.length} 项内容吗？此操作不可撤销。`
+        }
+        confirmLabel={batchActionType === "restore" ? "确认恢复" : "确认删除"}
+        variant={batchActionType === "restore" ? "warning" : "danger"}
+        loading={batchLoading}
+        onConfirm={batchActionType === "restore" ? handleBatchRestore : handleBatchPermanentDelete}
+        onCancel={() => setShowBatchConfirm(false)}
       />
     </div>
   );

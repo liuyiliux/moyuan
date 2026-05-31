@@ -161,6 +161,9 @@ export const fileApi = {
 
   /** 永久删除文件 */
   permanentDelete: (id: string) => api.delete<void>(`/files/${id}/permanent`),
+
+  /** 批量操作 */
+  batch: (ids: string[], action: string) => api.post<void>("/contents/batch", { ids, action }),
 };
 
 export const contentApi = {

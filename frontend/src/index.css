@@ -666,6 +666,9 @@ body::after {
   color: var(--text-secondary);
   text-decoration: none;
   transition: all var(--duration-fast);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .dao-sidebar-link:hover {

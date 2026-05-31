@@ -14,6 +14,12 @@ import { Wifi } from "lucide-react";
 
 const FUNCTION_KEYS = ["summarize", "embedding", "quiz"];
 
+const FUNCTION_LABELS: Record<string, string> = {
+  summarize: "摘要生成",
+  embedding: "嵌入向量",
+  quiz: "题库生成",
+};
+
 const PROVIDER_TYPES = [
   { value: "openai", label: "OpenAI 兼容" },
   { value: "tencent_ocr", label: "腾讯云 OCR" },
@@ -158,7 +164,7 @@ export function ProviderModal({ open, provider, onClose, onSaved }: Props) {
           <div className="space-y-2 mt-2">
             {FUNCTION_KEYS.map((fn) => (
               <div key={fn} className="flex items-center gap-3">
-                <Badge variant="default" className="w-20 justify-center">{fn}</Badge>
+                <Badge variant="default" className="w-20 justify-center">{FUNCTION_LABELS[fn]}</Badge>
                 <input
                   value={defaultModels[fn] || ""}
                   onChange={(e) =>
@@ -167,6 +173,9 @@ export function ProviderModal({ open, provider, onClose, onSaved }: Props) {
                   placeholder={fn === "summarize" ? "gpt-4o" : fn === "embedding" ? "text-embedding-3-small" : "gpt-4o"}
                   className="taste-input flex-1"
                 />
+                {fn === "embedding" && (
+                  <span className="text-xs text-[var(--text-muted)]">支持多模态</span>
+                )}
               </div>
             ))}
           </div>
