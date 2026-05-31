@@ -72,6 +72,15 @@ export default function ContentsDetail() {
   const [quizQuestions, setQuizQuestions] = useState<{ type: string; question: string; options?: string[]; answer?: string }[]>([]);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
 
+  // Chunks
+  const [contentTab, setContentTab] = useState<"text" | "chunks">("text");
+  const [chunks, setChunks] = useState<{
+    id: string; chunk_index: number; chunk_type: string; chunk_text: string | null;
+    embedding_type: string | null; page_number: number | null; time_start: number | null;
+    image_path: string | null; has_embedding: boolean;
+  }[]>([]);
+  const [loadingChunks, setLoadingChunks] = useState(false);
+
   // Annotations
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
@@ -151,6 +160,16 @@ export default function ContentsDetail() {
       setError((err as Error).message);
       setProcessing(false);
     }
+  }
+
+  async function loadChunks() {
+    if (!id) return;
+    setLoadingChunks(true);
+    try {
+      const res = await contentApi.getChunks(id);
+      setChunks(res.chunks);
+    } catch { /* ignore */ }
+    finally { setLoadingChunks(false); }
   }
 
   async function handleSaveText() {
@@ -493,7 +512,7 @@ export default function ContentsDetail() {
         <div className="bg-[var(--bg-primary)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-lg p-3">
           <p className="text-xs text-[var(--text-muted)] mb-1">嵌入状态</p>
           <p className="font-medium text-[var(--text-primary)] dark:text-[var(--text-primary)]">
-            {item.text_embedding ? "✅ 已生成" : "⏳ 未生成"}
+            {item.embedding ? "✅ 已生成" : "⏳ 未生成"}
           </p>
         </div>
         <div className="bg-[var(--bg-primary)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-lg p-3">
@@ -628,18 +647,31 @@ export default function ContentsDetail() {
         </div>
       )}
 
-      {/* Text content */}
+      {/* Text content / Chunks tabs */}
       <div className="bg-[var(--bg-card)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)]">提取内容</h2>
-          {!editing ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setContentTab("text")}
+              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${contentTab === "text" ? "bg-[var(--accent-soft)] text-[var(--accent-text)]" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"}`}
+            >
+              提取内容
+            </button>
+            <button
+              onClick={() => { setContentTab("chunks"); if (chunks.length === 0) loadChunks(); }}
+              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${contentTab === "chunks" ? "bg-[var(--accent-soft)] text-[var(--accent-text)]" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"}`}
+            >
+              分块预览
+            </button>
+          </div>
+          {contentTab === "text" && !editing ? (
             <button
               onClick={() => setEditing(true)}
               className="text-xs text-[var(--accent-text)] dark:text-[var(--accent-text)] hover:underline"
             >
               编辑
             </button>
-          ) : (
+          ) : contentTab === "text" && editing ? (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { setEditing(false); setEditText(item.text_content || ""); }}
@@ -655,47 +687,80 @@ export default function ContentsDetail() {
                 保存
               </button>
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="p-4">
-          {editing ? (
-            <textarea
-              value={editText}
-              onChange={e => setEditText(e.target.value)}
-              className="w-full h-64 p-3 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)] dark:text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-              placeholder="输入或编辑文本内容..."
-            />
-          ) : (
-            <div className="relative" id="content-text-area">
-              <AnnotationToolbar
-                containerSelector="#content-text-area"
-                onSave={async (data) => {
-                  if (!id) return;
-                  const ann = await annotationApi.create({ content_id: id, ...data });
-                  setAnnotations(prev => [...prev, ann]);
-                }}
+          {contentTab === "text" ? (
+            editing ? (
+              <textarea
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
+                className="w-full h-64 p-3 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)] dark:text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                placeholder="输入或编辑文本内容..."
               />
-              {/* 文本内容渲染（带批注高亮） */}
-              <div className="prose dark:prose-invert max-w-none">
-                {item.text_content ? (
-                  <div className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] font-sans leading-relaxed">
-                    {renderTextWithAnnotations(item.text_content, annotations)}
-                  </div>
-                ) : (
-                  <p className="text-sm text-[var(--text-muted)] italic">
-                    暂无文本内容。
-                    {item.processing_status !== "completed" && (
-                      <button
-                        onClick={handleReprocess}
-                        className="ml-2 text-[var(--accent-text)] dark:text-[var(--accent-text)] hover:underline"
-                      >
-                        触发处理
-                      </button>
-                    )}
-                  </p>
-                )}
+            ) : (
+              <div className="relative" id="content-text-area">
+                <AnnotationToolbar
+                  containerSelector="#content-text-area"
+                  onSave={async (data) => {
+                    if (!id) return;
+                    const ann = await annotationApi.create({ content_id: id, ...data });
+                    setAnnotations(prev => [...prev, ann]);
+                  }}
+                />
+                <div className="prose dark:prose-invert max-w-none">
+                  {item.text_content ? (
+                    <div className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] font-sans leading-relaxed">
+                      {renderTextWithAnnotations(item.text_content, annotations)}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-[var(--text-muted)] italic">
+                      暂无文本内容。
+                      {item.processing_status !== "completed" && (
+                        <button onClick={handleReprocess} className="ml-2 text-[var(--accent-text)] hover:underline">触发处理</button>
+                      )}
+                    </p>
+                  )}
+                </div>
               </div>
+            )
+          ) : (
+            <div>
+              {loadingChunks ? (
+                <div className="text-center py-8 text-[var(--text-muted)]">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />加载中...
+                </div>
+              ) : chunks.length === 0 ? (
+                <p className="text-sm text-[var(--text-muted)] italic text-center py-8">暂无分块数据</p>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-[var(--text-muted)] mb-3">共 {chunks.length} 个分块</p>
+                  {chunks.map((c) => (
+                    <div key={c.id} className="border border-[var(--border-subtle)] rounded-lg p-3 hover:border-[var(--accent)]/30 transition-colors">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-mono text-[var(--text-muted)]">#{c.chunk_index}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-muted)]">{c.chunk_type}</span>
+                        {c.page_number != null && (
+                          <span className="text-xs text-[var(--accent-text)]">第 {c.page_number} 页</span>
+                        )}
+                        {c.time_start != null && (
+                          <span className="text-xs text-purple-500">{Math.floor(c.time_start / 60)}:{String(Math.floor(c.time_start % 60)).padStart(2, "0")}</span>
+                        )}
+                        {c.has_embedding && (
+                          <span className="text-xs text-emerald-500">已向量化</span>
+                        )}
+                      </div>
+                      {c.chunk_text && (
+                        <p className="text-xs text-[var(--text-secondary)] line-clamp-3 leading-relaxed">{c.chunk_text.slice(0, 300)}</p>
+                      )}
+                      {c.image_path && (
+                        <p className="text-xs text-[var(--text-muted)] mt-1">图片: {c.image_path}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

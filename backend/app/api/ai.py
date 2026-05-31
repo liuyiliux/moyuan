@@ -120,7 +120,7 @@ async def get_related(
     if content is None:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    if content.text_embedding is None:
+    if content.embedding is None:
         return {"related": [], "content_id": content_id, "note": "No embedding available"}
 
     # 关系权重映射
@@ -131,15 +131,15 @@ async def get_related(
     }
 
     # Step 1: pgvector 余弦相似度 — 获取 Top-20 候选
-    vec_str = str(content.text_embedding)
+    vec_str = str(content.embedding)
     sql = text("""
         SELECT id, title, content_type,
-               1 - (text_embedding <=> :query_vec) AS similarity
+               1 - (embedding <=> :query_vec) AS similarity
         FROM contents
         WHERE is_deleted = false
           AND id != :exclude_id
-          AND text_embedding IS NOT NULL
-        ORDER BY text_embedding <=> :query_vec
+          AND embedding IS NOT NULL
+        ORDER BY embedding <=> :query_vec
         LIMIT :candidate_k
     """)
 

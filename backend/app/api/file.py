@@ -331,7 +331,7 @@ async def update_content(content_id: str, body: ContentUpdate, db: AsyncSession 
 
 @contents_router.post("/{content_id}/process", response_model=dict)
 async def trigger_process(content_id: str, db: AsyncSession = Depends(get_db)):
-    """触发内容处理（PDF解析、OCR、转写等）"""
+    """触发内容处理（解析、分块、嵌入）"""
     from app.services.process import ContentProcessService
 
     svc = ContentProcessService(db)
@@ -344,6 +344,36 @@ async def trigger_process(content_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Processing failed: {e}")
 
 
+@contents_router.post("/rechunk-all", response_model=dict)
+async def rechunk_all(db: AsyncSession = Depends(get_db)):
+    """批量重新分块所有内容"""
+    from sqlalchemy import select
+    from app.models.models import Content
+    from app.services.process import ContentProcessService
+
+    result = await db.execute(
+        select(Content.id).where(Content.is_deleted == False)
+    )
+    items = result.scalars().all()
+
+    svc = ContentProcessService(db)
+    success = 0
+    failed = 0
+    for content_id in items:
+        try:
+            await svc.process(content_id=str(content_id))
+            success += 1
+        except Exception:
+            failed += 1
+
+    return {
+        "status": "ok",
+        "total": len(items),
+        "success": success,
+        "failed": failed,
+    }
+
+
 @contents_router.get("/{content_id}/status", response_model=dict)
 async def get_process_status(content_id: str, db: AsyncSession = Depends(get_db)):
     """获取内容处理状态"""
@@ -354,6 +384,42 @@ async def get_process_status(content_id: str, db: AsyncSession = Depends(get_db)
         return await svc.get_status(content_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@contents_router.get("/{content_id}/chunks", response_model=dict)
+async def get_content_chunks(content_id: str, db: AsyncSession = Depends(get_db)):
+    """获取内容的所有分块"""
+    from sqlalchemy import select
+    from app.models.models import ContentChunk
+
+    result = await db.execute(
+        select(ContentChunk)
+        .where(ContentChunk.content_id == content_id)
+        .order_by(ContentChunk.chunk_index)
+    )
+    chunks = result.scalars().all()
+
+    return {
+        "content_id": content_id,
+        "total": len(chunks),
+        "chunks": [
+            {
+                "id": str(c.id),
+                "chunk_index": c.chunk_index,
+                "chunk_type": c.chunk_type,
+                "chunk_text": c.chunk_text,
+                "embedding_type": c.embedding_type,
+                "page_number": c.page_number,
+                "start_offset": c.start_offset,
+                "end_offset": c.end_offset,
+                "time_start": c.time_start,
+                "time_end": c.time_end,
+                "image_path": c.image_path,
+                "has_embedding": c.embedding is not None,
+            }
+            for c in chunks
+        ],
+    }
 
 
 class BatchActionRequest(BaseModel):

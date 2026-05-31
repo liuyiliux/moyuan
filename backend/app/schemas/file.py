@@ -38,6 +38,8 @@ class FileResponse(BaseModel):
     file_size: int | None
     file_md5: str | None
     text_content: str | None
+    embedding: list[float] | None = None
+    embedding_type: str | None = None
     processing_status: str
     is_starred: bool
     is_pinned: bool

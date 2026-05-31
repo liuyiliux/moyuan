@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Boolean, Integer, BigInteger, func, ForeignKey
+from sqlalchemy import String, Text, DateTime, Boolean, Integer, BigInteger, Float, func, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
@@ -27,9 +27,9 @@ class Content(Base):
     processing_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, processing, completed, failed
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Embedding - 使用 4096 维以支持更多模型
-    text_embedding = mapped_column(Vector(4096), nullable=True)  # 文本嵌入
-    image_embedding = mapped_column(Vector(768), nullable=True)   # CLIP 图像嵌入
+    # 多模态嵌入 - 使用统一的向量空间（Qwen3-VL-Embedding-8B 输出 4096 维）
+    embedding = mapped_column(Vector(4096), nullable=True)  # 统一嵌入（文本/图像/多模态）
+    embedding_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'text' 或 'image'
 
     # Metadata
     extra_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # 字幕切片、OCR 坐标等扩展数据
@@ -180,4 +180,31 @@ class Annotation(Base):
     start_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     annotation_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ContentChunk(Base):
+    """内容分块表：将长文档切分为语义连贯的小块，每块独立向量化"""
+    __tablename__ = "content_chunks"
+    __table_args__ = (
+        Index("ix_chunks_content_id", "content_id"),
+        Index("ix_chunks_embedding", "embedding", postgresql_using="ivfflat"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_type: Mapped[str] = mapped_column(String(10), nullable=False, default="text")  # text / image
+    chunk_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding = mapped_column(Vector(4096), nullable=True)
+    embedding_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'text' 或 'image'
+
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_start: Mapped[float | None] = mapped_column(Float, nullable=True)
+    time_end: Mapped[float | None] = mapped_column(Float, nullable=True)
+    image_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    extra_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

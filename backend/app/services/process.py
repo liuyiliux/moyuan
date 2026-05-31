@@ -1,62 +1,74 @@
 """内容处理管道 Service
 
-负责将上传的原始文件解析为可检索的文本内容：
-- PDF  →  PyMuPDF 提取文字
-- 图片  →  预留 CLIP 嵌入 + OCR（腾讯云 OCR）
-- 音频  →  预留转写接口（OpenAI Whisper 或其他）
-- Office  →  python-docx / openpyxl 提取文字
-- 网页  →  trafilatura 提取正文
+负责将上传的原始文件解析为可检索的文本内容，并执行语义分块：
+- PDF   → PyMuPDF 提取文字 + 图片 → 语义分块
+- 图片  → 单块（预留 OCR）
+- 音频  → 预留 Whisper 转写 → 按时间戳分块
+- 视频  → 预留音频提取+转写 → 按时间戳分块 + 关键帧截图
+- Office → python-docx / openpyxl 提取文字 → 语义分块
+- 网页  → trafilatura 提取正文 → 语义分块
 """
 
 import asyncio
-import io
-import os
 import traceback
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import UploadFile
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.models import Content
+from app.models.models import Content, ContentChunk
 
 settings = get_settings()
 
 
-# ── 文本分块 ──
+# ── PDF 文字提取 ──
 
-def _chunk_text(text: str, max_chars: int = 2000, overlap: int = 200) -> list[str]:
-    """将长文本分块，保留 overlap 避免截断语义"""
-    if len(text) <= max_chars:
-        return [text]
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + max_chars
-        # 尽量在句号/换行处截断
-        if end < len(text):
-            for sep in ["\n\n", "。", "\n", ". "]:
-                pos = text.rfind(sep, start, end)
-                if pos != -1:
-                    end = pos + len(sep)
-                    break
-        chunks.append(text[start:end].strip())
-        start = max(start + 1, end - overlap)
-    return [c for c in chunks if c]
-
-
-# ── PDF 解析 ──
-
-def _extract_pdf(path: Path) -> str:
-    import fitz  # PyMuPDF
+def _extract_pdf_text(path: Path) -> list[tuple[int, str]]:
+    """提取 PDF 文字，返回 (page_number, text) 列表"""
+    import fitz
 
     doc = fitz.open(path)
-    parts = []
-    for page in doc:
-        parts.append(page.get_text())
+    pages = []
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        text = page.get_text()
+        if text.strip():
+            pages.append((page_num + 1, text))
     doc.close()
-    return "\n".join(parts)
+    return pages
+
+
+# ── PDF 图片提取 ──
+
+def _extract_pdf_images(path: Path, output_dir: Path) -> list[tuple[int, str]]:
+    """提取 PDF 内嵌图片，返回 (page_number, image_path) 列表"""
+    import fitz
+
+    doc = fitz.open(path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    images = []
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        for img_index, img in enumerate(page.get_images()):
+            xref = img[0]
+            try:
+                pix = fitz.Pixmap(doc, xref)
+                if pix.n > 4:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                filename = f"page{page_num + 1}_img{img_index}.png"
+                img_path = output_dir / filename
+                pix.save(str(img_path))
+                images.append((page_num + 1, filename))
+                pix = None
+            except Exception:
+                continue
+
+    doc.close()
+    return images
 
 
 # ── Office 文档解析 ──
@@ -85,18 +97,31 @@ def _extract_xlsx(path: Path) -> str:
 
 # ── 图片 OCR（预留）──
 
-async def _ocr_image(path: Path, provider_service: "ProviderService | None" = None) -> str:
-    """预留 OCR 接口，优先使用 provider-config 中 tencent_ocr 配置"""
+async def _ocr_image(path: Path) -> str:
     # TODO: Phase 5 实现腾讯云 OCR 接入
     return ""
 
 
 # ── 音频转写（预留）──
 
-async def _transcribe_audio(path: Path, provider_service: "ProviderService | None" = None) -> str:
-    """预留音频转写接口，使用 OpenAI Whisper 或配置中的 transcription 模型"""
+async def _transcribe_audio(path: Path) -> list[dict]:
+    """预留音频转写接口，返回带时间戳的句子列表
+
+    期望格式: [{"text": "...", "start": 0.0, "end": 2.5}, ...]
+    """
+    # TODO: Phase 5 实现 Whisper 转写
+    return []
+
+
+# ── 视频处理（预留）──
+
+async def _process_video(path: Path) -> tuple[list[dict], list[str]]:
+    """预留视频处理：提取音频转写 + 关键帧截图
+
+    返回: (transcript_segments, screenshot_paths)
+    """
     # TODO: Phase 5 实现
-    return ""
+    return ([], [])
 
 
 # ── 网页抓取 ──
@@ -114,16 +139,14 @@ async def _extract_web(url: str) -> str:
 # ── 主处理类 ──
 
 class ContentProcessService:
-    """内容处理管道：将 Content 的原始文件解析为 text_content"""
+    """内容处理管道：解析 → 分块 → 向量化"""
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def process(self, content_id: str | None = None, content: Content | None = None) -> Content:
-        """处理单个 Content，更新 text_content 和 processing_status"""
+        """处理单个 Content：解析文本 → 语义分块 → 生成嵌入"""
         if content is None:
-            from sqlalchemy import select
-
             result = await self.db.execute(select(Content).where(Content.id == content_id))
             content = result.scalar_one_or_none()
             if content is None:
@@ -133,70 +156,291 @@ class ContentProcessService:
         await self.db.flush()
 
         try:
-            text = await self._dispatch(content)
-            content.text_content = text
+            await self._dispatch_and_chunk(content)
             content.processing_status = "completed"
             await self.db.flush()
-            # 处理完成后自动生成嵌入
-            await self._generate_embedding(content)
-        except Exception as exc:
+        except Exception:
             content.processing_status = "failed"
             content.processing_error = traceback.format_exc()
             await self.db.flush()
             raise
+
         await self.db.flush()
         await self.db.refresh(content)
         return content
 
-    async def _dispatch(self, content: Content) -> str:
-        """根据 content_type 分发到对应解析器"""
+    async def _dispatch_and_chunk(self, content: Content) -> None:
+        """根据 content_type 分发处理，并执行分块"""
         ct = content.content_type
 
-        if ct == "note":
-            # 纯文本笔记，内容直接在 text_content 中
-            return content.text_content or ""
-
         if ct == "pdf":
-            path = self._resolve_path(content.file_path)
-            return await asyncio.to_thread(_extract_pdf, path)
+            await self._process_pdf(content)
+        elif ct == "doc":
+            await self._process_doc(content)
+        elif ct == "note":
+            await self._process_note(content)
+        elif ct == "image":
+            await self._process_image(content)
+        elif ct == "audio":
+            await self._process_audio(content)
+        elif ct == "video":
+            await self._process_video_content(content)
+        elif ct == "web":
+            await self._process_web(content)
+        else:
+            await self._process_fallback(content)
 
-        if ct == "doc":
-            path = self._resolve_path(content.file_path)
-            ext = Path(path).suffix.lower()
-            if ext in {".docx", ".doc"}:
-                return await asyncio.to_thread(_extract_docx, path)
-            if ext in {".xlsx", ".xls"}:
-                return await asyncio.to_thread(_extract_xlsx, path)
-            # fallback: try as plain text
-            return Path(path).read_text(encoding="utf-8", errors="ignore")
+    async def _process_pdf(self, content: Content) -> None:
+        """PDF 处理：提取文字（按页）+ 提取图片 → 分块"""
+        path = self._resolve_path(content.file_path)
+        root = Path(settings.file_storage_root).resolve()
 
-        if ct == "image":
-            path = self._resolve_path(content.file_path)
-            # Phase 5: 先存文本占位，后续接入 OCR
-            ocr_text = await _ocr_image(path)
-            return ocr_text
+        pages = await asyncio.to_thread(_extract_pdf_text, Path(path))
+        full_text = "\n\n".join(text for _, text in pages)
+        content.text_content = full_text
 
-        if ct == "audio":
-            path = self._resolve_path(content.file_path)
-            transcript = await _transcribe_audio(path)
-            return transcript
+        img_dir = root / "chunks" / str(content.id) / "images"
+        images = await asyncio.to_thread(_extract_pdf_images, Path(path), img_dir)
 
-        if ct == "video":
-            # Phase 5: 提取音频后转写，当前返回描述占位
-            return f"[视频文件: {content.title}]"
+        await self._delete_old_chunks(content.id)
 
-        if ct == "web" and content.source_url:
-            return await _extract_web(content.source_url)
+        from app.services.chunking import chunk_text, TextChunk
+        chunks = await chunk_text(full_text, self.db)
 
-        # fallback
+        offset = 0
+        page_offsets: list[tuple[int, int]] = []
+        for page_num, page_text in pages:
+            page_offsets.append((page_num, offset))
+            offset += len(page_text) + 2
+
+        chunk_models = []
+        for idx, chunk in enumerate(chunks):
+            page_num = self._find_page_number(chunk.start_offset, page_offsets)
+            chunk_models.append(ContentChunk(
+                content_id=content.id,
+                chunk_index=idx,
+                chunk_type="text",
+                chunk_text=chunk.text,
+                start_offset=chunk.start_offset,
+                end_offset=chunk.end_offset,
+                page_number=page_num,
+            ))
+
+        for page_num, img_filename in images:
+            rel_path = f"chunks/{content.id}/images/{img_filename}"
+            chunk_models.append(ContentChunk(
+                content_id=content.id,
+                chunk_index=len(chunk_models),
+                chunk_type="image",
+                image_path=rel_path,
+                page_number=page_num,
+            ))
+
+        self.db.add_all(chunk_models)
+        await self.db.flush()
+        await self._embed_chunks(content.id)
+
+    async def _process_doc(self, content: Content) -> None:
+        """Office 文档处理：提取文字 → 语义分块"""
+        path = self._resolve_path(content.file_path)
+        ext = Path(path).suffix.lower()
+
+        if ext in {".docx", ".doc"}:
+            text = await asyncio.to_thread(_extract_docx, Path(path))
+        elif ext in {".xlsx", ".xls"}:
+            text = await asyncio.to_thread(_extract_xlsx, Path(path))
+        else:
+            text = Path(path).read_text(encoding="utf-8", errors="ignore")
+
+        content.text_content = text
+        await self._chunk_and_save(content, text)
+
+    async def _process_note(self, content: Content) -> None:
+        """笔记处理：直接对 text_content 语义分块"""
+        text = content.text_content or ""
+        await self._chunk_and_save(content, text)
+
+    async def _process_image(self, content: Content) -> None:
+        """图片处理：单块，chunk_type='image'"""
+        await self._delete_old_chunks(content.id)
+
+        chunk = ContentChunk(
+            content_id=content.id,
+            chunk_index=0,
+            chunk_type="image",
+            image_path=content.file_path,
+        )
+        self.db.add(chunk)
+        await self.db.flush()
+        await self._embed_chunks(content.id, chunk_type="image")
+
+    async def _process_audio(self, content: Content) -> None:
+        """音频处理：预留 Whisper 转写 → 按时间戳分块"""
+        path = self._resolve_path(content.file_path)
+        segments = await _transcribe_audio(Path(path))
+
+        if not segments:
+            content.text_content = f"[音频文件: {content.title}]（转写待实现）"
+            await self._chunk_and_save(content, content.text_content)
+            return
+
+        full_text = " ".join(seg["text"] for seg in segments)
+        content.text_content = full_text
+
+        await self._delete_old_chunks(content.id)
+        chunk_models = []
+        for idx, seg in enumerate(segments):
+            chunk_models.append(ContentChunk(
+                content_id=content.id,
+                chunk_index=idx,
+                chunk_type="text",
+                chunk_text=seg["text"],
+                time_start=seg.get("start"),
+                time_end=seg.get("end"),
+            ))
+
+        self.db.add_all(chunk_models)
+        await self.db.flush()
+        await self._embed_chunks(content.id)
+
+    async def _process_video_content(self, content: Content) -> None:
+        """视频处理：预留音频提取+转写 → 按时间戳分块 + 关键帧截图"""
+        path = self._resolve_path(content.file_path)
+        segments, screenshots = await _process_video(Path(path))
+
+        if not segments:
+            content.text_content = f"[视频文件: {content.title}]（转写待实现）"
+            await self._chunk_and_save(content, content.text_content)
+            return
+
+        full_text = " ".join(seg["text"] for seg in segments)
+        content.text_content = full_text
+
+        await self._delete_old_chunks(content.id)
+        chunk_models = []
+        for idx, seg in enumerate(segments):
+            chunk_models.append(ContentChunk(
+                content_id=content.id,
+                chunk_index=idx,
+                chunk_type="text",
+                chunk_text=seg["text"],
+                time_start=seg.get("start"),
+                time_end=seg.get("end"),
+            ))
+
+        for idx, screenshot_path in enumerate(screenshots):
+            chunk_models.append(ContentChunk(
+                content_id=content.id,
+                chunk_index=len(chunk_models),
+                chunk_type="image",
+                image_path=screenshot_path,
+                time_start=idx * 10.0,
+            ))
+
+        self.db.add_all(chunk_models)
+        await self.db.flush()
+        await self._embed_chunks(content.id)
+
+    async def _process_web(self, content: Content) -> None:
+        """网页处理：trafilatura 提取正文 → 语义分块"""
+        if not content.source_url:
+            content.text_content = ""
+            return
+        text = await _extract_web(content.source_url)
+        content.text_content = text
+        await self._chunk_and_save(content, text)
+
+    async def _process_fallback(self, content: Content) -> None:
+        """兜底处理：尝试读取为纯文本"""
         if content.file_path:
             path = self._resolve_path(content.file_path)
-            if Path(path).exists():
-                return Path(path).read_text(encoding="utf-8", errors="ignore")
-        return ""
+            text = Path(path).read_text(encoding="utf-8", errors="ignore")
+            content.text_content = text
+            await self._chunk_and_save(content, text)
+        else:
+            content.text_content = ""
+
+    async def _chunk_and_save(self, content: Content, text: str) -> None:
+        """通用分块流程：删除旧块 → 语义分块 → 保存 → 嵌入"""
+        await self._delete_old_chunks(content.id)
+
+        if not text or not text.strip():
+            return
+
+        from app.services.chunking import chunk_text
+
+        chunks = await chunk_text(text, self.db)
+        chunk_models = []
+        for idx, chunk in enumerate(chunks):
+            chunk_models.append(ContentChunk(
+                content_id=content.id,
+                chunk_index=idx,
+                chunk_type="text",
+                chunk_text=chunk.text,
+                start_offset=chunk.start_offset,
+                end_offset=chunk.end_offset,
+            ))
+
+        self.db.add_all(chunk_models)
+        await self.db.flush()
+        await self._embed_chunks(content.id)
+
+    async def _delete_old_chunks(self, content_id) -> None:
+        """删除指定内容的所有旧 chunks"""
+        await self.db.execute(
+            delete(ContentChunk).where(ContentChunk.content_id == content_id)
+        )
+        await self.db.flush()
+
+    async def _embed_chunks(self, content_id, chunk_type: str = "text") -> None:
+        """为指定内容的所有 chunks 生成嵌入向量"""
+        result = await self.db.execute(
+            select(ContentChunk).where(
+                ContentChunk.content_id == content_id,
+                ContentChunk.embedding.is_(None),
+            )
+        )
+        chunks = result.scalars().all()
+
+        if not chunks:
+            return
+
+        from app.services.embedding import embed_text, embed_image
+
+        success = 0
+        failed = 0
+        for chunk in chunks:
+            try:
+                if chunk.chunk_type == "image" and chunk.image_path:
+                    vec = await embed_image(self.db, chunk.image_path)
+                    if vec:
+                        chunk.embedding = vec
+                        chunk.embedding_type = "image"
+                        success += 1
+                    else:
+                        logger.warning(f"embed_image returned None for chunk {chunk.id}, path={chunk.image_path}")
+                        failed += 1
+                elif chunk.chunk_text:
+                    vec = await embed_text(self.db, chunk.chunk_text)
+                    if vec:
+                        chunk.embedding = vec
+                        chunk.embedding_type = "text"
+                        success += 1
+                    else:
+                        logger.warning(f"embed_text returned None for chunk {chunk.id}")
+                        failed += 1
+                else:
+                    logger.warning(f"Chunk {chunk.id} has no text and no image_path, skipping")
+                    failed += 1
+            except Exception as e:
+                logger.error(f"embed_chunks error for chunk {chunk.id}: {e}")
+                failed += 1
+                continue
+
+        logger.info(f"embed_chunks done: content_id={content_id}, success={success}, failed={failed}, total={len(chunks)}")
+        await self.db.flush()
 
     def _resolve_path(self, file_path: str | None) -> str:
-        """将相对路径解析为绝对路径"""
         if not file_path:
             raise ValueError("file_path is empty")
         root = Path(settings.file_storage_root).resolve()
@@ -205,30 +449,35 @@ class ContentProcessService:
             raise FileNotFoundError(f"File not found: {full}")
         return str(full)
 
-    async def get_status(self, content_id: str) -> dict:
-        """获取处理状态"""
-        from sqlalchemy import select
+    def _find_page_number(self, offset: int, page_offsets: list[tuple[int, int]]) -> int | None:
+        """根据字符偏移量找到所在页码"""
+        page_num = None
+        for pn, po in page_offsets:
+            if offset >= po:
+                page_num = pn
+            else:
+                break
+        return page_num
 
+    async def get_status(self, content_id: str) -> dict:
         result = await self.db.execute(select(Content).where(Content.id == content_id))
         content = result.scalar_one_or_none()
         if content is None:
             raise ValueError(f"Content {content_id} not found")
+
+        chunk_count_result = await self.db.execute(
+            select(ContentChunk).where(ContentChunk.content_id == content.id)
+        )
+        chunks = chunk_count_result.scalars().all()
+
         return {
             "id": str(content.id),
             "processing_status": content.processing_status,
             "processing_error": content.processing_error,
             "has_text": bool(content.text_content),
             "text_length": len(content.text_content or ""),
-            "has_embedding": content.text_embedding is not None,
+            "has_embedding": content.embedding is not None,
+            "chunk_count": len(chunks),
+            "text_chunks": sum(1 for c in chunks if c.chunk_type == "text"),
+            "image_chunks": sum(1 for c in chunks if c.chunk_type == "image"),
         }
-
-    async def _generate_embedding(self, content: Content) -> None:
-        """处理完成后为内容生成文本嵌入向量"""
-        if not content.text_content or content.text_embedding is not None:
-            return
-        try:
-            from app.services.embedding import embed_content
-            await embed_content(self.db, str(content.id))
-        except Exception:
-            # 嵌入失败不阻断主流程，后续可重试
-            pass

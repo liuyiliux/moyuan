@@ -12,11 +12,12 @@ import type {
 import { providerApi } from "../api/provider";
 import { Wifi } from "lucide-react";
 
-const FUNCTION_KEYS = ["summarize", "embedding", "quiz"];
+const FUNCTION_KEYS = ["summarize", "embedding", "chunking", "quiz"];
 
 const FUNCTION_LABELS: Record<string, string> = {
   summarize: "摘要生成",
   embedding: "嵌入向量",
+  chunking: "语义切片",
   quiz: "题库生成",
 };
 
@@ -170,11 +171,14 @@ export function ProviderModal({ open, provider, onClose, onSaved }: Props) {
                   onChange={(e) =>
                     setDefaultModels((prev) => ({ ...prev, [fn]: e.target.value }))
                   }
-                  placeholder={fn === "summarize" ? "gpt-4o" : fn === "embedding" ? "text-embedding-3-small" : "gpt-4o"}
+                  placeholder={fn === "summarize" ? "gpt-4o" : fn === "embedding" ? "text-embedding-3-small" : fn === "chunking" ? "BAAI/bge-m3" : "gpt-4o"}
                   className="taste-input flex-1"
                 />
                 {fn === "embedding" && (
                   <span className="text-xs text-[var(--text-muted)]">支持多模态</span>
+                )}
+                {fn === "chunking" && (
+                  <span className="text-xs text-[var(--text-muted)]">语义边界检测</span>
                 )}
               </div>
             ))}

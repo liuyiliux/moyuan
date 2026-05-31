@@ -1,109 +1,96 @@
 """语义搜索 Service
 
-向量相似度 + 关键词 BM25 混合检索，RRF 融合排序。
+在 content_chunks 表上执行 chunk 级向量检索 + 关键词检索，
+RRF 融合排序，返回精确位置（页码/时间戳）支持前端跳转。
 """
 
 import json
 from datetime import datetime, timezone
 from typing import Any
 
-from openai import AsyncOpenAI
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.models import Content, SearchLog
-from app.core.crypto import crypto_service
+from app.models.models import Content, ContentChunk, SearchLog
 
 settings = get_settings()
 
-# ── 参数 ──
-RRF_K = 60  # RRF 常量
+RRF_K = 60
 VECTOR_WEIGHT = 0.7
 KEYWORD_WEIGHT = 0.3
 TOP_K = 20
 
 
-# ── 嵌入（复用 OpenAI 兼容接口）──
-
-async def _embed_query(query: str, db: AsyncSession) -> list[float]:
-    """将查询文本转为向量，使用已配置的 embedding provider"""
-    from app.services.embedding import _get_embedding_binding, _call_openai_embedding
-
-    binding = await _get_embedding_binding(db)
-    if binding is None:
-        raise RuntimeError("未配置 embedding 提供商，无法执行语义搜索")
-
-    result = await db.execute(
-        select(Content).where(Content.id == "00000000-0-0-0-000000000000")
-    )
-    # 上面是占位，真正拿 provider
-    from app.models.models import ProviderConfig
-    result = await db.execute(
-        select(ProviderConfig).where(ProviderConfig.id == binding["provider_id"])
-    )
-    provider = result.scalar_one_or_none()
-    if provider is None:
-        raise RuntimeError("embedding provider 不存在")
-
-    api_key = crypto_service.decrypt(provider.api_key_encrypted) if provider.api_key_encrypted else None
-    base_url = provider.base_url
-    model = binding["model"]
-
-    vecs = await _call_openai_embedding(
-        api_key or "", base_url, model, [query]
-    )
-    return vecs[0]
-
-
-# ── 向量检索 ──
-
-def _build_vector_sql(content_type_filter: str | None, has_embedding_only: bool = True) -> str:
-    base = """
-        SELECT id, title, content_type, file_size, created_at,
-               1 - (text_embedding <=> :query_vec) AS score
-        FROM contents
-        WHERE is_deleted = false
-          AND text_embedding IS NOT NULL
-    """
-    if content_type_filter:
-        base += " AND content_type = :ctype"
-    base += " ORDER BY text_embedding <=> :query_vec LIMIT :top_k"
-    return base
-
+# ── 向量检索（chunk 粒度）──
 
 async def _vector_search(
     db: AsyncSession,
     query_vec: list[float],
     top_k: int = TOP_K,
     content_type: str | None = None,
+    search_mode: str = "all",
 ) -> list[dict]:
-    """pgvector 余弦相似度搜索"""
-    vec_sql = _build_vector_sql(content_type)
-    params = {
-        "query_vec": str(query_vec),
-        "top_k": top_k,
-    }
+    """在 content_chunks 表上执行 pgvector 余弦相似度搜索
+
+    search_mode:
+    - "all": 搜索所有 chunks
+    - "text": 只搜索文本 chunks
+    - "image": 只搜索图片 chunks
+    """
+    base = """
+        SELECT cc.id AS chunk_id, cc.content_id, cc.chunk_text, cc.chunk_type,
+               cc.page_number, cc.start_offset, cc.end_offset,
+               cc.time_start, cc.time_end, cc.image_path,
+               c.title, c.content_type, c.file_size, c.created_at,
+               1 - (cc.embedding <=> :query_vec) AS score
+        FROM content_chunks cc
+        JOIN contents c ON c.id = cc.content_id
+        WHERE c.is_deleted = false
+          AND cc.embedding IS NOT NULL
+    """
+    if content_type:
+        base += " AND c.content_type = :ctype"
+    if search_mode == "text":
+        base += " AND cc.embedding_type = 'text'"
+    elif search_mode == "image":
+        base += " AND cc.embedding_type = 'image'"
+    base += " ORDER BY cc.embedding <=> :query_vec LIMIT :top_k"
+
+    params = {"query_vec": str(query_vec), "top_k": top_k}
     if content_type:
         params["ctype"] = content_type
 
-    # 用 raw SQL（asyncpg 不直接支持 <=> 操作符的 ORM 写法）
     conn = await db.bind.raw_connection()
     try:
-        result = await conn.execute(
-            text(vec_sql),
-            params,
-        )
+        result = await conn.execute(text(base), params)
         rows = result.fetchall()
         return [
-            {"id": str(r.id), "title": r.title, "score": float(r.score), "rank": i + 1}
+            {
+                "chunk_id": str(r.chunk_id),
+                "content_id": str(r.content_id),
+                "chunk_text": r.chunk_text,
+                "chunk_type": r.chunk_type,
+                "page_number": r.page_number,
+                "start_offset": r.start_offset,
+                "end_offset": r.end_offset,
+                "time_start": float(r.time_start) if r.time_start is not None else None,
+                "time_end": float(r.time_end) if r.time_end is not None else None,
+                "image_path": r.image_path,
+                "title": r.title,
+                "content_type": r.content_type,
+                "file_size": r.file_size,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "score": float(r.score),
+                "rank": i + 1,
+            }
             for i, r in enumerate(rows)
         ]
     finally:
         await conn.close()
 
 
-# ── 关键词检索（BM25 近似）──
+# ── 关键词检索（chunk 粒度）──
 
 async def _keyword_search(
     db: AsyncSession,
@@ -111,17 +98,28 @@ async def _keyword_search(
     top_k: int = TOP_K,
     content_type: str | None = None,
 ) -> list[dict]:
-    """ILIKE 模糊匹配 text_content，用 length 差近似 BM25"""
-    from sqlalchemy import or_
-
+    """在 chunk_text 上执行 ILIKE 模糊匹配"""
     stmt = (
-        select(Content.id, Content.title, Content.content_type, Content.file_size, Content.created_at, Content.text_content)
+        select(
+            ContentChunk.id.label("chunk_id"),
+            ContentChunk.content_id,
+            ContentChunk.chunk_text,
+            ContentChunk.chunk_type,
+            ContentChunk.page_number,
+            ContentChunk.start_offset,
+            ContentChunk.end_offset,
+            ContentChunk.time_start,
+            ContentChunk.time_end,
+            ContentChunk.image_path,
+            Content.title,
+            Content.content_type,
+            Content.file_size,
+            Content.created_at,
+        )
+        .join(Content, Content.id == ContentChunk.content_id)
         .where(
             Content.is_deleted == False,
-            or_(
-                Content.title.ilike(f"%{query}%"),
-                Content.text_content.ilike(f"%{query}%"),
-            ),
+            ContentChunk.chunk_text.ilike(f"%{query}%"),
         )
         .limit(top_k)
     )
@@ -131,19 +129,29 @@ async def _keyword_search(
     result = await db.execute(stmt)
     rows = result.all()
 
-    # 简单评分：title 匹配 > text 匹配
     scored = []
     q_lower = query.lower()
     for i, r in enumerate(rows):
-        title_score = 2.0 if q_lower in (r.title or "").lower() else 0.0
-        text_score = 1.0 if r.text_content and q_lower in r.text_content.lower() else 0.0
+        chunk_text = r.chunk_text or ""
+        score = 1.0 if q_lower in chunk_text.lower() else 0.0
         scored.append({
-            "id": str(r.id),
+            "chunk_id": str(r.chunk_id),
+            "content_id": str(r.content_id),
+            "chunk_text": r.chunk_text,
+            "chunk_type": r.chunk_type,
+            "page_number": r.page_number,
+            "start_offset": r.start_offset,
+            "end_offset": r.end_offset,
+            "time_start": float(r.time_start) if r.time_start is not None else None,
+            "time_end": float(r.time_end) if r.time_end is not None else None,
+            "image_path": r.image_path,
             "title": r.title,
-            "score": title_score + text_score,
+            "content_type": r.content_type,
+            "file_size": r.file_size,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "score": score,
             "rank": i + 1,
         })
-    # 按 score 降序
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:top_k]
 
@@ -151,71 +159,55 @@ async def _keyword_search(
 # ── RRF 融合 ──
 
 def _rrf_merge(vector_results: list[dict], keyword_results: list[dict], k: int = RRF_K) -> list[dict]:
-    """Reciprocal Rank Fusion"""
     scores: dict[str, float] = {}
     meta: dict[str, dict] = {}
 
     for r in vector_results:
-        doc_id = r["id"]
-        scores[doc_id] = scores.get(doc_id, 0.0) + VECTOR_WEIGHT * (1 / (k + r["rank"]))
-        meta[doc_id] = {"title": r["title"], "score": r.get("score", 0)}
+        cid = r["chunk_id"]
+        scores[cid] = scores.get(cid, 0.0) + VECTOR_WEIGHT * (1 / (k + r["rank"]))
+        meta[cid] = r
 
     for r in keyword_results:
-        doc_id = r["id"]
-        scores[doc_id] = scores.get(doc_id, 0.0) + KEYWORD_WEIGHT * (1 / (k + r["rank"]))
-        if doc_id not in meta:
-            meta[doc_id] = {"title": r["title"], "score": r.get("score", 0)}
+        cid = r["chunk_id"]
+        scores[cid] = scores.get(cid, 0.0) + KEYWORD_WEIGHT * (1 / (k + r["rank"]))
+        if cid not in meta:
+            meta[cid] = r
 
-    # 排序
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [
-        {
-            "id": doc_id,
-            "title": meta[doc_id]["title"],
-            "rrf_score": round(score, 6),
-            "vector_score": meta[doc_id].get("score", 0),
-        }
-        for doc_id, score in ranked
-    ]
+    results = []
+    for cid, score in ranked:
+        m = meta[cid]
+        m["rrf_score"] = round(score, 6)
+        results.append(m)
+    return results
 
 
-# ── 高亮片段提取 ──
+# ── 文档级聚合 ──
 
-async def _fetch_snippets(db: AsyncSession, doc_ids: list[str], query: str) -> dict[str, str]:
-    """为每个结果提取匹配文本片段"""
-    if not doc_ids:
-        return {}
+def _aggregate_by_content(results: list[dict]) -> list[dict]:
+    """将 chunk 级结果按 content_id 聚合为文档级结果"""
+    docs: dict[str, dict] = {}
 
-    result = await db.execute(
-        select(Content.id, Content.text_content, Content.title).where(
-            Content.id.in_(doc_ids)
-        )
-    )
-    rows = result.all()
-    q_lower = query.lower()
-    snippets: dict[str, str] = {}
+    for r in results:
+        cid = r["content_id"]
+        if cid not in docs:
+            docs[cid] = {
+                "content_id": cid,
+                "title": r["title"],
+                "content_type": r["content_type"],
+                "file_size": r.get("file_size"),
+                "created_at": r.get("created_at"),
+                "best_score": r.get("rrf_score", 0),
+                "best_chunk": r,
+                "chunks": [],
+            }
+        docs[cid]["chunks"].append(r)
+        if r.get("rrf_score", 0) > docs[cid]["best_score"]:
+            docs[cid]["best_score"] = r["rrf_score"]
+            docs[cid]["best_chunk"] = r
 
-    for r in rows:
-        text = r.text_content or ""
-        title = r.title or ""
-        # 优先在 text_content 里找
-        idx = text.lower().find(q_lower)
-        if idx >= 0:
-            start = max(0, idx - 30)
-            end = min(len(text), idx + len(query) + 80)
-            snippet = text[start:end]
-            if start > 0:
-                snippet = "..." + snippet
-            if end < len(text):
-                snippet = snippet + "..."
-            snippets[str(r.id)] = snippet
-        elif query.lower() in title.lower():
-            snippets[str(r.id)] = title
-        else:
-            # 取前 100 字符
-            snippets[str(r.id)] = (text[:100] + "...") if len(text) > 100 else text
-
-    return snippets
+    aggregated = sorted(docs.values(), key=lambda x: x["best_score"], reverse=True)
+    return aggregated
 
 
 # ── 主搜索接口 ──
@@ -230,8 +222,14 @@ async def search(
     brain_id: str | None = None,
     enable_vector: bool = True,
     enable_keyword: bool = True,
+    search_mode: str = "all",
+    query_vector: list[float] | None = None,
 ) -> dict:
-    """执行混合搜索，返回结果 + 元信息"""
+    """执行 chunk 级混合搜索
+
+    search_mode: "all" / "text" / "image"
+    query_vector: 预计算的查询向量（图搜图时传入）
+    """
     import time
     t0 = time.time()
 
@@ -240,82 +238,72 @@ async def search(
 
     if enable_vector:
         try:
-            query_vec = await _embed_query(query, db)
-            vector_results = await _vector_search(db, query_vec, top_k=top_k * 2, content_type=content_type)
+            if query_vector is not None:
+                qv = query_vector
+            else:
+                from app.services.embedding import embed_query
+                qv = await embed_query(db, query)
+            if qv is not None:
+                vector_results = await _vector_search(
+                    db, qv, top_k=top_k * 2,
+                    content_type=content_type,
+                    search_mode=search_mode,
+                )
         except Exception:
-            enable_vector = False
+            pass
 
     if enable_keyword:
-        keyword_results = await _keyword_search(db, query, top_k=top_k * 2, content_type=content_type)
+        keyword_results = await _keyword_search(
+            db, query, top_k=top_k * 2,
+            content_type=content_type,
+        )
 
     if not vector_results and not keyword_results:
         return {"results": [], "total": 0, "took_ms": round((time.time() - t0) * 1000, 1), "query": query}
 
-    # RRF 融合
     merged = _rrf_merge(vector_results, keyword_results)
 
-    # 截取 top_k
-    top = merged[:top_k]
+    aggregated = _aggregate_by_content(merged)
 
-    # 拿 snippet
-    doc_ids = [r["id"] for r in top]
-    snippets = await _fetch_snippets(db, doc_ids, query)
-
-    # 组装结果
     results = []
-    for r in top:
-        res = await db.execute(select(Content).where(Content.id == r["id"]))
-        content = res.scalar_one_or_none()
-        if content is None:
-            continue
-
-        # 应用过滤条件
-        skip = False
-        if tag_ids:
-            # 检查内容是否有这些标签
-            from app.models.models import ContentTag
-            tag_check = await db.execute(
-                select(ContentTag).where(
-                    ContentTag.content_id == content.id,
-                    ContentTag.tag_id.in_(tag_ids),
-                )
-            )
-            if not tag_check.scalar_one_or_none():
-                skip = True
-        if category_id:
-            from app.models.models import ContentCategory
-            cat_check = await db.execute(
-                select(ContentCategory).where(
-                    ContentCategory.content_id == content.id,
-                    ContentCategory.category_id == category_id,
-                )
-            )
-            if not cat_check.scalar_one_or_none():
-                skip = True
-        if brain_id and str(content.brain_id) != brain_id:
-            skip = True
-
-        if skip:
-            continue
+    for doc in aggregated[:top_k]:
+        best = doc["best_chunk"]
+        snippet = (best.get("chunk_text") or "")[:200]
 
         results.append({
-            "id": str(content.id),
-            "title": content.title,
-            "content_type": content.content_type,
-            "file_size": content.file_size,
-            "created_at": content.created_at.isoformat() if content.created_at else None,
-            "snippet": snippets.get(str(content.id), ""),
-            "score": r["rrf_score"],
-            "vector_score": r.get("vector_score"),
+            "content_id": doc["content_id"],
+            "title": doc["title"],
+            "content_type": doc["content_type"],
+            "file_size": doc.get("file_size"),
+            "created_at": doc.get("created_at"),
+            "score": doc["best_score"],
+            "best_chunk": {
+                "chunk_id": best.get("chunk_id"),
+                "snippet": snippet,
+                "chunk_type": best.get("chunk_type"),
+                "page_number": best.get("page_number"),
+                "start_offset": best.get("start_offset"),
+                "end_offset": best.get("end_offset"),
+                "time_start": best.get("time_start"),
+                "time_end": best.get("time_end"),
+                "image_path": best.get("image_path"),
+            },
+            "match_count": len(doc["chunks"]),
+            "all_chunks": [
+                {
+                    "chunk_id": c.get("chunk_id"),
+                    "snippet": (c.get("chunk_text") or "")[:200],
+                    "page_number": c.get("page_number"),
+                    "time_start": c.get("time_start"),
+                    "score": c.get("rrf_score"),
+                }
+                for c in doc["chunks"][:5]
+            ],
         })
 
     took_ms = round((time.time() - t0) * 1000, 1)
 
-    # 写入搜索历史
-    log = SearchLog(
-        query=query,
-        result_count=len(results),
-    )
+    log = SearchLog(query=query, result_count=len(results))
     db.add(log)
     await db.flush()
 

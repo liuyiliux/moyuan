@@ -31,7 +31,7 @@ async def overview(db: AsyncSession = Depends(get_db)):
     # 嵌入统计
     embed_res = await db.execute(
         select(func.count(Content.id))
-        .where(Content.is_deleted == False, Content.text_embedding.isnot(None))
+        .where(Content.is_deleted == False, Content.embedding.isnot(None))
     )
     embedded = embed_res.scalar() or 0
 

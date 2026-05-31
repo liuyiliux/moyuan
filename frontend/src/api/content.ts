@@ -12,7 +12,8 @@ export interface FileItem {
   file_size: number | null;
   file_md5: string | null;
   text_content: string | null;
-  text_embedding: number[] | null;
+  embedding: number[] | null;
+  embedding_type: string | null;
   processing_status: string;
   processing_error: string | null;
   is_starred: boolean;
@@ -176,4 +177,24 @@ export const contentApi = {
 
   /** 置顶/取消置顶 */
   pin: (id: string) => api.post<{ is_pinned: boolean }>(`/contents/${id}/pin`),
+
+  /** 获取内容分块 */
+  getChunks: (id: string) => api.get<{
+    content_id: string;
+    total: number;
+    chunks: {
+      id: string;
+      chunk_index: number;
+      chunk_type: string;
+      chunk_text: string | null;
+      embedding_type: string | null;
+      page_number: number | null;
+      start_offset: number | null;
+      end_offset: number | null;
+      time_start: number | null;
+      time_end: number | null;
+      image_path: string | null;
+      has_embedding: boolean;
+    }[];
+  }>(`/contents/${id}/chunks`),
 };
