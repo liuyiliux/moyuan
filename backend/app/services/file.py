@@ -124,6 +124,10 @@ class FileService:
         await self.db.flush()
         await self.db.refresh(content)
 
+        # 自动加入处理队列
+        from app.services.task_queue import enqueue
+        await enqueue(str(content.id), task_type="parse", priority=0)
+
         return content
 
     async def list_files(

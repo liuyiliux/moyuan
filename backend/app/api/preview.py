@@ -24,10 +24,10 @@ async def preview_content(
     - mode=info（默认）：返回预览元信息（类型、文本、文件路径）
     - mode=raw：直接返回文件流（用于 <img>/<video> 等标签）
     """
-    from uuid import UUID, InvalidUUIDError
+    from uuid import UUID
     try:
         cid = UUID(content_id)
-    except (InvalidUUIDError, ValueError):
+    except ValueError:
         raise HTTPException(status_code=400, detail="Invalid content_id")
 
     result = await db.execute(select(Content).where(Content.id == cid))

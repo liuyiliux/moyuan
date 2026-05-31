@@ -4,13 +4,10 @@ import {
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Download, Loader2,
 } from "lucide-react";
 
-// pdfjs worker — 使用 pdfjs-dist 自带的 worker
-import "pdfjs-dist/build/pdf.worker.min.mjs";
+import "react-pdf/dist/esm/Page/AnnotationLayer.css";
+import "react-pdf/dist/esm/Page/TextLayer.css";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface PDFViewerProps {
   src: string;      // /api/contents/{id}/preview?mode=raw 或 /files/...

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Boolean, Integer, BigInteger, func
+from sqlalchemy import String, Text, DateTime, Boolean, Integer, BigInteger, func, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
@@ -27,8 +27,8 @@ class Content(Base):
     processing_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, processing, completed, failed
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Embedding
-    text_embedding = mapped_column(Vector(1536), nullable=True)  # 文本嵌入
+    # Embedding - 使用 4096 维以支持更多模型
+    text_embedding = mapped_column(Vector(4096), nullable=True)  # 文本嵌入
     image_embedding = mapped_column(Vector(768), nullable=True)   # CLIP 图像嵌入
 
     # Metadata
@@ -167,4 +167,17 @@ class ContentRelation(Base):
     relation_type: Mapped[str] = mapped_column(String(20), nullable=False)  # reference, series, similar
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     extra_meta: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Annotation(Base):
+    """批注表：记录用户对内容的文字批注"""
+    __tablename__ = "annotations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    selected_text: Mapped[str] = mapped_column(Text, nullable=False)
+    start_offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    annotation_text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -20,6 +20,7 @@ from app.api.analytics import router as analytics_router
 from app.api.relations import router as relations_router
 from app.api.brains import router as brains_router
 from app.api.brains import config_router as brain_config_router
+from app.api.annotations import router as annotations_router
 
 from app.services.task_queue import start_worker, stop_worker, subscribe_progress, unsubscribe_progress
 
@@ -31,13 +32,14 @@ async def lifespan(app: FastAPI):
     print("[Moyuan] Lifespan startup...", file=sys.stderr, flush=True)
     from app.models.base import Base
     from app.core.database import engine
-    from app.models.models import ProcessingTask
+    from app.models.models import ProcessingTask, Annotation
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # 创建 pgvector IVFFlat 索引（如果不存在）
-        await conn.execute(text("""
-            CREATE EXTENSION IF NOT EXISTS vector;
-        """))
+        
+        # 创建 pgvector 扩展
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        
+        # 创建索引（如果不存在）
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS ix_contents_text_embedding_ivfflat
             ON contents USING ivfflat (text_embedding vector_cosine_ops)
@@ -48,6 +50,7 @@ async def lifespan(app: FastAPI):
             ON contents USING ivfflat (image_embedding vector_cosine_ops)
             WITH (lists = 100);
         """))
+        
     print("[Moyuan] Tables and indexes created", file=sys.stderr, flush=True)
     start_worker()
     print("[Moyuan] Worker started", file=sys.stderr, flush=True)
@@ -90,6 +93,7 @@ app.include_router(analytics_router)
 app.include_router(relations_router)
 app.include_router(brains_router)
 app.include_router(brain_config_router)
+app.include_router(annotations_router)
 
 # Static files (uploaded files)
 from app.core.config import get_settings
@@ -109,6 +113,7 @@ async def ws_progress(websocket: WebSocket, content_id: str):
     await websocket.accept()
 
     async def _on_progress(payload: dict):
+
         try:
             await websocket.send_json(payload)
         except Exception:

@@ -185,6 +185,7 @@ export default function ContentsPage() {
 
   function handleUploaded(_results: UploadResult[]) {
     setShowUpload(false);
+    setTypeFilter(""); // 重置筛选器为"万象"
     setPage(1);
     load();
   }

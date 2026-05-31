@@ -3,6 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -119,6 +120,37 @@ async def enqueue_processing(content_id: str, db: AsyncSession = Depends(get_db)
     return {"status": "queued", "content_id": content_id, "queue_size": qsize}
 
 
+@router.post("/reprocess-all", response_model=dict)
+async def reprocess_all_pending(db: AsyncSession = Depends(get_db)):
+    """批量重新处理所有待处理的内容"""
+    from sqlalchemy import select
+    from app.models.models import Content
+    from app.services.task_queue import enqueue, get_queue_size
+
+    # 查找所有 pending 或 failed 状态的内容
+    result = await db.execute(
+        select(Content).where(
+            Content.is_deleted == False,
+            Content.processing_status.in_(["pending", "failed"]),
+            Content.file_path.isnot(None),  # 只处理有文件的内容
+        )
+    )
+    contents = result.scalars().all()
+
+    queued_count = 0
+    for content in contents:
+        await enqueue(str(content.id), task_type="parse", priority=1)
+        queued_count += 1
+
+    qsize = await get_queue_size()
+    return {
+        "status": "ok",
+        "queued": queued_count,
+        "queue_size": qsize,
+        "message": f"已将 {queued_count} 个待处理内容加入队列"
+    }
+
+
 @router.get("/queue/status", response_model=dict)
 async def get_queue_status():
     """获取处理队列状态"""
@@ -154,54 +186,144 @@ async def list_files(
     )
 
 
-# ── 文件详情 ──
-
 @router.get("/{content_id}", response_model=FileResponse)
 async def get_file(content_id: str, db: AsyncSession = Depends(get_db)):
-    """获取文件/内容详情"""
+    """获取单个文件详情"""
     service = FileService(db)
     content = await service.get_by_id(uuid.UUID(content_id))
     if content is None:
-        raise HTTPException(status_code=404, detail="Content not found")
+        raise HTTPException(status_code=404, detail="File not found")
     return FileResponse.model_validate(content)
 
-
-# ── 删除文件 ──
 
 @router.delete("/{content_id}", response_model=FileResponse)
 async def delete_file(content_id: str, db: AsyncSession = Depends(get_db)):
-    """软删除文件/内容"""
+    """软删除文件"""
     service = FileService(db)
     content = await service.soft_delete(uuid.UUID(content_id))
     if content is None:
-        raise HTTPException(status_code=404, detail="Content not found")
+        raise HTTPException(status_code=404, detail="File not found")
     return FileResponse.model_validate(content)
 
 
-# ── 内容管理 / 处理触发 ──
+@router.post("/{content_id}/restore", response_model=FileResponse)
+async def restore_file(content_id: str, db: AsyncSession = Depends(get_db)):
+    """恢复已删除的文件"""
+    from sqlalchemy import update
+    from app.models.models import Content
+    from datetime import datetime, timezone
+
+    result = await db.execute(
+        update(Content)
+        .where(Content.id == uuid.UUID(content_id))
+        .values(is_deleted=False, deleted_at=None)
+        .returning(Content)
+    )
+    content = result.scalar_one_or_none()
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    await db.commit()
+    return FileResponse.model_validate(content)
+
+
+# ── 回收站 ──
+
+recycle_router = APIRouter(prefix="/api/recycle", tags=["recycle"])
+
+
+@recycle_router.delete("/{content_id}/permanent", response_model=dict)
+async def permanent_delete(content_id: str, db: AsyncSession = Depends(get_db)):
+    """永久删除文件"""
+    from sqlalchemy import select
+    from app.models.models import Content
+    from pathlib import Path
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    
+    result = await db.execute(
+        select(Content).where(Content.id == uuid.UUID(content_id))
+    )
+    content = result.scalar_one_or_none()
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # 删除物理文件
+    if content.file_path:
+        file_path = Path(settings.file_storage_root) / content.file_path
+        if file_path.exists():
+            file_path.unlink()
+
+    # 删除数据库记录
+    await db.delete(content)
+    await db.commit()
+
+    return {"status": "ok", "message": "File permanently deleted"}
+
+
+# ── 存储管理 ──
+
+storage_router = APIRouter(prefix="/api/storage", tags=["storage"])
+
+
+@storage_router.get("/stats", response_model=dict)
+async def get_storage_stats(db: AsyncSession = Depends(get_db)):
+    """获取存储统计信息"""
+    from sqlalchemy import select, func
+    from app.models.models import Content
+
+    # 总文件数
+    total_result = await db.execute(
+        select(func.count(Content.id)).where(Content.is_deleted == False)
+    )
+    total_count = total_result.scalar() or 0
+
+    # 总大小
+    size_result = await db.execute(
+        select(func.sum(Content.file_size)).where(Content.is_deleted == False)
+    )
+    total_size = size_result.scalar() or 0
+
+    # 按类型统计
+    type_result = await db.execute(
+        select(
+            Content.content_type,
+            func.count(Content.id),
+            func.sum(Content.file_size)
+        )
+        .where(Content.is_deleted == False)
+        .group_by(Content.content_type)
+    )
+    type_stats = {
+        row[0]: {"count": row[1], "size": row[2] or 0}
+        for row in type_result.all()
+    }
+
+    return {
+        "total_count": total_count,
+        "total_size": total_size,
+        "by_type": type_stats,
+    }
+
+
+# ── 内容管理 ──
 
 contents_router = APIRouter(prefix="/api/contents", tags=["contents"])
 
 
 @contents_router.post("", response_model=FileResponse, status_code=201)
 async def create_content(body: ContentCreate, db: AsyncSession = Depends(get_db)):
-    """创建内容（笔记等）"""
+    """创建内容条目"""
     service = FileService(db)
-    data = body.model_dump(exclude_none=True)
-    content = await service.create_content(data)
+    content = await service.create_content(body.model_dump())
     return FileResponse.model_validate(content)
 
 
 @contents_router.patch("/{content_id}", response_model=FileResponse)
-async def update_content(
-    content_id: str,
-    body: ContentUpdate,
-    db: AsyncSession = Depends(get_db),
-):
+async def update_content(content_id: str, body: ContentUpdate, db: AsyncSession = Depends(get_db)):
     """更新内容"""
     service = FileService(db)
-    data = body.model_dump(exclude_none=True)
-    content = await service.update_content(uuid.UUID(content_id), data)
+    content = await service.update_content(uuid.UUID(content_id), body.model_dump(exclude_unset=True))
     if content is None:
         raise HTTPException(status_code=404, detail="Content not found")
     return FileResponse.model_validate(content)
@@ -233,10 +355,6 @@ async def get_process_status(content_id: str, db: AsyncSession = Depends(get_db)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-
-# ── 星标 / 置顶 / 批量操作 ──
-
-from pydantic import BaseModel
 
 class BatchActionRequest(BaseModel):
     ids: list[str]
@@ -300,125 +418,3 @@ async def toggle_pin(content_id: str, db: AsyncSession = Depends(get_db)):
     content.is_pinned = not content.is_pinned
     await db.commit()
     return {"is_pinned": content.is_pinned}
-
-
-# ── 存储路径管理 ──
-
-storage_router = APIRouter(prefix="/api/storage", tags=["storage"])
-
-
-@storage_router.get("/config")
-async def get_storage_config():
-    """获取存储配置"""
-    from app.services.storage import StorageService
-    return StorageService.get_config()
-
-
-@storage_router.post("/validate")
-async def validate_storage_path(path: str = Form(...)):
-    """验证存储路径"""
-    from app.services.storage import StorageService
-    return StorageService.validate_path(path)
-
-
-@storage_router.put("/config")
-async def update_storage_root(path: str = Form(...)):
-    """更新存储根目录"""
-    from app.services.storage import StorageService
-    try:
-        return StorageService.update_storage_root(path)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# ── 回收站 ──
-
-recycle_router = APIRouter(prefix="/api/recycle", tags=["recycle"])
-
-
-@recycle_router.get("")
-async def list_recycle_bin(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
-):
-    """获取回收站列表"""
-    from app.schemas.file import FileListResponse, FileResponse
-    service = FileService(db)
-    items, total = await service.list_files(
-        is_deleted=True,
-        page=page,
-        page_size=page_size,
-    )
-    return FileListResponse(
-        items=[FileResponse.model_validate(item) for item in items],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
-
-
-@recycle_router.post("/{content_id}/restore")
-async def restore_from_recycle(content_id: str, db: AsyncSession = Depends(get_db)):
-    """从回收站恢复"""
-    from app.schemas.file import FileResponse
-    service = FileService(db)
-    content = await service.get_by_id(uuid.UUID(content_id))
-    if content is None:
-        raise HTTPException(status_code=404, detail="Content not found")
-    if not content.is_deleted:
-        raise HTTPException(status_code=400, detail="Content is not deleted")
-    content.is_deleted = False
-    content.deleted_at = None
-    await db.flush()
-    await db.refresh(content)
-    return FileResponse.model_validate(content)
-
-
-@recycle_router.delete("/{content_id}/permanent")
-async def permanent_delete(content_id: str, db: AsyncSession = Depends(get_db)):
-    """永久删除"""
-    service = FileService(db)
-    content = await service.get_by_id(uuid.UUID(content_id))
-    if content is None:
-        raise HTTPException(status_code=404, detail="Content not found")
-
-    # 删除物理文件
-    if content.file_path:
-        from app.services.file import _get_storage_dir
-        full_path = _get_storage_dir() / content.file_path
-        full_path.unlink(missing_ok=True)
-
-    await db.delete(content)
-    await db.flush()
-    return {"status": "deleted", "id": str(content.id)}
-
-
-@recycle_router.post("/cleanup")
-async def cleanup_old_recycle(days: int = Query(30, ge=1), db: AsyncSession = Depends(get_db)):
-    """清理超过 N 天的回收站内容"""
-    from datetime import datetime, timezone, timedelta
-    from sqlalchemy import select
-    from app.models.models import Content
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    result = await db.execute(
-        select(Content).where(
-            Content.is_deleted == True,
-            Content.deleted_at < cutoff,
-        )
-    )
-    old_items = list(result.scalars().all())
-
-    # 删除物理文件
-    from app.services.file import _get_storage_dir
-    storage = _get_storage_dir()
-    deleted_count = 0
-    for item in old_items:
-        if item.file_path:
-            (storage / item.file_path).unlink(missing_ok=True)
-        await db.delete(item)
-        deleted_count += 1
-
-    await db.flush()
-    return {"status": "ok", "deleted_count": deleted_count, "cutoff_date": cutoff.isoformat()}
