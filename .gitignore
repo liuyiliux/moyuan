@@ -22,6 +22,25 @@ data/backups/*
 !data/files/.gitkeep
 !data/backups/.gitkeep
 
+# Storage
+backend/storage/
+backend/chunks/
+
+# Logs
+*.log
+backend/backend.log
+
+# Node
+frontend/node_modules/
+frontend/.vite/
+
+# Test
+test.pdf
+.pytest_cache/
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Trae
+.trae/

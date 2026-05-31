@@ -162,6 +162,7 @@ class ContentProcessService:
         except Exception:
             content.processing_status = "failed"
             content.processing_error = traceback.format_exc()
+            logger.error(f"Processing failed for {content.id}: {content.processing_error}")
             await self.db.flush()
             raise
 
