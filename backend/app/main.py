@@ -39,19 +39,11 @@ async def lifespan(app: FastAPI):
         # 创建 pgvector 扩展
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         
-        # 创建索引（如果不存在）
-        await conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS ix_contents_text_embedding_ivfflat
-            ON contents USING ivfflat (text_embedding vector_cosine_ops)
-            WITH (lists = 100);
-        """))
-        await conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS ix_contents_image_embedding_ivfflat
-            ON contents USING ivfflat (image_embedding vector_cosine_ops)
-            WITH (lists = 100);
-        """))
+        # 注意：4096 维向量无法创建 IVFFlat/HNSW 索引（限制 2000 维）
+        # 数据量小时（<10万条）不创建索引性能完全够用
+        # 如需索引，请将向量维度降至 1536 或 2000 以内
         
-    print("[Moyuan] Tables and indexes created", file=sys.stderr, flush=True)
+    print("[Moyuan] Tables created", file=sys.stderr, flush=True)
     start_worker()
     print("[Moyuan] Worker started", file=sys.stderr, flush=True)
     yield
@@ -113,7 +105,6 @@ async def ws_progress(websocket: WebSocket, content_id: str):
     await websocket.accept()
 
     async def _on_progress(payload: dict):
-
         try:
             await websocket.send_json(payload)
         except Exception:
