@@ -7,7 +7,6 @@ interface Particle {
   vy: number;
   size: number;
   opacity: number;
-  life: number;
 }
 
 export function QiParticles() {
@@ -29,17 +28,15 @@ export function QiParticles() {
     window.addEventListener("resize", resize);
 
     const particles: Particle[] = [];
-    const particleCount = 120;
-    const maxLife = 500;
+    const particleCount = 100;
 
     const createParticle = (): Particle => ({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      vx: (Math.random() - 0.5) * 0.6,
-      vy: (Math.random() - 0.5) * 0.6 - 0.25,
-      size: Math.random() * 5 + 3,
-      opacity: Math.random() * 0.6 + 0.5,
-      life: maxLife,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: (Math.random() - 0.5) * 0.5 - 0.2,
+      size: Math.random() * 4 + 2.5,
+      opacity: Math.random() * 0.4 + 0.4,
     });
 
     for (let i = 0; i < particleCount; i++) {
@@ -52,19 +49,17 @@ export function QiParticles() {
       particles.forEach((p, index) => {
         p.x += p.vx;
         p.y += p.vy;
-        p.life--;
 
-        if (p.life <= 0) {
+        if (p.x < -20 || p.x > canvas.width + 20 || p.y < -20 || p.y > canvas.height + 20) {
           particles[index] = createParticle();
           return;
         }
 
-        const lifeRatio = p.life / maxLife;
-        const currentOpacity = Math.min(p.opacity * lifeRatio, 0.9);
+        const currentOpacity = p.opacity;
 
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(16, 185, 129, ${currentOpacity * 0.2})`;
+        ctx.fillStyle = `rgba(16, 185, 129, ${currentOpacity * 0.15})`;
         ctx.fill();
 
         ctx.beginPath();
@@ -73,8 +68,8 @@ export function QiParticles() {
         ctx.fill();
 
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 255, ${currentOpacity * 0.8})`;
+        ctx.arc(p.x, p.y, p.size * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${currentOpacity * 0.6})`;
         ctx.fill();
       });
 
