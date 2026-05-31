@@ -149,7 +149,7 @@ export default function BackupPage() {
   }, [deleteConfirmFile, showToast, fetchBackups]);
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)]">
+    <div className="min-h-screen">
       <div className="max-w-4xl mx-auto px-6 py-10">
         {/* ── Header ── */}
         <div className="mb-8">

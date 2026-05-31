@@ -125,7 +125,7 @@ export default function BrainsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] p-6">
+    <div className="min-h-screen p-6">
       {/* Toast */}
       {notification && <Toast type={notification.type} message={notification.message} onClose={() => setNotification(null)} />}
 

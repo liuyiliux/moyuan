@@ -89,7 +89,7 @@ export default function FavoritesPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-44px)] overflow-hidden bg-[var(--bg-primary)]">
+    <div className="flex h-[calc(100vh-44px)] overflow-hidden">
       {/* Toast */}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
@@ -106,25 +106,16 @@ export default function FavoritesPage() {
 
       {/* Sidebar */}
       <div className="w-64 flex-shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-[var(--text-primary)]">收藏夹</h3>
-          <button
-            onClick={() => setShowNew((v) => !v)}
-            className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent-text)] hover:bg-[var(--accent-soft)] transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-
         {showNew && (
-          <form onSubmit={handleCreate} className="mb-3 space-y-2 p-3 rounded-lg bg-[var(--bg-secondary)]">
+          <form onSubmit={handleCreate} className="mb-4 space-y-2 p-3 rounded-lg bg-[var(--accent-soft)]">
             <input
               type="text"
-              placeholder="收藏夹名称"
+              placeholder="新收藏夹名称"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               required
               className="taste-input text-sm"
+              autoFocus
             />
             <input
               type="text"
@@ -133,13 +124,22 @@ export default function FavoritesPage() {
               onChange={(e) => setNewDesc(e.target.value)}
               className="taste-input text-sm"
             />
-            <button
-              type="submit"
-              disabled={saving || !newName.trim()}
-              className="taste-btn-primary text-xs w-full py-1.5"
-            >
-              {saving ? "创建中..." : "创建"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={saving || !newName.trim()}
+                className="taste-btn-primary text-xs flex-1 py-1.5"
+              >
+                {saving ? "创建中..." : "创建"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNew(false)}
+                className="taste-btn-secondary text-xs px-3 py-1.5"
+              >
+                取消
+              </button>
+            </div>
           </form>
         )}
 
@@ -149,51 +149,65 @@ export default function FavoritesPage() {
             加载中...
           </div>
         ) : collections.length === 0 ? (
-          <div className="text-center py-8 text-sm text-[var(--text-muted)]">暂无收藏夹</div>
+          <div className="text-center py-8">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-[var(--bg-secondary)] flex items-center justify-center">
+              <Bookmark className="w-6 h-6 text-[var(--text-muted)]" />
+            </div>
+            <p className="text-sm text-[var(--text-muted)] mb-3">暂无收藏夹</p>
+            <button
+              onClick={() => setShowNew(true)}
+              className="taste-btn-primary text-xs px-4 py-1.5"
+            >
+              <Plus className="w-3 h-3 inline-block mr-1" />
+              新建收藏夹
+            </button>
+          </div>
         ) : (
-          <ul className="space-y-0.5">
-            {collections.map((col) => (
-              <li
-                key={col.id}
-                onClick={() => loadItems(col)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
-                  activeCol?.id === col.id
-                    ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                    : "text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
-                }`}
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-[var(--text-muted)]">我的收藏</h3>
+              <button
+                onClick={() => setShowNew((v) => !v)}
+                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--accent-text)] hover:bg-[var(--bg-secondary)] transition-colors"
               >
-                <span className="flex-1 truncate">{col.name}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                  activeCol?.id === col.id
-                    ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
-                    : "bg-[var(--bg-secondary)] text-[var(--text-muted)]"
-                }`}>
-                  {col.item_count}
-                </span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeleteColTarget(col); }}
-                  className="p-0.5 rounded text-[var(--text-muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--danger)] transition-all"
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <ul className="space-y-0.5">
+              {collections.map((col) => (
+                <li
+                  key={col.id}
+                  onClick={() => loadItems(col)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
+                    activeCol?.id === col.id
+                      ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                      : "text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+                  }`}
                 >
-                  <X className="w-3 h-3" />
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <span className="flex-1 truncate">{col.name}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                    activeCol?.id === col.id
+                      ? "bg-[var(--accent)] text-white"
+                      : "bg-[var(--bg-secondary)] text-[var(--text-muted)]"
+                  }`}>
+                    {col.item_count}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteColTarget(col); }}
+                    className="p-0.5 rounded text-[var(--text-muted)] opacity-0 hover:opacity-100 hover:text-[var(--danger)] transition-all"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
 
       {/* Main */}
       <div className="flex-1 overflow-y-auto p-6">
-        {!activeCol ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-[var(--bg-secondary)] flex items-center justify-center">
-                <Bookmark className="w-8 h-8 text-[var(--text-muted)]" />
-              </div>
-              <p className="text-sm text-[var(--text-muted)]">选择一个收藏夹，或新建一个</p>
-            </div>
-          </div>
-        ) : itemsLoading ? (
+        {!activeCol ? null : itemsLoading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
           </div>
@@ -203,12 +217,18 @@ export default function FavoritesPage() {
               <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-[var(--bg-secondary)] flex items-center justify-center">
                 <FolderOpen className="w-8 h-8 text-[var(--text-muted)]" />
               </div>
-              <p className="text-sm text-[var(--text-muted)]">收藏夹是空的，去内容页添加吧</p>
+              <p className="text-sm text-[var(--text-muted)]">此收藏夹暂无内容</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">浏览内容时点击收藏即可添加</p>
             </div>
           </div>
         ) : (
           <div>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-4">{activeCol.name}</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">{activeCol.name}</h3>
+              {activeCol.description && (
+                <span className="text-sm text-[var(--text-muted)]">{activeCol.description}</span>
+              )}
+            </div>
             <div className="space-y-2">
               {items.map((item) => (
                 <div

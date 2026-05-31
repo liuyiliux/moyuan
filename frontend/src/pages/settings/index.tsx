@@ -184,7 +184,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] dark:bg-zinc-950">
+    <div className="min-h-screen">
       {/* Delete Confirm */}
       <ConfirmDialog
         open={deleteConfirm !== null}

@@ -471,7 +471,7 @@ export default function CollectionsPage() {
   // ── Main Render ──
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] dark:bg-zinc-950">
+    <div className="min-h-screen">
       <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Page Header */}
         <div className="flex items-center justify-between mb-8">
