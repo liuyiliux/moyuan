@@ -147,8 +147,11 @@ class ContentProcessService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def process(self, content_id: str | None = None, content: Content | None = None) -> Content:
-        """处理单个 Content：解析文本 → 语义分块 → 生成嵌入"""
+    async def process(self, content_id: str | None = None, content: Content | None = None, keep_embedded: bool = True) -> Content:
+        """处理单个 Content：解析文本 → 语义分块 → 生成嵌入
+        
+        :param keep_embedded: 是否保留已经有 embedding 的 chunks，默认为 True
+        """
         import time
         start_time = time.time()
         
@@ -158,12 +161,12 @@ class ContentProcessService:
             if content is None:
                 raise ValueError(f"Content {content_id} not found")
 
-        logger.info(f"开始处理内容 - content_id={content.id}, type={content.content_type}, title={content.title}")
+        logger.info(f"开始处理内容 - content_id={content.id}, type={content.content_type}, title={content.title}, keep_embedded={keep_embedded}")
         content.processing_status = "processing"
         await self.db.flush()
 
         try:
-            await self._dispatch_and_chunk(content)
+            await self._dispatch_and_chunk(content, keep_embedded=keep_embedded)
             content.processing_status = "completed"
             await self.db.flush()
             elapsed_time = (time.time() - start_time) * 1000
@@ -179,28 +182,31 @@ class ContentProcessService:
         await self.db.refresh(content)
         return content
 
-    async def _dispatch_and_chunk(self, content: Content) -> None:
-        """根据 content_type 分发处理，并执行分块"""
+    async def _dispatch_and_chunk(self, content: Content, keep_embedded: bool = True) -> None:
+        """根据 content_type 分发处理，并执行分块
+        
+        :param keep_embedded: 是否保留已经有 embedding 的 chunks
+        """
         ct = content.content_type
 
         if ct == "pdf":
-            await self._process_pdf(content)
+            await self._process_pdf(content, keep_embedded=keep_embedded)
         elif ct == "doc":
-            await self._process_doc(content)
+            await self._process_doc(content, keep_embedded=keep_embedded)
         elif ct == "note":
-            await self._process_note(content)
+            await self._process_note(content, keep_embedded=keep_embedded)
         elif ct == "image":
-            await self._process_image(content)
+            await self._process_image(content, keep_embedded=keep_embedded)
         elif ct == "audio":
-            await self._process_audio(content)
+            await self._process_audio(content, keep_embedded=keep_embedded)
         elif ct == "video":
-            await self._process_video_content(content)
+            await self._process_video_content(content, keep_embedded=keep_embedded)
         elif ct == "web":
-            await self._process_web(content)
+            await self._process_web(content, keep_embedded=keep_embedded)
         else:
-            await self._process_fallback(content)
+            await self._process_fallback(content, keep_embedded=keep_embedded)
 
-    async def _process_pdf(self, content: Content) -> None:
+    async def _process_pdf(self, content: Content, keep_embedded: bool = True) -> None:
         """PDF 处理：提取文字（按页）+ 提取图片 → 分块"""
         path = self._resolve_path(content.file_path)
         root = Path(settings.file_storage_root).resolve()
@@ -212,7 +218,7 @@ class ContentProcessService:
         img_dir = root / "chunks" / str(content.id) / "images"
         images = await asyncio.to_thread(_extract_pdf_images, Path(path), img_dir)
 
-        await self._delete_old_chunks(content.id)
+        await self._delete_old_chunks(content.id, keep_embedded=keep_embedded)
 
         from app.services.chunking import chunk_text, TextChunk
         chunks = await chunk_text(full_text, self.db)
@@ -250,7 +256,7 @@ class ContentProcessService:
         await self.db.flush()
         await self._embed_chunks_batched(content.id)
 
-    async def _process_doc(self, content: Content) -> None:
+    async def _process_doc(self, content: Content, keep_embedded: bool = True) -> None:
         """Office 文档处理：提取文字 → 语义分块"""
         path = self._resolve_path(content.file_path)
         ext = Path(path).suffix.lower()
@@ -263,16 +269,16 @@ class ContentProcessService:
             text = Path(path).read_text(encoding="utf-8", errors="ignore")
 
         content.text_content = text
-        await self._chunk_and_save(content, text)
+        await self._chunk_and_save(content, text, keep_embedded=keep_embedded)
 
-    async def _process_note(self, content: Content) -> None:
+    async def _process_note(self, content: Content, keep_embedded: bool = True) -> None:
         """笔记处理：直接对 text_content 语义分块"""
         text = content.text_content or ""
-        await self._chunk_and_save(content, text)
+        await self._chunk_and_save(content, text, keep_embedded=keep_embedded)
 
-    async def _process_image(self, content: Content) -> None:
+    async def _process_image(self, content: Content, keep_embedded: bool = True) -> None:
         """图片处理：单块，chunk_type='image'"""
-        await self._delete_old_chunks(content.id)
+        await self._delete_old_chunks(content.id, keep_embedded=keep_embedded)
 
         chunk = ContentChunk(
             content_id=content.id,
@@ -284,20 +290,20 @@ class ContentProcessService:
         await self.db.flush()
         await self._embed_chunks_batched(content.id, chunk_type="image")
 
-    async def _process_audio(self, content: Content) -> None:
+    async def _process_audio(self, content: Content, keep_embedded: bool = True) -> None:
         """音频处理：预留 Whisper 转写 → 按时间戳分块"""
         path = self._resolve_path(content.file_path)
         segments = await _transcribe_audio(Path(path))
 
         if not segments:
             content.text_content = f"[音频文件: {content.title}]（转写待实现）"
-            await self._chunk_and_save(content, content.text_content)
+            await self._chunk_and_save(content, content.text_content, keep_embedded=keep_embedded)
             return
 
         full_text = " ".join(seg["text"] for seg in segments)
         content.text_content = full_text
 
-        await self._delete_old_chunks(content.id)
+        await self._delete_old_chunks(content.id, keep_embedded=keep_embedded)
         chunk_models = []
         for idx, seg in enumerate(segments):
             chunk_models.append(ContentChunk(
@@ -313,20 +319,20 @@ class ContentProcessService:
         await self.db.flush()
         await self._embed_chunks_batched(content.id)
 
-    async def _process_video_content(self, content: Content) -> None:
+    async def _process_video_content(self, content: Content, keep_embedded: bool = True) -> None:
         """视频处理：预留音频提取+转写 → 按时间戳分块 + 关键帧截图"""
         path = self._resolve_path(content.file_path)
         segments, screenshots = await _process_video(Path(path))
 
         if not segments:
             content.text_content = f"[视频文件: {content.title}]（转写待实现）"
-            await self._chunk_and_save(content, content.text_content)
+            await self._chunk_and_save(content, content.text_content, keep_embedded=keep_embedded)
             return
 
         full_text = " ".join(seg["text"] for seg in segments)
         content.text_content = full_text
 
-        await self._delete_old_chunks(content.id)
+        await self._delete_old_chunks(content.id, keep_embedded=keep_embedded)
         chunk_models = []
         for idx, seg in enumerate(segments):
             chunk_models.append(ContentChunk(
@@ -351,28 +357,28 @@ class ContentProcessService:
         await self.db.flush()
         await self._embed_chunks_batched(content.id)
 
-    async def _process_web(self, content: Content) -> None:
+    async def _process_web(self, content: Content, keep_embedded: bool = True) -> None:
         """网页处理：trafilatura 提取正文 → 语义分块"""
         if not content.source_url:
             content.text_content = ""
             return
         text = await _extract_web(content.source_url)
         content.text_content = text
-        await self._chunk_and_save(content, text)
+        await self._chunk_and_save(content, text, keep_embedded=keep_embedded)
 
-    async def _process_fallback(self, content: Content) -> None:
+    async def _process_fallback(self, content: Content, keep_embedded: bool = True) -> None:
         """兜底处理：尝试读取为纯文本"""
         if content.file_path:
             path = self._resolve_path(content.file_path)
             text = Path(path).read_text(encoding="utf-8", errors="ignore")
             content.text_content = text
-            await self._chunk_and_save(content, text)
+            await self._chunk_and_save(content, text, keep_embedded=keep_embedded)
         else:
             content.text_content = ""
 
-    async def _chunk_and_save(self, content: Content, text: str) -> None:
+    async def _chunk_and_save(self, content: Content, text: str, keep_embedded: bool = True) -> None:
         """通用分块流程：删除旧块 → 语义分块 → 保存 → 嵌入"""
-        await self._delete_old_chunks(content.id)
+        await self._delete_old_chunks(content.id, keep_embedded=keep_embedded)
 
         if not text or not text.strip():
             return

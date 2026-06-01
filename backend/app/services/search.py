@@ -38,6 +38,11 @@ async def _vector_search(
     - "text": 只搜索文本 chunks
     - "image": 只搜索图片 chunks
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"开始向量搜索: query_vec 长度={len(query_vec)}, top_k={top_k}, search_mode={search_mode}")
+    
     base = """
         SELECT cc.id AS chunk_id, cc.content_id, cc.chunk_text, cc.chunk_type,
                cc.page_number, cc.start_offset, cc.end_offset,
@@ -57,14 +62,15 @@ async def _vector_search(
         base += " AND cc.embedding_type = 'image'"
     base += " ORDER BY cc.embedding <=> :query_vec LIMIT :top_k"
 
-    params = {"query_vec": str(query_vec), "top_k": top_k}
+    params = {"query_vec": query_vec, "top_k": top_k}
     if content_type:
         params["ctype"] = content_type
 
-    conn = await db.bind.raw_connection()
     try:
-        result = await conn.execute(text(base), params)
-        rows = result.fetchall()
+        # 使用 db.execute 而不是 raw_connection
+        result = await db.execute(text(base), params)
+        rows = result.all()
+        logger.info(f"向量搜索返回 {len(rows)} 个结果")
         return [
             {
                 "chunk_id": str(r.chunk_id),
@@ -86,8 +92,9 @@ async def _vector_search(
             }
             for i, r in enumerate(rows)
         ]
-    finally:
-        await conn.close()
+    except Exception as e:
+        logger.error(f"向量搜索错误: {e}", exc_info=True)
+        raise
 
 
 # ── 关键词检索（chunk 粒度）──
@@ -231,7 +238,11 @@ async def search(
     query_vector: 预计算的查询向量（图搜图时传入）
     """
     import time
+    import logging
+    logger = logging.getLogger(__name__)
+    
     t0 = time.time()
+    logger.info(f"开始搜索: query='{query}', enable_vector={enable_vector}, enable_keyword={enable_keyword}, search_mode={search_mode}")
 
     vector_results: list[dict] = []
     keyword_results: list[dict] = []
@@ -244,19 +255,24 @@ async def search(
                 from app.services.embedding import embed_query
                 qv = await embed_query(db, query)
             if qv is not None:
+                logger.info(f"查询向量生成成功，长度={len(qv)}")
                 vector_results = await _vector_search(
                     db, qv, top_k=top_k * 2,
                     content_type=content_type,
                     search_mode=search_mode,
                 )
-        except Exception:
-            pass
+                logger.info(f"向量搜索结果数量: {len(vector_results)}")
+            else:
+                logger.warning("查询向量生成失败，跳过向量搜索")
+        except Exception as e:
+            logger.error(f"向量搜索异常: {e}", exc_info=True)
 
     if enable_keyword:
         keyword_results = await _keyword_search(
             db, query, top_k=top_k * 2,
             content_type=content_type,
         )
+        logger.info(f"关键词搜索结果数量: {len(keyword_results)}")
 
     if not vector_results and not keyword_results:
         return {"results": [], "total": 0, "took_ms": round((time.time() - t0) * 1000, 1), "query": query}

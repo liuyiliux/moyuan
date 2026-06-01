@@ -359,13 +359,16 @@ async def update_content(content_id: str, body: ContentUpdate, db: AsyncSession 
 
 
 @contents_router.post("/{content_id}/process", response_model=dict)
-async def trigger_process(content_id: str, db: AsyncSession = Depends(get_db)):
-    """触发内容处理（解析、分块、嵌入）"""
+async def trigger_process(content_id: str, reprocess_all: bool = Query(False), db: AsyncSession = Depends(get_db)):
+    """触发内容处理（解析、分块、嵌入）
+    
+    :param reprocess_all: 是否重新处理所有块（包括已成功嵌入的），默认为 False
+    """
     from app.services.process import ContentProcessService
 
     svc = ContentProcessService(db)
     try:
-        content = await svc.process(content_id=content_id)
+        content = await svc.process(content_id=content_id, keep_embedded=not reprocess_all)
         return {"status": "ok", "processing_status": content.processing_status}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
