@@ -18,7 +18,7 @@ import {
   FileAudio, FileVideo, Image, FileSpreadsheet, File, Globe,
   Star, Bookmark, Tag as TagIcon,
   Sparkles, Brain, BookOpen, Loader2,
-  MessageSquare,
+  MessageSquare, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 const TYPE_ICON_MAP: Record<string, React.ReactNode> = {
