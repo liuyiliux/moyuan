@@ -258,6 +258,52 @@ alembic downgrade -1
 
 **相关代码**: [backend/app/services/embedding.py#L174-L178](file:///f:/PycharmProjects/moyuan/backend/app/services/embedding.py#L174-L178)
 
+### 7.4 向量搜索格式问题
+**问题**: 使用 asyncpg 调用 pgvector 时报错 `invalid input for query argument`
+
+**原因**: asyncpg 需要向量以字符串格式 `[x,y,z]` 传递，而不是 Python list
+
+**解决方案**: 在搜索服务中将向量列表转换为字符串格式
+
+**相关代码**: [backend/app/services/search.py#L65-L67](file:///f:/PycharmProjects/moyuan/backend/app/services/search.py#L65-L67)
+
+### 7.5 Chunks API 分页
+**功能**: 获取内容分块时支持分页，避免返回过多数据
+
+**API**: `GET /api/contents/{content_id}/chunks?page=1&page_size=50`
+
+**响应**:
+```json
+{
+  "content_id": "...",
+  "total": 100,
+  "page": 1,
+  "page_size": 50,
+  "chunks": [...]
+}
+```
+
+**相关代码**: [backend/app/api/file.py#L421-L472](file:///f:/PycharmProjects/moyuan/backend/app/api/file.py#L421-L472)
+
+### 7.6 重新处理内容策略
+**功能**: 重新处理内容时可以选择处理范围
+
+**选项**:
+- `reprocess_all=false`: 只处理未嵌入的分块（默认，保留成功的嵌入）
+- `reprocess_all=true`: 删除所有分块，重新处理全部内容
+
+**相关代码**:
+- [backend/app/api/file.py#L361-L376](file:///f:/PycharmProjects/moyuan/backend/app/api/file.py#L361-L376)
+- [backend/app/services/process.py#L100-L110](file:///f:/PycharmProjects/moyuan/backend/app/services/process.py#L100-L110)
+
+### 7.7 前端详情页优化
+**功能**:
+- 长文本内容默认折叠，点击展开查看全部
+- 底部添加"回到顶部"和"滚动到底部"浮动按钮
+- Chunks 标签页支持分页浏览
+
+**相关代码**: [frontend/src/pages/contents/detail.tsx](file:///f:/PycharmProjects/moyuan/frontend/src/pages/contents/detail.tsx)
+
 ---
 
 ## 8. 启动与开发
@@ -374,6 +420,10 @@ API 路由    → backend/app/api/
 | 2026-06-02 | 创建本文档，记录项目架构与关键决策 | AI |
 | 2026-06-02 | 修复硅基流动嵌入问题（批量限制、encoding_format） | AI |
 | 2026-06-02 | 移除 _truncate_text 的截断逻辑（分块已处理） | AI |
+| 2026-06-02 | 修复向量搜索格式问题（asyncpg 需要字符串格式） | AI |
+| 2026-06-02 | 为 Chunks API 添加分页功能 | AI |
+| 2026-06-02 | 添加重新处理内容策略（支持选择处理范围） | AI |
+| 2026-06-02 | 优化前端详情页（内容折叠、浮动按钮、分页） | AI |
 
 ---
 
