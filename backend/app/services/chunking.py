@@ -76,18 +76,6 @@ async def _get_chunking_provider(db: AsyncSession) -> tuple[str, str, str] | Non
     return (api_key, provider.base_url, binding["model"])
 
 
-async def _call_embedding_api(
-    api_key: str,
-    base_url: str,
-    model: str,
-    texts: list[str],
-) -> list[list[float]]:
-    """调用 OpenAI 兼容接口生成嵌入向量"""
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-    response = await client.embeddings.create(model=model, input=texts)
-    return [d.embedding for d in response.data]
-
-
 async def _compute_sentence_embeddings(
     sentences: list[str],
     api_key: str,
@@ -95,13 +83,35 @@ async def _compute_sentence_embeddings(
     model: str,
     batch_size: int = 32,
 ) -> list[list[float]]:
-    """批量为句子生成嵌入向量"""
-    all_embeddings = []
-    for i in range(0, len(sentences), batch_size):
-        batch = sentences[i:i + batch_size]
-        vecs = await _call_embedding_api(api_key, base_url, model, batch)
-        all_embeddings.extend(vecs)
-    return all_embeddings
+    """批量为句子生成嵌入向量（用于智能分块）
+
+    复用 embedding.py 的统一调用函数，自动获得：
+    - 详细的调用日志（类型、批次、模型、耗时）
+    - 错误处理（认证、连接、API错误）
+    - 批量大小限制（硅基流动要求 batch_size <= 64）
+    """
+    from app.core.logging import get_logger
+    chunking_logger = get_logger(__name__)
+
+    chunking_logger.info(
+        f"智能分块阶段开始 - 句子数: {len(sentences)}, 模型: {model}, base_url: {base_url}"
+    )
+
+    from app.services.embedding import _call_openai_embedding
+    try:
+        all_embeddings = await _call_openai_embedding(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            inputs=sentences,
+        )
+        chunking_logger.info(
+            f"智能分块阶段完成 - 句子数: {len(sentences)}, 获得向量数: {len(all_embeddings)}"
+        )
+        return all_embeddings
+    except Exception as e:
+        chunking_logger.error(f"智能分块阶段失败: {e}", exc_info=True)
+        raise
 
 
 def _find_semantic_boundaries(

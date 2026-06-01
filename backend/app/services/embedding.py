@@ -41,11 +41,11 @@ async def _call_openai_embedding(
     inputs: list,
 ) -> list[list[float]]:
     """调用 OpenAI 兼容接口生成嵌入
-    
+
     inputs 可以是:
     - list[str]: 纯文本输入
     - list[dict]: 多模态输入 [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "..."}}]
-    
+
     针对硅基流动(SiliconFlow)等 OpenAI 兼容服务的特殊处理:
     - 硅基流动要求 batch_size <= 64
     - 需要正确处理空字符串输入
@@ -53,29 +53,32 @@ async def _call_openai_embedding(
     """
     from openai import APIError, APIConnectionError, AuthenticationError
     import time
-    
+
     start_time = time.time()
-    logger.debug(f"开始调用嵌入 API - 模型: {model}, 输入数量: {len(inputs)}, base_url: {base_url}")
-    
+    input_type = "multimodal" if any(isinstance(i, dict) for i in inputs) else "text"
+    logger.info(f"开始调用嵌入 API - 类型: {input_type}, 模型: {model}, 输入数量: {len(inputs)}, base_url: {base_url}")
+
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
     )
-    
+
     filtered_inputs = [inp for inp in inputs if inp and (isinstance(inp, str) and inp.strip()) or isinstance(inp, dict)]
-    
+
     if not filtered_inputs:
-        logger.debug("没有有效的输入，返回空结果")
+        logger.warning(f"没有有效的输入 - 模型: {model}, 原始输入: {len(inputs)}")
         return [[]] * len(inputs)
-    
-    logger.debug(f"有效输入数量: {len(filtered_inputs)} (已过滤空输入)")
-    
+
+    logger.info(f"有效输入数量: {len(filtered_inputs)} (已过滤 {len(inputs) - len(filtered_inputs)} 个空输入)")
+
     max_batch_size = 64
     all_embeddings: list[list[float]] = []
-    
+
+    total_batches = (len(filtered_inputs) + max_batch_size - 1) // max_batch_size
     for batch_idx, i in enumerate(range(0, len(filtered_inputs), max_batch_size)):
         batch = filtered_inputs[i:i + max_batch_size]
-        logger.debug(f"处理批次 {batch_idx + 1}/{(len(filtered_inputs) + max_batch_size - 1) // max_batch_size} - 批量大小: {len(batch)}")
+        batch_start = time.time()
+        logger.info(f"处理批次 {batch_idx + 1}/{total_batches} - 类型: {input_type}, 批量大小: {len(batch)}, 模型: {model}")
         try:
             response = await client.embeddings.create(
                 model=model,
@@ -84,26 +87,47 @@ async def _call_openai_embedding(
             )
             batch_embeddings = [d.embedding for d in response.data]
             all_embeddings.extend(batch_embeddings)
-            logger.debug(f"批次 {batch_idx + 1} 完成 - 获得 {len(batch_embeddings)} 个嵌入向量")
+            batch_time = (time.time() - batch_start) * 1000
+            logger.info(f"批次 {batch_idx + 1} 成功 - 获得 {len(batch_embeddings)} 个向量, 耗时: {batch_time:.2f}ms")
         except AuthenticationError as e:
-            error_msg = f"Embedding API authentication failed (model={model}): API Key 无效或过期"
+            error_msg = f"Embedding API 认证失败 (model={model}): API Key 无效或过期"
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
         except APIConnectionError as e:
-            error_msg = f"Embedding API connection failed (model={model}, base_url={base_url}): 无法连接到服务"
+            error_msg = f"Embedding API 连接失败 (model={model}, base_url={base_url}): 无法连接到服务"
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
         except APIError as e:
-            error_code = e.response.get('error', {}).get('code', 'unknown')
-            error_message = e.response.get('error', {}).get('message', str(e))
-            error_msg = f"Embedding API error (model={model}, status={e.status_code}, code={error_code}): {error_message}"
+            error_body = ""
+            error_code = "unknown"
+            error_message = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    if hasattr(e.response, 'text'):
+                        error_body = e.response.text
+                    if hasattr(e.response, 'json'):
+                        try:
+                            err_json = e.response.json()
+                            if isinstance(err_json, dict):
+                                err_obj = err_json.get('error', {})
+                                if isinstance(err_obj, dict):
+                                    error_code = err_obj.get('code', 'unknown')
+                                    error_message = err_obj.get('message', str(e))
+                                else:
+                                    error_code = err_json.get('code', 'unknown')
+                                    error_message = err_json.get('message', str(e))
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            error_msg = f"Embedding API 错误 (model={model}, status={getattr(e, 'status_code', 'N/A')}, code={error_code}): {error_message} | body: {error_body[:500]}"
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
         except Exception as e:
-            error_msg = f"Embedding API call failed (model={model}, batch_size={len(batch)}): {str(e)}"
+            error_msg = f"Embedding API 调用失败 (model={model}, batch_size={len(batch)}, type={input_type}): {str(e)}"
             logger.error(error_msg, exc_info=True)
             raise RuntimeError(error_msg) from e
-    
+
     result: list[list[float] | None] = []
     input_idx = 0
     for inp in inputs:
@@ -112,10 +136,10 @@ async def _call_openai_embedding(
             input_idx += 1
         else:
             result.append(None)
-    
+
     elapsed_time = (time.time() - start_time) * 1000
-    logger.info(f"嵌入 API 调用完成 - 模型: {model}, 总输入: {len(inputs)}, 有效输入: {len(filtered_inputs)}, 耗时: {elapsed_time:.2f}ms")
-    
+    logger.info(f"嵌入 API 调用完成 - 类型: {input_type}, 模型: {model}, 总输入: {len(inputs)}, 有效输入: {len(filtered_inputs)}, 失败: {len(inputs) - len(filtered_inputs)}, 耗时: {elapsed_time:.2f}ms")
+
     return result
 
 

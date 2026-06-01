@@ -403,9 +403,16 @@ class ContentProcessService:
         await self.db.flush()
 
     async def _embed_chunks_batched(self, content_id, chunk_type: str = "text") -> None:
-        """Generate embeddings for pending chunks; text chunks are batched."""
-        logger.debug(f"开始为内容生成嵌入向量 - content_id={content_id}")
-        
+        """Generate embeddings for pending chunks; text chunks are batched.
+
+        处理流程：
+        1. 收集待处理 chunks（text 和 image 分别处理）
+        2. 文本 chunks 按 32 条/批 批量调用嵌入 API
+        3. 图片 chunks 单独调用嵌入 API
+        4. 根据成功/失败数量更新 content 状态
+        """
+        logger.info(f"开始为内容生成嵌入向量 - content_id={content_id}")
+
         result = await self.db.execute(
             select(ContentChunk).where(
                 ContentChunk.content_id == content_id,
@@ -415,27 +422,37 @@ class ContentProcessService:
         chunks = result.scalars().all()
 
         if not chunks:
-            logger.debug(f"没有需要处理的 chunks - content_id={content_id}")
+            logger.info(f"没有需要处理的 chunks - content_id={content_id}")
             return
 
-        logger.info(f"处理嵌入向量 - content_id={content_id}, 待处理 chunks={len(chunks)}")
+        text_chunks = [chunk for chunk in chunks if chunk.chunk_text and chunk.chunk_type != "image"]
+        image_chunks = [chunk for chunk in chunks if chunk.chunk_type == "image" and chunk.image_path]
+        skipped = len(chunks) - len(text_chunks) - len(image_chunks)
+
+        logger.info(
+            f"处理嵌入向量 - content_id={content_id}, "
+            f"总 chunks: {len(chunks)}, 文本: {len(text_chunks)}, 图片: {len(image_chunks)}, 跳过: {skipped}"
+        )
+
         from app.services.embedding import embed_image, embed_texts
 
         success = 0
         failed = 0
 
-        text_chunks = [chunk for chunk in chunks if chunk.chunk_text and chunk.chunk_type != "image"]
-        logger.debug(f"文本 chunks 数量: {len(text_chunks)}")
-        
+        # 处理文本 chunks
         batch_size = 32
+        total_text_batches = (len(text_chunks) + batch_size - 1) // batch_size if text_chunks else 0
         for batch_idx, start in enumerate(range(0, len(text_chunks), batch_size)):
             batch = text_chunks[start:start + batch_size]
-            logger.debug(f"处理文本批次 {batch_idx + 1}/{(len(text_chunks) + batch_size - 1) // batch_size} - 数量: {len(batch)}")
+            logger.info(
+                f"处理文本批次 {batch_idx + 1}/{total_text_batches} - "
+                f"content_id={content_id}, 数量: {len(batch)}"
+            )
             try:
                 vecs = await embed_texts(self.db, [chunk.chunk_text or "" for chunk in batch])
             except Exception as e:
                 msg = f"embed_texts error for content {content_id}, batch_start={start}: {e}"
-                logger.error(msg)
+                logger.error(msg, exc_info=True)
                 failed += len(batch)
                 continue
 
@@ -451,30 +468,54 @@ class ContentProcessService:
 
             await self.db.flush()
 
-        image_chunks = [chunk for chunk in chunks if chunk.chunk_type == "image" and chunk.image_path]
-        logger.debug(f"图片 chunks 数量: {len(image_chunks)}")
-        
-        for chunk in image_chunks:
+        # 处理图片 chunks
+        for idx, chunk in enumerate(image_chunks):
+            logger.info(
+                f"处理图片 {idx + 1}/{len(image_chunks)} - "
+                f"content_id={content_id}, chunk_id={chunk.id}, path={chunk.image_path}"
+            )
             try:
                 vec = await embed_image(self.db, chunk.image_path)
                 if vec:
                     chunk.embedding = vec
                     chunk.embedding_type = "image"
                     success += 1
+                    logger.info(f"图片 {idx + 1}/{len(image_chunks)} 嵌入成功")
                 else:
                     msg = f"embed_image returned None for chunk {chunk.id}, path={chunk.image_path}"
                     logger.warning(msg)
                     failed += 1
             except Exception as e:
-                msg = f"embed_chunks error for chunk {chunk.id}: {e}"
-                logger.error(msg)
+                msg = f"embed_chunks error for chunk {chunk.id}, path={chunk.image_path}: {e}"
+                logger.error(msg, exc_info=True)
                 failed += 1
                 continue
 
-        skipped = len(chunks) - len(text_chunks) - len(image_chunks)
         failed += skipped
 
-        summary = f"嵌入处理完成 - content_id={content_id}, success={success}, failed={failed}, total={len(chunks)}, skipped={skipped}"
+        # 更新 Content 状态
+        content_result = await self.db.execute(
+            select(Content).where(Content.id == content_id)
+        )
+        content = content_result.scalar_one_or_none()
+        if content:
+            if failed == 0 and success > 0:
+                content.processing_status = "completed"
+                content.processed_at = datetime.now(timezone.utc)
+                logger.info(f"内容嵌入处理成功 - content_id={content_id}")
+            elif success == 0:
+                content.processing_status = "failed"
+                content.processing_error = f"所有 chunks 嵌入失败 ({failed}/{len(chunks)})"
+                logger.error(f"内容嵌入处理失败 - content_id={content_id}, success={success}, failed={failed}")
+            else:
+                content.processing_status = "partial"
+                content.processing_error = f"部分失败 ({failed}/{len(chunks)})"
+                logger.warning(f"内容嵌入处理部分成功 - content_id={content_id}, success={success}, failed={failed}")
+
+        summary = (
+            f"嵌入处理完成 - content_id={content_id}, "
+            f"success={success}, failed={failed}, total={len(chunks)}, skipped={skipped}"
+        )
         logger.info(summary)
         await self.db.flush()
 
