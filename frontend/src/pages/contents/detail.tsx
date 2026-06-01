@@ -410,9 +410,9 @@ export default function ContentsDetail() {
   };
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen relative">
       {/* Main content */}
-      <div ref={mainContentRef} className="flex-1 overflow-y-auto relative">
+      <div ref={mainContentRef} className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-6 py-6">
           {/* Back nav */}
           <Link
@@ -979,9 +979,6 @@ export default function ContentsDetail() {
         </div>
       )}
 
-        </div>
-      </div>
-
       {/* ── Annotation Panel ── */}
       {showAnnotationPanel && (
         <AnnotationPanel
@@ -993,25 +990,26 @@ export default function ContentsDetail() {
         />
       )}
       
-      {/* Floating scroll buttons */}
-      {showScrollButtons && (
-        <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-40">
-          <button
-            onClick={scrollToTop}
-            className="p-3 rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
-            title="回到顶部"
-          >
-            <ArrowUp className="w-5 h-5 text-[var(--text-secondary)]" />
-          </button>
-          <button
-            onClick={scrollToBottom}
-            className="p-3 rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
-            title="滚动到底部"
-          >
-            <ArrowDown className="w-5 h-5 text-[var(--text-secondary)]" />
-          </button>
         </div>
-      )}
+      </div>
+      
+      {/* Floating scroll buttons */}
+      <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-[9999]">
+        <button
+          onClick={scrollToTop}
+          className="p-3 rounded-full bg-[var(--bg-card)] dark:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
+          title="回到顶部"
+        >
+          <ArrowUp className="w-5 h-5 text-[var(--text-secondary)]" />
+        </button>
+        <button
+          onClick={scrollToBottom}
+          className="p-3 rounded-full bg-[var(--bg-card)] dark:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
+          title="滚动到底部"
+        >
+          <ArrowDown className="w-5 h-5 text-[var(--text-secondary)]" />
+        </button>
+      </div>
     </div>
   );
 }
