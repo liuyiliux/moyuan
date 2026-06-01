@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fileApi, contentApi, type FileItem } from "../../api/content";
 import { annotationApi, type Annotation } from "../../api/annotations";
@@ -19,6 +19,7 @@ import {
   Star, Bookmark, Tag as TagIcon,
   Sparkles, Brain, BookOpen, Loader2,
   MessageSquare, ChevronDown, ChevronUp,
+  ArrowUp, ArrowDown,
 } from "lucide-react";
 
 const TYPE_ICON_MAP: Record<string, React.ReactNode> = {
@@ -89,6 +90,8 @@ export default function ContentsDetail() {
   const [chunksTotal, setChunksTotal] = useState(0);
   const [loadingChunks, setLoadingChunks] = useState(false);
   const [contentExpanded, setContentExpanded] = useState(false);
+  const [showScrollButtons, setShowScrollButtons] = useState(false);
+  const mainContentRef = useRef<HTMLDivElement>(null);
 
   // Annotations
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -149,6 +152,31 @@ export default function ContentsDetail() {
       .catch(() => setSeries(null))
       .finally(() => setLoadingSeries(false));
   }, [id]);
+
+  // 滚动事件监听
+  useEffect(() => {
+    const container = mainContentRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setShowScrollButtons(container.scrollTop > 200);
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // 滚动到顶部
+  const scrollToTop = () => {
+    mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // 滚动到底部
+  const scrollToBottom = () => {
+    const container = mainContentRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+  };
 
   async function handleReprocess() {
     if (!id) return;
@@ -384,7 +412,7 @@ export default function ContentsDetail() {
   return (
     <div className="flex h-screen">
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={mainContentRef} className="flex-1 overflow-y-auto relative">
         <div className="max-w-4xl mx-auto px-6 py-6">
           {/* Back nav */}
           <Link
@@ -963,6 +991,26 @@ export default function ContentsDetail() {
           onDelete={handleDeleteAnnotation}
           onClose={() => setShowAnnotationPanel(false)}
         />
+      )}
+      
+      {/* Floating scroll buttons */}
+      {showScrollButtons && (
+        <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-40">
+          <button
+            onClick={scrollToTop}
+            className="p-3 rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
+            title="回到顶部"
+          >
+            <ArrowUp className="w-5 h-5 text-[var(--text-secondary)]" />
+          </button>
+          <button
+            onClick={scrollToBottom}
+            className="p-3 rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
+            title="滚动到底部"
+          >
+            <ArrowDown className="w-5 h-5 text-[var(--text-secondary)]" />
+          </button>
+        </div>
       )}
     </div>
   );
