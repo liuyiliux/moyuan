@@ -6,7 +6,7 @@ from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Content, ContentRelation, ProviderConfig
+from app.models.models import Content, ContentRelation, FunctionBindingConfig, ProviderConfig
 from app.core.crypto import crypto_service
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -38,6 +38,27 @@ async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | No
             return {
                 "provider_id": str(p.id),
                 "model": models[fn],
+                "api_key": api_key,
+                "base_url": p.base_url,
+            }
+
+    binding_result = await db.execute(
+        select(FunctionBindingConfig).where(FunctionBindingConfig.function == fn)
+    )
+    binding = binding_result.scalar_one_or_none()
+    if binding and binding.provider_id and binding.model:
+        provider_result = await db.execute(
+            select(ProviderConfig).where(
+                ProviderConfig.id == binding.provider_id,
+                ProviderConfig.is_active == True,
+            )
+        )
+        p = provider_result.scalar_one_or_none()
+        if p:
+            api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
+            return {
+                "provider_id": str(p.id),
+                "model": binding.model,
                 "api_key": api_key,
                 "base_url": p.base_url,
             }

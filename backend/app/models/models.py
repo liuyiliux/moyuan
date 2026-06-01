@@ -117,6 +117,18 @@ class ProviderConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class FunctionBindingConfig(Base):
+    __tablename__ = "function_binding_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    function: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("provider_configs.id", ondelete="SET NULL"), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    extra_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Brain(Base):
     __tablename__ = "brains"
 

@@ -281,6 +281,20 @@ async def permanent_delete(content_id: str, db: AsyncSession = Depends(get_db)):
 storage_router = APIRouter(prefix="/api/storage", tags=["storage"])
 
 
+@storage_router.get("/config", response_model=dict)
+async def get_storage_config():
+    from app.services.storage import StorageService
+
+    return StorageService.get_config()
+
+
+@storage_router.put("/config", response_model=dict)
+async def update_storage_config(path: str = Form(...)):
+    from app.services.storage import StorageService
+
+    return StorageService.update_storage_root(path)
+
+
 @storage_router.get("/stats", response_model=dict)
 async def get_storage_stats(db: AsyncSession = Depends(get_db)):
     """获取存储统计信息"""

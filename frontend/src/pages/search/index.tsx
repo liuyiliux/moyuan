@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { searchApi, type SearchResultItem, type ChunkInfo } from "../../api/search";
 import {
   Search, FileText, FileAudio, FileVideo, Image, FileSpreadsheet,
@@ -81,7 +81,6 @@ function buildContentUrl(r: SearchResultItem): string {
 
 export default function SearchPage() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [activeQuery, setActiveQuery] = useState("");
   const [results, setResults] = useState<SearchResultItem[]>([]);

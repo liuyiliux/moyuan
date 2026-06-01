@@ -19,7 +19,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.models import Content, ProviderConfig
+from app.models.models import Content, FunctionBindingConfig, ProviderConfig
 from app.core.crypto import crypto_service
 
 settings = get_settings()
@@ -73,17 +73,15 @@ async def _get_embedding_binding(db: AsyncSession) -> dict | None:
                 "model": models["embedding"],
             }
 
-    # Fallback: 检查功能绑定（内存中的 FunctionBindings）
-    try:
-        from app.api.provider import _function_bindings
-        fb = _function_bindings.get("embedding")
-        if fb and fb.provider_id and fb.model:
-            return {
-                "provider_id": str(fb.provider_id),
-                "model": fb.model,
-            }
-    except Exception:
-        pass
+    binding_result = await db.execute(
+        select(FunctionBindingConfig).where(FunctionBindingConfig.function == "embedding")
+    )
+    fb = binding_result.scalar_one_or_none()
+    if fb and fb.provider_id and fb.model:
+        return {
+            "provider_id": str(fb.provider_id),
+            "model": fb.model,
+        }
 
     return None
 
@@ -106,17 +104,15 @@ async def _get_chunking_binding(db: AsyncSession) -> dict | None:
                 "model": models["chunking"],
             }
 
-    # Fallback: 检查功能绑定
-    try:
-        from app.api.provider import _function_bindings
-        fb = _function_bindings.get("chunking")
-        if fb and fb.provider_id and fb.model:
-            return {
-                "provider_id": str(fb.provider_id),
-                "model": fb.model,
-            }
-    except Exception:
-        pass
+    binding_result = await db.execute(
+        select(FunctionBindingConfig).where(FunctionBindingConfig.function == "chunking")
+    )
+    fb = binding_result.scalar_one_or_none()
+    if fb and fb.provider_id and fb.model:
+        return {
+            "provider_id": str(fb.provider_id),
+            "model": fb.model,
+        }
 
     return None
 
@@ -177,6 +173,35 @@ async def embed_text(
     truncated = _truncate_text(text)
     vecs = await _call_openai_embedding(api_key or "", base_url, m, [truncated])
     return vecs[0] if vecs else None
+
+
+async def embed_texts(
+    db: AsyncSession,
+    texts: list[str],
+    model: str | None = None,
+    provider_id: str | None = None,
+) -> list[list[float] | None]:
+    """Batch-generate embeddings for text chunks."""
+    if not texts:
+        return []
+
+    binding = await _get_embedding_binding(db)
+    if binding is None:
+        return [None] * len(texts)
+
+    pid = provider_id or binding["provider_id"]
+    m = model or binding["model"]
+
+    provider = await _get_provider(db, pid)
+    if provider is None:
+        return [None] * len(texts)
+
+    api_key = crypto_service.decrypt(provider.api_key_encrypted) if provider.api_key_encrypted else None
+    if not api_key:
+        raise RuntimeError(f"Provider {pid} has no API key configured for embedding")
+
+    truncated = [_truncate_text(text) for text in texts]
+    return await _call_openai_embedding(api_key, provider.base_url, m, truncated)
 
 
 async def embed_image(

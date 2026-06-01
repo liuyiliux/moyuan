@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import logging
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ from app.core.config import get_settings
 from app.models.models import Content, ContentChunk
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 # ── PDF 文字提取 ──
@@ -239,7 +241,7 @@ class ContentProcessService:
 
         self.db.add_all(chunk_models)
         await self.db.flush()
-        await self._embed_chunks(content.id)
+        await self._embed_chunks_batched(content.id)
 
     async def _process_doc(self, content: Content) -> None:
         """Office 文档处理：提取文字 → 语义分块"""
@@ -273,7 +275,7 @@ class ContentProcessService:
         )
         self.db.add(chunk)
         await self.db.flush()
-        await self._embed_chunks(content.id, chunk_type="image")
+        await self._embed_chunks_batched(content.id, chunk_type="image")
 
     async def _process_audio(self, content: Content) -> None:
         """音频处理：预留 Whisper 转写 → 按时间戳分块"""
@@ -302,7 +304,7 @@ class ContentProcessService:
 
         self.db.add_all(chunk_models)
         await self.db.flush()
-        await self._embed_chunks(content.id)
+        await self._embed_chunks_batched(content.id)
 
     async def _process_video_content(self, content: Content) -> None:
         """视频处理：预留音频提取+转写 → 按时间戳分块 + 关键帧截图"""
@@ -340,7 +342,7 @@ class ContentProcessService:
 
         self.db.add_all(chunk_models)
         await self.db.flush()
-        await self._embed_chunks(content.id)
+        await self._embed_chunks_batched(content.id)
 
     async def _process_web(self, content: Content) -> None:
         """网页处理：trafilatura 提取正文 → 语义分块"""
@@ -384,7 +386,7 @@ class ContentProcessService:
 
         self.db.add_all(chunk_models)
         await self.db.flush()
-        await self._embed_chunks(content.id)
+        await self._embed_chunks_batched(content.id)
 
     async def _delete_old_chunks(self, content_id) -> None:
         """删除指定内容的所有旧 chunks"""
@@ -445,6 +447,78 @@ class ContentProcessService:
                 logger.error(msg)
                 failed += 1
                 continue
+
+        summary = f"embed_chunks done: content_id={content_id}, success={success}, failed={failed}, total={len(chunks)}"
+        print(f"[Process] {summary}")
+        logger.info(summary)
+        await self.db.flush()
+
+    async def _embed_chunks_batched(self, content_id, chunk_type: str = "text") -> None:
+        """Generate embeddings for pending chunks; text chunks are batched."""
+        result = await self.db.execute(
+            select(ContentChunk).where(
+                ContentChunk.content_id == content_id,
+                ContentChunk.embedding.is_(None),
+            )
+        )
+        chunks = result.scalars().all()
+
+        if not chunks:
+            return
+
+        from app.services.embedding import embed_image, embed_texts
+
+        success = 0
+        failed = 0
+
+        text_chunks = [chunk for chunk in chunks if chunk.chunk_text and chunk.chunk_type != "image"]
+        batch_size = 32
+        for start in range(0, len(text_chunks), batch_size):
+            batch = text_chunks[start:start + batch_size]
+            try:
+                vecs = await embed_texts(self.db, [chunk.chunk_text or "" for chunk in batch])
+            except Exception as e:
+                msg = f"embed_texts error for content {content_id}, batch_start={start}: {e}"
+                print(f"[Process] ERROR: {msg}")
+                logger.error(msg)
+                failed += len(batch)
+                continue
+
+            for chunk, vec in zip(batch, vecs):
+                if vec:
+                    chunk.embedding = vec
+                    chunk.embedding_type = "text"
+                    success += 1
+                else:
+                    msg = f"embed_texts returned None for chunk {chunk.id}"
+                    print(f"[Process] WARNING: {msg}")
+                    logger.warning(msg)
+                    failed += 1
+
+            await self.db.flush()
+
+        image_chunks = [chunk for chunk in chunks if chunk.chunk_type == "image" and chunk.image_path]
+        for chunk in image_chunks:
+            try:
+                vec = await embed_image(self.db, chunk.image_path)
+                if vec:
+                    chunk.embedding = vec
+                    chunk.embedding_type = "image"
+                    success += 1
+                else:
+                    msg = f"embed_image returned None for chunk {chunk.id}, path={chunk.image_path}"
+                    print(f"[Process] WARNING: {msg}")
+                    logger.warning(msg)
+                    failed += 1
+            except Exception as e:
+                msg = f"embed_chunks error for chunk {chunk.id}: {e}"
+                print(f"[Process] ERROR: {msg}")
+                logger.error(msg)
+                failed += 1
+                continue
+
+        skipped = len(chunks) - len(text_chunks) - len(image_chunks)
+        failed += skipped
 
         summary = f"embed_chunks done: content_id={content_id}, success={success}, failed={failed}, total={len(chunks)}"
         print(f"[Process] {summary}")

@@ -5,11 +5,12 @@ import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { ProviderModal } from "../../components/ProviderModal";
 import ConfirmDialog from "../../components/ConfirmDialog";
-import { Plus, Pencil, Trash2, Loader2, Server, Settings2, HardDrive, AlertCircle, CheckCircle2, Zap, BarChart3, RefreshCw } from "lucide-react";
+import { Check, Plus, Pencil, Trash2, Loader2, Server, Settings2, HardDrive, AlertCircle, CheckCircle2, X, Zap, BarChart3, RefreshCw } from "lucide-react";
 
 const FUNCTION_LABELS: Record<string, string> = {
   summarize: "摘要生成",
   embedding: "嵌入向量",
+  chunking: "智能分块",
   quiz: "题库生成",
   ocr: "图文识别",
   transcribe: "语音转写",
@@ -18,6 +19,10 @@ const FUNCTION_LABELS: Record<string, string> = {
 export default function SettingsPage() {
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [bindings, setBindings] = useState<FunctionBindings | null>(null);
+  const [bindingDrafts, setBindingDrafts] = useState<FunctionBindings | null>(null);
+  const [editingBinding, setEditingBinding] = useState<string | null>(null);
+  const [savingBinding, setSavingBinding] = useState<string | null>(null);
+  const [bindingMsg, setBindingMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
@@ -55,6 +60,7 @@ export default function SettingsPage() {
       ]);
       setProviders(providersData);
       setBindings(bindingsData);
+      setBindingDrafts(bindingsData);
     } catch (e) {
       console.error("Failed to load settings:", e);
     } finally {
@@ -158,22 +164,48 @@ export default function SettingsPage() {
     fetchData();
   };
 
-  const handleBindingChange = async (fn: string, field: "provider_id" | "model", value: string | null) => {
+  const handleEditBinding = (fn: string) => {
     if (!bindings) return;
+    setBindingDrafts(bindings);
+    setEditingBinding(fn);
+    setBindingMsg(null);
+  };
+
+  const handleCancelBinding = () => {
+    setBindingDrafts(bindings);
+    setEditingBinding(null);
+    setBindingMsg(null);
+  };
+
+  const handleBindingDraftChange = (fn: string, field: "provider_id" | "model", value: string | null) => {
+    if (!bindingDrafts) return;
     const updated = {
       bindings: {
-        ...bindings.bindings,
+        ...bindingDrafts.bindings,
         [fn]: {
-          ...bindings.bindings[fn],
+          ...bindingDrafts.bindings[fn],
           [field]: value || null,
         },
       },
     };
-    setBindings(updated);
+    setBindingDrafts(updated);
+  };
+
+  const handleSaveBinding = async (fn: string) => {
+    if (!bindingDrafts) return;
+    setSavingBinding(fn);
+    setBindingMsg(null);
     try {
-      await providerApi.updateBindings(updated);
+      const saved = await providerApi.updateBindings(bindingDrafts);
+      setBindings(saved);
+      setBindingDrafts(saved);
+      setEditingBinding(null);
+      setBindingMsg({ type: "success", text: "功能绑定已保存" });
     } catch (e) {
       console.error("Failed to update bindings:", e);
+      setBindingMsg({ type: "error", text: (e as Error).message || "保存失败" });
+    } finally {
+      setSavingBinding(null);
     }
   };
 
@@ -318,24 +350,41 @@ export default function SettingsPage() {
         )}
 
         {/* Bindings Tab */}
-        {activeTab === "bindings" && bindings && (
+        {activeTab === "bindings" && bindings && bindingDrafts && (
           <div className="space-y-4">
             <p className="text-sm text-[var(--text-muted)]">
               为每个功能选择默认使用的服务提供商和模型
             </p>
+            {bindingMsg && (
+              <div
+                className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                  bindingMsg.type === "success"
+                    ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+                    : "bg-[var(--danger-soft)] dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                }`}
+              >
+                {bindingMsg.type === "success" ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : (
+                  <AlertCircle className="w-4 h-4" />
+                )}
+                {bindingMsg.text}
+              </div>
+            )}
             {Object.entries(bindings.bindings).map(([fn, binding]) => (
               <div
                 key={fn}
                 className="p-4 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-xl border border-[var(--border-subtle)] dark:border-[var(--border-subtle)]"
               >
-                <div className="flex items-center gap-4">
+                <div className="grid grid-cols-[96px_minmax(140px,180px)_minmax(260px,1fr)_88px] items-center gap-4">
                   <Badge variant="default" className="w-24 justify-center text-sm py-1">
                     {FUNCTION_LABELS[fn] || fn}
                   </Badge>
                   <select
-                    value={binding.provider_id || ""}
-                    onChange={(e) => handleBindingChange(fn, "provider_id", e.target.value || null)}
-                    className="taste-input flex-1"
+                    value={(bindingDrafts.bindings[fn] || binding).provider_id || ""}
+                    disabled={editingBinding !== fn || savingBinding === fn}
+                    onChange={(e) => handleBindingDraftChange(fn, "provider_id", e.target.value || null)}
+                    className="taste-input w-full min-w-0"
                   >
                     <option value="">选择提供商...</option>
                     {providers.filter((p) => p.is_active).map((p) => (
@@ -343,11 +392,36 @@ export default function SettingsPage() {
                     ))}
                   </select>
                   <input
-                    value={binding.model || ""}
-                    onChange={(e) => handleBindingChange(fn, "model", e.target.value || null)}
+                    value={(bindingDrafts.bindings[fn] || binding).model || ""}
+                    disabled={editingBinding !== fn || savingBinding === fn}
+                    onChange={(e) => handleBindingDraftChange(fn, "model", e.target.value || null)}
                     placeholder="模型名称"
-                    className="taste-input w-48"
+                    className="taste-input w-full min-w-0"
                   />
+                  {editingBinding === fn ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSaveBinding(fn)}
+                        disabled={savingBinding === fn}
+                      >
+                        {savingBinding === fn ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCancelBinding}
+                        disabled={savingBinding === fn}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => handleEditBinding(fn)}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}

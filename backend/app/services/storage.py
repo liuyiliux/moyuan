@@ -9,13 +9,22 @@ from app.core.config import get_settings
 settings = get_settings()
 
 
+def resolve_storage_root(root: str | None = None) -> Path:
+    value = root or settings.file_storage_root
+    path = Path(value)
+    if path.is_absolute():
+        return path.resolve()
+    backend_root = Path(__file__).resolve().parents[2]
+    return (backend_root / path).resolve()
+
+
 class StorageService:
     """管理文件存储根目录"""
 
     @staticmethod
     def get_config() -> dict:
         """获取当前存储配置"""
-        root = Path(settings.file_storage_root).resolve()
+        root = resolve_storage_root()
         exists = root.exists()
 
         total, used, free = 0, 0, 0
@@ -34,7 +43,7 @@ class StorageService:
     @staticmethod
     def validate_path(path: str) -> dict:
         """验证路径是否可用"""
-        p = Path(path).resolve()
+        p = resolve_storage_root(path)
         result = {
             "path": str(p),
             "exists": p.exists(),
@@ -60,7 +69,7 @@ class StorageService:
     @staticmethod
     def update_storage_root(new_root: str) -> dict:
         """更新存储根目录（更新 .env 或运行时配置）"""
-        p = Path(new_root).resolve()
+        p = resolve_storage_root(new_root)
         if not p.exists():
             p.mkdir(parents=True, exist_ok=True)
 

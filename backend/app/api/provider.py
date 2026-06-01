@@ -1,9 +1,11 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.models.models import FunctionBindingConfig
 from app.schemas.provider import (
     ProviderCreate,
     ProviderUpdate,
@@ -21,10 +23,10 @@ router = APIRouter(prefix="/api/providers", tags=["providers"])
 # ── Function Bindings ──
 # NOTE: 必须放在 /{provider_id} 之前，否则 "/bindings" 会被当成 provider_id
 
-# In-memory function bindings (will be moved to DB later)
-_function_bindings: dict[str, FunctionBinding] = {
+DEFAULT_FUNCTION_BINDINGS: dict[str, FunctionBinding] = {
     "summarize": FunctionBinding(function="summarize"),
     "embedding": FunctionBinding(function="embedding"),
+    "chunking": FunctionBinding(function="chunking"),
     "quiz": FunctionBinding(function="quiz"),
     "ocr": FunctionBinding(function="ocr"),
     "transcribe": FunctionBinding(function="transcribe"),
@@ -32,15 +34,35 @@ _function_bindings: dict[str, FunctionBinding] = {
 
 
 @router.get("/bindings", response_model=FunctionBindingsResponse)
-async def get_function_bindings():
-    return FunctionBindingsResponse(bindings=_function_bindings)
+async def get_function_bindings(db: AsyncSession = Depends(get_db)):
+    bindings = {k: v.model_copy() for k, v in DEFAULT_FUNCTION_BINDINGS.items()}
+    result = await db.execute(select(FunctionBindingConfig))
+    for item in result.scalars().all():
+        bindings[item.function] = FunctionBinding(
+            function=item.function,
+            provider_id=item.provider_id,
+            model=item.model,
+            extra_params=item.extra_params,
+        )
+    return FunctionBindingsResponse(bindings=bindings)
 
 
 @router.put("/bindings", response_model=FunctionBindingsResponse)
-async def update_function_bindings(data: FunctionBindingsResponse):
-    global _function_bindings
-    _function_bindings = data.bindings
-    return FunctionBindingsResponse(bindings=_function_bindings)
+async def update_function_bindings(data: FunctionBindingsResponse, db: AsyncSession = Depends(get_db)):
+    existing_result = await db.execute(select(FunctionBindingConfig))
+    existing = {item.function: item for item in existing_result.scalars().all()}
+
+    for function, binding in data.bindings.items():
+        item = existing.get(function)
+        if item is None:
+            item = FunctionBindingConfig(function=function)
+            db.add(item)
+        item.provider_id = binding.provider_id
+        item.model = binding.model
+        item.extra_params = binding.extra_params
+
+    await db.commit()
+    return await get_function_bindings(db)
 
 
 # ── Provider CRUD (放在 /bindings 之后，避免路径冲突) ──
