@@ -395,11 +395,26 @@ class ContentProcessService:
         await self.db.flush()
         await self._embed_chunks_batched(content.id)
 
-    async def _delete_old_chunks(self, content_id) -> None:
-        """删除指定内容的所有旧 chunks"""
-        await self.db.execute(
-            delete(ContentChunk).where(ContentChunk.content_id == content_id)
-        )
+    async def _delete_old_chunks(self, content_id, keep_embedded: bool = True) -> None:
+        """删除指定内容的旧 chunks
+        
+        :param keep_embedded: 是否保留已经有 embedding 的 chunks，默认为 True
+        """
+        if keep_embedded:
+            # 只删除没有 embedding 的旧 chunks
+            await self.db.execute(
+                delete(ContentChunk).where(
+                    ContentChunk.content_id == content_id,
+                    ContentChunk.embedding.is_(None)
+                )
+            )
+            logger.info(f"仅删除未嵌入的旧 chunks - content_id={content_id}")
+        else:
+            # 删除所有旧 chunks
+            await self.db.execute(
+                delete(ContentChunk).where(ContentChunk.content_id == content_id)
+            )
+            logger.info(f"删除所有旧 chunks - content_id={content_id}")
         await self.db.flush()
 
     async def _embed_chunks_batched(self, content_id, chunk_type: str = "text") -> None:
@@ -434,7 +449,7 @@ class ContentProcessService:
             f"总 chunks: {len(chunks)}, 文本: {len(text_chunks)}, 图片: {len(image_chunks)}, 跳过: {skipped}"
         )
 
-        from app.services.embedding import embed_image, embed_texts
+        from app.services.embedding import embed_image, embed_images, embed_texts
 
         success = 0
         failed = 0
@@ -468,28 +483,36 @@ class ContentProcessService:
 
             await self.db.flush()
 
-        # 处理图片 chunks
-        for idx, chunk in enumerate(image_chunks):
-            logger.info(
-                f"处理图片 {idx + 1}/{len(image_chunks)} - "
-                f"content_id={content_id}, chunk_id={chunk.id}, path={chunk.image_path}"
-            )
-            try:
-                vec = await embed_image(self.db, chunk.image_path)
-                if vec:
-                    chunk.embedding = vec
-                    chunk.embedding_type = "image"
-                    success += 1
-                    logger.info(f"图片 {idx + 1}/{len(image_chunks)} 嵌入成功")
-                else:
-                    msg = f"embed_image returned None for chunk {chunk.id}, path={chunk.image_path}"
-                    logger.warning(msg)
-                    failed += 1
-            except Exception as e:
-                msg = f"embed_chunks error for chunk {chunk.id}, path={chunk.image_path}: {e}"
-                logger.error(msg, exc_info=True)
-                failed += 1
-                continue
+        # 处理图片 chunks（批量处理）
+        if image_chunks:
+            image_batch_size = 32  # 图片批量大小
+            total_image_batches = (len(image_chunks) + image_batch_size - 1) // image_batch_size
+            
+            for batch_idx, start in enumerate(range(0, len(image_chunks), image_batch_size)):
+                batch = image_chunks[start:start + image_batch_size]
+                logger.info(
+                    f"处理图片批次 {batch_idx + 1}/{total_image_batches} - "
+                    f"content_id={content_id}, 数量={len(batch)}"
+                )
+                try:
+                    vecs = await embed_images(self.db, [chunk.image_path for chunk in batch])
+                except Exception as e:
+                    msg = f"embed_images error for content {content_id}, batch_start={start}: {e}"
+                    logger.error(msg, exc_info=True)
+                    failed += len(batch)
+                    continue
+                
+                for chunk, vec in zip(batch, vecs):
+                    if vec:
+                        chunk.embedding = vec
+                        chunk.embedding_type = "image"
+                        success += 1
+                    else:
+                        msg = f"embed_images returned None for chunk {chunk.id}"
+                        logger.warning(msg)
+                        failed += 1
+                
+                await self.db.flush()
 
         failed += skipped
 

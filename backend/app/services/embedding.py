@@ -38,7 +38,7 @@ async def _call_openai_embedding(
     api_key: str,
     base_url: str | None,
     model: str,
-    inputs: list,
+    inputs: list | dict | str,
 ) -> list[list[float]]:
     """调用 OpenAI 兼容接口生成嵌入
 
@@ -55,21 +55,27 @@ async def _call_openai_embedding(
     import time
 
     start_time = time.time()
-    input_type = "multimodal" if any(isinstance(i, dict) for i in inputs) else "text"
-    logger.info(f"开始调用嵌入 API - 类型: {input_type}, 模型: {model}, 输入数量: {len(inputs)}, base_url: {base_url}")
+    
+    # 确保 inputs 是 list 类型
+    original_inputs = inputs
+    if not isinstance(original_inputs, list):
+        original_inputs = [original_inputs]
+    
+    input_type = "multimodal" if any(isinstance(i, dict) for i in original_inputs) else "text"
+    logger.info(f"开始调用嵌入 API - 类型: {input_type}, 模型: {model}, 输入数量: {len(original_inputs)}, base_url: {base_url}")
 
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
     )
 
-    filtered_inputs = [inp for inp in inputs if inp and (isinstance(inp, str) and inp.strip()) or isinstance(inp, dict)]
+    filtered_inputs = [inp for inp in original_inputs if inp and (isinstance(inp, str) and inp.strip()) or isinstance(inp, dict)]
 
     if not filtered_inputs:
-        logger.warning(f"没有有效的输入 - 模型: {model}, 原始输入: {len(inputs)}")
-        return [[]] * len(inputs)
+        logger.warning(f"没有有效的输入 - 模型: {model}, 原始输入: {len(original_inputs)}")
+        return [[]] * len(original_inputs)
 
-    logger.info(f"有效输入数量: {len(filtered_inputs)} (已过滤 {len(inputs) - len(filtered_inputs)} 个空输入)")
+    logger.info(f"有效输入数量: {len(filtered_inputs)} (已过滤 {len(original_inputs) - len(filtered_inputs)} 个空输入)")
 
     max_batch_size = 64
     all_embeddings: list[list[float]] = []
@@ -130,7 +136,7 @@ async def _call_openai_embedding(
 
     result: list[list[float] | None] = []
     input_idx = 0
-    for inp in inputs:
+    for inp in original_inputs:
         if inp and (isinstance(inp, str) and inp.strip()) or isinstance(inp, dict):
             result.append(all_embeddings[input_idx] if input_idx < len(all_embeddings) else None)
             input_idx += 1
@@ -138,7 +144,7 @@ async def _call_openai_embedding(
             result.append(None)
 
     elapsed_time = (time.time() - start_time) * 1000
-    logger.info(f"嵌入 API 调用完成 - 类型: {input_type}, 模型: {model}, 总输入: {len(inputs)}, 有效输入: {len(filtered_inputs)}, 失败: {len(inputs) - len(filtered_inputs)}, 耗时: {elapsed_time:.2f}ms")
+    logger.info(f"嵌入 API 调用完成 - 类型: {input_type}, 模型: {model}, 总输入: {len(original_inputs)}, 有效输入: {len(filtered_inputs)}, 失败: {len(original_inputs) - len(filtered_inputs)}, 耗时: {elapsed_time:.2f}ms")
 
     return result
 
@@ -331,13 +337,81 @@ async def embed_image(
     if image_url is None:
         return None
 
-    # 硅基流动的 Qwen3-VL-Embedding-8B 支持的格式: {"image": "..."}
-    # 不是 OpenAI 的 {"type": "image_url", ...} 格式！
-    image_input = {"image": image_url}
-    logger.info(f"embed_image 准备发送请求 - 模型: {m}, base_url: {base_url}")
+    # 判断是硅基流动还是 OpenAI 兼容格式
+    is_siliconflow = "siliconflow.cn" in base_url.lower()
+    
+    if is_siliconflow:
+        # 硅基流动的 Qwen3-VL-Embedding-8B 支持的格式: {"image": "..."}
+        image_input = {"image": image_url}
+        logger.info(f"embed_image 使用硅基流动格式 - 模型: {m}, base_url: {base_url}")
+    else:
+        # OpenAI 兼容格式: [{"type": "image_url", "image_url": {"url": "..."}]
+        image_input = [{"type": "image_url", "image_url": {"url": image_url}}]
+        logger.info(f"embed_image 使用 OpenAI 兼容格式 - 模型: {m}, base_url: {base_url}")
+    
     logger.debug(f"embed_image 请求体: {image_input}")
     vecs = await _call_openai_embedding(api_key or "", base_url, m, image_input)
     return vecs[0] if vecs else None
+
+
+async def embed_images(
+    db: AsyncSession,
+    file_paths: list[str],
+    model: str | None = None,
+    provider_id: str | None = None,
+) -> list[list[float] | None]:
+    """Batch-generate embeddings for image chunks.
+    
+    使用硅基流动的批量格式，可以一次传多张图片：
+    [{"image": "...base64..."}, {"image": "...base64..."}, ...]
+    """
+    binding = await _get_embedding_binding(db)
+    if binding is None:
+        return [None] * len(file_paths)
+
+    pid = provider_id or binding["provider_id"]
+    m = model or binding["model"]
+
+    provider = await _get_provider(db, pid)
+    if provider is None:
+        return [None] * len(file_paths)
+
+    api_key = crypto_service.decrypt(provider.api_key_encrypted) if provider.api_key_encrypted else None
+    base_url = provider.base_url
+    
+    is_siliconflow = "siliconflow.cn" in base_url.lower()
+    
+    # 准备批量输入
+    valid_inputs = []
+    index_map = []  # 记录哪些位置是有效的
+    
+    for idx, file_path in enumerate(file_paths):
+        image_url = _image_to_base64_url(file_path)
+        if image_url:
+            if is_siliconflow:
+                valid_inputs.append({"image": image_url})
+            else:
+                valid_inputs.append([{"type": "image_url", "image_url": {"url": image_url}}])
+            index_map.append(idx)
+    
+    if not valid_inputs:
+        return [None] * len(file_paths)
+    
+    logger.info(f"embed_images 批量处理 - 总数={len(file_paths)}, 有效={len(valid_inputs)}, 模型={m}")
+    
+    # 调用批量嵌入
+    vecs = await _call_openai_embedding(api_key or "", base_url, m, valid_inputs)
+    
+    # 整理结果
+    result = [None] * len(file_paths)
+    for idx, vec in zip(index_map, vecs):
+        if idx < len(result):
+            result[idx] = vec
+    
+    success_count = sum(1 for r in result if r is not None)
+    logger.info(f"embed_images 完成: 总数={len(file_paths)}, 成功={success_count}, 失败={len(file_paths) - success_count}")
+    
+    return result
 
 
 # ── 单条内容嵌入（处理管道调用）──
