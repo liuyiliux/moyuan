@@ -43,21 +43,19 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
   } | null>(null);
 
   /** 等待用户对重复文件的决定 */
-  function waitForDupDecision(file: File, duplicates: DuplicateInfo[]): Promise<"skip" | "upload"> {
+  function waitForDupDecision(file: File, duplicates: DuplicateInfo[]): Promise<{ action: "skip" | "upload" | "overwrite"; targetId?: string }> {
     return new Promise((resolve) => {
       setDupModal({
         filename: file.name,
         file,
         duplicates,
       });
-      // 通过闭包存储 resolve 函数
       (window as any).__dupResolve = resolve;
     });
   }
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    setUploading(true);
     setError(null);
 
     const res: UploadResult[] = [];
@@ -67,9 +65,11 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
         // 先检查重复
         const check = await fileApi.checkDuplicate(file);
 
+        let overwriteTargetId: string | undefined;
+
         if (check.is_duplicate) {
           const decision = await waitForDupDecision(file, check.duplicates);
-          if (decision === "skip") {
+          if (decision.action === "skip") {
             res.push({
               content_id: check.file_md5,
               title: file.name,
@@ -79,25 +79,30 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
             });
             continue;
           }
+          if (decision.action === "overwrite" && decision.targetId) {
+            overwriteTargetId = decision.targetId;
+          }
         }
 
-        // 上传
-        const data = await fileApi.upload(file, brainId);
+        // 实际开始上传
+        setUploading(true);
+        const data = await fileApi.upload(file, brainId, overwriteTargetId);
         res.push({
           content_id: data.content_id,
           title: data.title,
           content_type: data.content_type,
           is_duplicate: data.is_duplicate,
-          action: check.is_duplicate ? "kept_both" : "uploaded",
+          action: overwriteTargetId ? "kept_both" : check.is_duplicate ? "kept_both" : "uploaded",
         });
       } catch (err) {
         setError((err as Error).message);
         break;
+      } finally {
+        setUploading(false);
       }
     }
 
     setResults(res);
-    setUploading(false);
     onUploaded?.(res);
   }
 
@@ -202,19 +207,19 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
           duplicates={dupModal.duplicates}
           uploading={uploading}
           onSkip={() => {
-            (window as any).__dupResolve?.("skip");
+            (window as any).__dupResolve?.({ action: "skip" });
             setDupModal(null);
           }}
-          onOverwrite={() => {
-            (window as any).__dupResolve?.("upload");
+          onOverwrite={(targetId?: string) => {
+            (window as any).__dupResolve?.({ action: "overwrite", targetId });
             setDupModal(null);
           }}
           onKeepBoth={() => {
-            (window as any).__dupResolve?.("upload");
+            (window as any).__dupResolve?.({ action: "upload" });
             setDupModal(null);
           }}
           onCancel={() => {
-            (window as any).__dupResolve?.("skip");
+            (window as any).__dupResolve?.({ action: "skip" });
             setDupModal(null);
             setUploading(false);
           }}

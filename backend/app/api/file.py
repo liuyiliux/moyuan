@@ -66,13 +66,28 @@ async def check_duplicate(
 async def upload_file(
     file: UploadFile = File(...),
     brain_id: str | None = Form(None),
+    overwrite_content_id: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """上传文件"""
+    """上传文件，支持覆盖已有内容"""
     if file.filename is None:
         raise HTTPException(status_code=400, detail="No filename provided")
 
     service = FileService(db)
+
+    # 如果是覆盖模式，先删除旧内容
+    if overwrite_content_id:
+        from datetime import datetime, timezone
+        from sqlalchemy import select as sa_select
+        from app.models.models import Content as ContentModel
+        old_id = uuid.UUID(overwrite_content_id)
+        old_result = await db.execute(sa_select(ContentModel).where(ContentModel.id == old_id))
+        old_content = old_result.scalar_one_or_none()
+        if old_content:
+            old_content.is_deleted = True
+            old_content.deleted_at = datetime.now(timezone.utc)
+            await db.flush()
+
     content = await service.upload(
         file=file,
         brain_id=uuid.UUID(brain_id) if brain_id else None,

@@ -88,11 +88,14 @@ export interface DuplicateCheckResponse {
 
 export const fileApi = {
   /** 上传文件 */
-  upload: async (file: File, brainId?: string): Promise<FileUploadResponse> => {
+  upload: async (file: File, brainId?: string, overwriteContentId?: string): Promise<FileUploadResponse> => {
     const formData = new FormData();
     formData.append("file", file);
     if (brainId) {
       formData.append("brain_id", brainId);
+    }
+    if (overwriteContentId) {
+      formData.append("overwrite_content_id", overwriteContentId);
     }
 
     const res = await fetch("/api/files/upload", {
