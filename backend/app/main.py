@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+import time
 
 from app.api.provider import router as provider_router
 from app.api.file import router as file_router, contents_router, storage_router, recycle_router
@@ -23,13 +24,18 @@ from app.api.brains import config_router as brain_config_router
 from app.api.annotations import router as annotations_router
 
 from app.services.task_queue import start_worker, stop_worker, subscribe_progress, unsubscribe_progress
+from app.core.logging import setup_logging, get_logger
+from app.core.config import get_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时：创建表 + 启动后台 Worker
-    import sys
-    print("[Moyuan] Lifespan startup...", file=sys.stderr, flush=True)
+    # 初始化日志
+    settings = get_settings()
+    setup_logging(log_dir=settings.log_dir, debug=settings.debug)
+    logger = get_logger(__name__)
+    
+    logger.info("启动生命周期开始...")
     from app.models.base import Base
     from app.core.database import engine
     from app.models.models import ProcessingTask, Annotation
@@ -43,12 +49,14 @@ async def lifespan(app: FastAPI):
         # 数据量小时（<10万条）不创建索引性能完全够用
         # 如需索引，请将向量维度降至 1536 或 2000 以内
         
-    print("[Moyuan] Tables created", file=sys.stderr, flush=True)
+    logger.info("数据库表初始化完成")
     start_worker()
-    print("[Moyuan] Worker started", file=sys.stderr, flush=True)
+    logger.info("后台任务队列 Worker 已启动")
     yield
     # 关闭时：停止 Worker
+    logger.info("正在停止后台 Worker...")
     await stop_worker()
+    logger.info("服务已停止")
 
 
 app = FastAPI(
@@ -65,6 +73,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """请求日志中间件：记录每个 API 请求的详情"""
+    logger = get_logger("http")
+    start_time = time.time()
+    
+    # 记录请求开始
+    method = request.method
+    path = request.url.path
+    logger.info(f"请求开始 - {method} {path}")
+    
+    try:
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000
+        status_code = response.status_code
+        
+        # 记录请求完成
+        logger.info(f"请求完成 - {method} {path} - 状态: {status_code} - 耗时: {process_time:.2f}ms")
+        return response
+    except Exception as e:
+        process_time = (time.time() - start_time) * 1000
+        logger.error(f"请求异常 - {method} {path} - 耗时: {process_time:.2f}ms - 错误: {str(e)}", exc_info=True)
+        raise
 
 # Routers
 app.include_router(provider_router)

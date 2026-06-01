@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     # File Storage
     file_storage_root: str = "../data/files"
 
+    # Logging
+    log_dir: str = "../data/logs"
+    log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
     # Encryption
     encryption_key: str = ""
 

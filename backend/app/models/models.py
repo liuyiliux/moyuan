@@ -71,15 +71,15 @@ class Tag(Base):
 class ContentTag(Base):
     __tablename__ = "content_tags"
 
-    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    tag_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
 
 class ContentCategory(Base):
     __tablename__ = "content_categories"
 
-    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    category_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), primary_key=True)
+    category_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="CASCADE"), primary_key=True)
 
 
 class Collection(Base):
@@ -97,8 +97,8 @@ class CollectionItem(Base):
     __tablename__ = "collection_items"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    collection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    collection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("collections.id", ondelete="CASCADE"), nullable=False)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -158,7 +158,7 @@ class ProcessingTask(Base):
     __tablename__ = "processing_tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), nullable=False)
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)  # parse, ocr, transcribe, embed, web_capture
     status: Mapped[str] = mapped_column(String(20), default="queued")  # queued, processing, completed, failed, cancelled
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 越小越优先
@@ -174,8 +174,8 @@ class ContentRelation(Base):
     __tablename__ = "content_relations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), nullable=False)
     relation_type: Mapped[str] = mapped_column(String(20), nullable=False)  # reference, series, similar
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     extra_meta: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
@@ -187,7 +187,7 @@ class Annotation(Base):
     __tablename__ = "annotations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), nullable=False, index=True)
     selected_text: Mapped[str] = mapped_column(Text, nullable=False)
     start_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -204,7 +204,7 @@ class ContentChunk(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_type: Mapped[str] = mapped_column(String(10), nullable=False, default="text")  # text / image
     chunk_text: Mapped[str | None] = mapped_column(Text, nullable=True)

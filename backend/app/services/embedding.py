@@ -19,10 +19,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.models.models import Content, FunctionBindingConfig, ProviderConfig
 from app.core.crypto import crypto_service
 
 settings = get_settings()
+logger = get_logger(__name__)
 
 _embedding_cache: dict[str, list[float]] = {}
 
@@ -50,6 +52,10 @@ async def _call_openai_embedding(
     - 需要设置 encoding_format="float"
     """
     from openai import APIError, APIConnectionError, AuthenticationError
+    import time
+    
+    start_time = time.time()
+    logger.debug(f"开始调用嵌入 API - 模型: {model}, 输入数量: {len(inputs)}, base_url: {base_url}")
     
     client = AsyncOpenAI(
         api_key=api_key,
@@ -59,35 +65,43 @@ async def _call_openai_embedding(
     filtered_inputs = [inp for inp in inputs if inp and (isinstance(inp, str) and inp.strip()) or isinstance(inp, dict)]
     
     if not filtered_inputs:
+        logger.debug("没有有效的输入，返回空结果")
         return [[]] * len(inputs)
+    
+    logger.debug(f"有效输入数量: {len(filtered_inputs)} (已过滤空输入)")
     
     max_batch_size = 64
     all_embeddings: list[list[float]] = []
     
-    for i in range(0, len(filtered_inputs), max_batch_size):
+    for batch_idx, i in enumerate(range(0, len(filtered_inputs), max_batch_size)):
         batch = filtered_inputs[i:i + max_batch_size]
+        logger.debug(f"处理批次 {batch_idx + 1}/{(len(filtered_inputs) + max_batch_size - 1) // max_batch_size} - 批量大小: {len(batch)}")
         try:
             response = await client.embeddings.create(
                 model=model,
                 input=batch,
                 encoding_format="float",
             )
-            all_embeddings.extend([d.embedding for d in response.data])
+            batch_embeddings = [d.embedding for d in response.data]
+            all_embeddings.extend(batch_embeddings)
+            logger.debug(f"批次 {batch_idx + 1} 完成 - 获得 {len(batch_embeddings)} 个嵌入向量")
         except AuthenticationError as e:
             error_msg = f"Embedding API authentication failed (model={model}): API Key 无效或过期"
-            print(f"[Embedding] ERROR: {error_msg}")
+            logger.error(error_msg)
             raise RuntimeError(error_msg) from e
         except APIConnectionError as e:
             error_msg = f"Embedding API connection failed (model={model}, base_url={base_url}): 无法连接到服务"
-            print(f"[Embedding] ERROR: {error_msg}")
+            logger.error(error_msg)
             raise RuntimeError(error_msg) from e
         except APIError as e:
-            error_msg = f"Embedding API error (model={model}, status={e.status_code}, code={e.response.get('error', {}).get('code', 'unknown')}): {e.response.get('error', {}).get('message', str(e))}"
-            print(f"[Embedding] ERROR: {error_msg}")
+            error_code = e.response.get('error', {}).get('code', 'unknown')
+            error_message = e.response.get('error', {}).get('message', str(e))
+            error_msg = f"Embedding API error (model={model}, status={e.status_code}, code={error_code}): {error_message}"
+            logger.error(error_msg)
             raise RuntimeError(error_msg) from e
         except Exception as e:
             error_msg = f"Embedding API call failed (model={model}, batch_size={len(batch)}): {str(e)}"
-            print(f"[Embedding] ERROR: {error_msg}")
+            logger.error(error_msg, exc_info=True)
             raise RuntimeError(error_msg) from e
     
     result: list[list[float] | None] = []
@@ -98,6 +112,9 @@ async def _call_openai_embedding(
             input_idx += 1
         else:
             result.append(None)
+    
+    elapsed_time = (time.time() - start_time) * 1000
+    logger.info(f"嵌入 API 调用完成 - 模型: {model}, 总输入: {len(inputs)}, 有效输入: {len(filtered_inputs)}, 耗时: {elapsed_time:.2f}ms")
     
     return result
 
@@ -231,17 +248,21 @@ async def embed_texts(
 ) -> list[list[float] | None]:
     """Batch-generate embeddings for text chunks."""
     if not texts:
+        logger.debug("embed_texts: 空输入，返回空结果")
         return []
 
     binding = await _get_embedding_binding(db)
     if binding is None:
+        logger.warning("embed_texts: 未找到 embedding 绑定配置")
         return [None] * len(texts)
 
     pid = provider_id or binding["provider_id"]
     m = model or binding["model"]
+    logger.debug(f"embed_texts: provider_id={pid}, model={m}, 文本数量={len(texts)}")
 
     provider = await _get_provider(db, pid)
     if provider is None:
+        logger.error(f"embed_texts: Provider {pid} 不存在")
         return [None] * len(texts)
 
     api_key = crypto_service.decrypt(provider.api_key_encrypted) if provider.api_key_encrypted else None
@@ -249,7 +270,12 @@ async def embed_texts(
         raise RuntimeError(f"Provider {pid} has no API key configured for embedding")
 
     truncated = [_truncate_text(text) for text in texts]
-    return await _call_openai_embedding(api_key, provider.base_url, m, truncated)
+    result = await _call_openai_embedding(api_key, provider.base_url, m, truncated)
+    
+    success_count = sum(1 for r in result if r is not None)
+    logger.info(f"embed_texts 完成: 总数={len(texts)}, 成功={success_count}, 失败={len(texts) - success_count}")
+    
+    return result
 
 
 async def embed_image(

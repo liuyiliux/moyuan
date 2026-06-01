@@ -202,7 +202,13 @@ def _force_split(
                 start_offset=base_offset + start,
                 end_offset=base_offset + end,
             ))
-        start = max(start + 1, end - 200)
+        
+        # 正确的滑动窗口：每次前进 end - overlap，避免逐字偏移
+        overlap = 200
+        next_start = end - overlap
+        if next_start <= start:
+            next_start = start + max(500, target_chars // 4)  # 确保至少前进一定距离
+        start = next_start
 
     return chunks
 
@@ -234,7 +240,12 @@ def _fallback_chunk(
                 start_offset=start,
                 end_offset=end,
             ))
-        start = max(start + 1, end - overlap)
+        
+        # 正确的滑动窗口：每次前进 end - overlap，避免逐字偏移
+        next_start = end - overlap
+        if next_start <= start:
+            next_start = start + max(500, target_chars // 4)  # 确保至少前进一定距离
+        start = next_start
 
     return chunks
 
