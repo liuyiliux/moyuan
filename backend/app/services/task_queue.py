@@ -53,9 +53,13 @@ async def _notify_progress(content_id: str, progress: int, status: str, error: s
 
 # ── 任务入队 ──
 
-async def enqueue(content_id: str, task_type: str = "parse", priority: int = 0):
+async def enqueue(content_id: str, task_type: str = "parse", priority: int = 0, db: AsyncSession | None = None):
     """将处理任务加入队列"""
-    async with async_session_factory() as db:
+    use_existing_session = db is not None
+    if not use_existing_session:
+        db = async_session_factory()
+    
+    try:
         task = ProcessingTask(
             id=uuid.uuid4(),
             content_id=content_id,
@@ -74,10 +78,14 @@ async def enqueue(content_id: str, task_type: str = "parse", priority: int = 0):
             content.processing_status = "pending"
             await db.flush()
 
-        await db.commit()
+        if not use_existing_session:
+            await db.commit()
 
         # 入队（PriorityQueue: (priority, task_id)）
         await _task_queue.put((priority, str(task.id)))
+    finally:
+        if not use_existing_session and db:
+            await db.close()
 
 
 async def enqueue_embed(content_id: str, priority: int = 1):
