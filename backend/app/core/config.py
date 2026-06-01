@@ -3,9 +3,9 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # Database
-    database_url: str = "postgresql+asyncpg://moyuan:moyuan@localhost:5432/moyuan"
-    database_url_sync: str = "postgresql://moyuan:moyuan@localhost:5432/moyuan"
+    # Database (override via .env file)
+    database_url: str = "postgresql+asyncpg://user:password@localhost:5432/moyuan"
+    database_url_sync: str = "postgresql://user:password@localhost:5432/moyuan"
 
     # File Storage
     file_storage_root: str = "../data/files"

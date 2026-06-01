@@ -188,7 +188,7 @@ class ContentChunk(Base):
     __tablename__ = "content_chunks"
     __table_args__ = (
         Index("ix_chunks_content_id", "content_id"),
-        Index("ix_chunks_embedding", "embedding", postgresql_using="ivfflat"),
+        # IVFFlat 索引限制 2000 维，4096 维向量无法使用，数据量小时全表扫描即可
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
