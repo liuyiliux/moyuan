@@ -43,16 +43,63 @@ async def _call_openai_embedding(
     inputs 可以是:
     - list[str]: 纯文本输入
     - list[dict]: 多模态输入 [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "..."}}]
+    
+    针对硅基流动(SiliconFlow)等 OpenAI 兼容服务的特殊处理:
+    - 硅基流动要求 batch_size <= 64
+    - 需要正确处理空字符串输入
+    - 需要设置 encoding_format="float"
     """
+    from openai import APIError, APIConnectionError, AuthenticationError
+    
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
     )
-    response = await client.embeddings.create(
-        model=model,
-        input=inputs,
-    )
-    return [d.embedding for d in response.data]
+    
+    filtered_inputs = [inp for inp in inputs if inp and (isinstance(inp, str) and inp.strip()) or isinstance(inp, dict)]
+    
+    if not filtered_inputs:
+        return [[]] * len(inputs)
+    
+    max_batch_size = 64
+    all_embeddings: list[list[float]] = []
+    
+    for i in range(0, len(filtered_inputs), max_batch_size):
+        batch = filtered_inputs[i:i + max_batch_size]
+        try:
+            response = await client.embeddings.create(
+                model=model,
+                input=batch,
+                encoding_format="float",
+            )
+            all_embeddings.extend([d.embedding for d in response.data])
+        except AuthenticationError as e:
+            error_msg = f"Embedding API authentication failed (model={model}): API Key 无效或过期"
+            print(f"[Embedding] ERROR: {error_msg}")
+            raise RuntimeError(error_msg) from e
+        except APIConnectionError as e:
+            error_msg = f"Embedding API connection failed (model={model}, base_url={base_url}): 无法连接到服务"
+            print(f"[Embedding] ERROR: {error_msg}")
+            raise RuntimeError(error_msg) from e
+        except APIError as e:
+            error_msg = f"Embedding API error (model={model}, status={e.status_code}, code={e.response.get('error', {}).get('code', 'unknown')}): {e.response.get('error', {}).get('message', str(e))}"
+            print(f"[Embedding] ERROR: {error_msg}")
+            raise RuntimeError(error_msg) from e
+        except Exception as e:
+            error_msg = f"Embedding API call failed (model={model}, batch_size={len(batch)}): {str(e)}"
+            print(f"[Embedding] ERROR: {error_msg}")
+            raise RuntimeError(error_msg) from e
+    
+    result: list[list[float] | None] = []
+    input_idx = 0
+    for inp in inputs:
+        if inp and (isinstance(inp, str) and inp.strip()) or isinstance(inp, dict):
+            result.append(all_embeddings[input_idx] if input_idx < len(all_embeddings) else None)
+            input_idx += 1
+        else:
+            result.append(None)
+    
+    return result
 
 
 async def _get_embedding_binding(db: AsyncSession) -> dict | None:
@@ -125,9 +172,10 @@ async def _get_provider(db: AsyncSession, provider_id: str) -> ProviderConfig | 
 
 
 def _truncate_text(text: str | None, max_chars: int = 8000) -> str:
+    """清理文本，移除首尾空白，处理空值（不再截断，因为分块已经处理了长度）"""
     if not text:
         return ""
-    return text[:max_chars]
+    return text.strip()
 
 
 def _image_to_base64_url(file_path: str) -> str | None:
