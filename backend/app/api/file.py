@@ -419,21 +419,39 @@ async def get_process_status(content_id: str, db: AsyncSession = Depends(get_db)
 
 
 @contents_router.get("/{content_id}/chunks", response_model=dict)
-async def get_content_chunks(content_id: str, db: AsyncSession = Depends(get_db)):
-    """获取内容的所有分块"""
-    from sqlalchemy import select
+async def get_content_chunks(
+    content_id: str, 
+    page: int = Query(1, ge=1), 
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取内容的分块（分页）"""
+    from sqlalchemy import select, func
     from app.models.models import ContentChunk
 
+    # 先查询总数
+    count_result = await db.execute(
+        select(func.count(ContentChunk.id))
+        .where(ContentChunk.content_id == content_id)
+    )
+    total = count_result.scalar() or 0
+
+    # 分页查询
+    offset = (page - 1) * page_size
     result = await db.execute(
         select(ContentChunk)
         .where(ContentChunk.content_id == content_id)
         .order_by(ContentChunk.chunk_index)
+        .offset(offset)
+        .limit(page_size)
     )
     chunks = result.scalars().all()
 
     return {
         "content_id": content_id,
-        "total": len(chunks),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
         "chunks": [
             {
                 "id": str(c.id),
