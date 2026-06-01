@@ -331,10 +331,12 @@ async def embed_image(
     if image_url is None:
         return None
 
-    multimodal_input = [
-        {"type": "image_url", "image_url": {"url": image_url}},
-    ]
-    vecs = await _call_openai_embedding(api_key or "", base_url, m, multimodal_input)
+    # 硅基流动的 Qwen3-VL-Embedding-8B 支持的格式: {"image": "..."}
+    # 不是 OpenAI 的 {"type": "image_url", ...} 格式！
+    image_input = {"image": image_url}
+    logger.info(f"embed_image 准备发送请求 - 模型: {m}, base_url: {base_url}")
+    logger.debug(f"embed_image 请求体: {image_input}")
+    vecs = await _call_openai_embedding(api_key or "", base_url, m, image_input)
     return vecs[0] if vecs else None
 
 
