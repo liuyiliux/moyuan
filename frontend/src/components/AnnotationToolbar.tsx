@@ -30,6 +30,10 @@ export default function AnnotationToolbar({
     if (!container) return;
 
     function handleMouseUp() {
+      // 重新获取 container，防止闭包中引用已卸载的 DOM 节点
+      const el = document.querySelector(containerSelector);
+      if (!el) return;
+
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
         setShowToolbar(false);
@@ -38,7 +42,7 @@ export default function AnnotationToolbar({
       }
 
       const range = selection.getRangeAt(0);
-      if (!container!.contains(range.commonAncestorContainer)) {
+      if (!el.contains(range.commonAncestorContainer)) {
         setShowToolbar(false);
         setShowInput(false);
         return;
@@ -52,7 +56,7 @@ export default function AnnotationToolbar({
       }
 
       // Calculate offsets relative to container text
-      const containerText = container!.textContent || "";
+      const containerText = el.textContent || "";
       const start = containerText.indexOf(text);
       if (start === -1) {
         setShowToolbar(false);
@@ -61,7 +65,7 @@ export default function AnnotationToolbar({
       }
 
       const rect = range.getBoundingClientRect();
-      const containerRect = container!.getBoundingClientRect();
+      const containerRect = el.getBoundingClientRect();
 
       setPosition({
         top: rect.top - containerRect.top - 50,

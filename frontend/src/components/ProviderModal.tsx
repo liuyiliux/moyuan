@@ -171,7 +171,7 @@ export function ProviderModal({ open, provider, onClose, onSaved }: Props) {
                   onChange={(e) =>
                     setDefaultModels((prev) => ({ ...prev, [fn]: e.target.value }))
                   }
-                  placeholder={fn === "summarize" ? "gpt-4o" : fn === "embedding" ? "text-embedding-3-small" : fn === "chunking" ? "BAAI/bge-m3" : "gpt-4o"}
+                  placeholder={fn === "summarize" ? "gpt-4o" : fn === "embedding" ? "Qwen/Qwen3-VL-Embedding-8B" : fn === "chunking" ? "BAAI/bge-m3" : "gpt-4o"}
                   className="taste-input flex-1"
                 />
                 {fn === "embedding" && (
