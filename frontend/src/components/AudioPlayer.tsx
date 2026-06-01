@@ -1,16 +1,17 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from "lucide-react";
 
 interface AudioPlayerProps {
   src: string;
   title?: string;
   onTimeUpdate?: (current: number) => void;
+  initialTime?: number;
 }
 
-export default function AudioPlayer({ src, title, onTimeUpdate }: AudioPlayerProps) {
+export default function AudioPlayer({ src, title, onTimeUpdate, initialTime }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
-  const [current, setCurrent] = useState(0);
+  const [current, setCurrent] = useState(initialTime || 0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
@@ -35,6 +36,22 @@ export default function AudioPlayer({ src, title, onTimeUpdate }: AudioPlayerPro
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
+  
+  // 设置初始时间
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || initialTime == null) return;
+    
+    const handleLoadedMetadata = () => {
+      if (initialTime >= 0 && initialTime <= audio.duration) {
+        audio.currentTime = initialTime;
+        setCurrent(initialTime);
+      }
+    };
+    
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    return () => audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+  }, [initialTime]);
 
   return (
     <div className="w-full bg-[var(--bg-card)] rounded-xl p-4 shadow-[var(--shadow-lg)]">

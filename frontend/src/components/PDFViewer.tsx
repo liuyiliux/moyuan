@@ -12,11 +12,12 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 interface PDFViewerProps {
   src: string;      // /api/contents/{id}/preview?mode=raw 或 /files/...
   filename?: string;
+  initialPage?: number;
 }
 
-export default function PDFViewer({ src, filename }: PDFViewerProps) {
+export default function PDFViewer({ src, filename, initialPage }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
-  const [pageNum, setPageNum] = useState(1);
+  const [pageNum, setPageNum] = useState(initialPage || 1);
   const [scale, setScale] = useState(1.2);
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -24,7 +25,11 @@ export default function PDFViewer({ src, filename }: PDFViewerProps) {
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
-    setPageNum(1);
+    if (initialPage && initialPage <= numPages && initialPage >= 1) {
+      setPageNum(initialPage);
+    } else {
+      setPageNum(1);
+    }
     setLoading(false);
   };
 

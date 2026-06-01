@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fileApi, contentApi, type FileItem } from "../../api/content";
 import { annotationApi, type Annotation } from "../../api/annotations";
 import { tagApi, categoryApi, collectionApi } from "../../api/organization";
@@ -44,7 +44,12 @@ const STATUS_MAP: Record<string, string> = {
 
 export default function ContentsDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  
+  // 从URL读取参数
+  const targetPage = searchParams.get("page") ? parseInt(searchParams.get("page")!, 10) : undefined;
+  const targetTime = searchParams.get("t") ? parseFloat(searchParams.get("t")!) : undefined;
 
   const [item, setItem] = useState<FileItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -624,6 +629,7 @@ export default function ContentsDetail() {
               <PDFViewer
                 src={`/api/contents/${item.id}/preview?mode=raw`}
                 filename={item.title}
+                initialPage={targetPage}
               />
             </div>
           )}
@@ -631,12 +637,14 @@ export default function ContentsDetail() {
             <VideoPlayer
               src={`/files/${item.file_path}`}
               subtitles={item.extra_meta?.subtitles}
+              initialTime={targetTime}
             />
           )}
           {item.content_type === "audio" && item.file_path && (
             <AudioPlayer
               src={`/files/${item.file_path}`}
               title={item.title}
+              initialTime={targetTime}
             />
           )}
         </div>

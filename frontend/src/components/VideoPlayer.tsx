@@ -13,12 +13,13 @@ interface VideoPlayerProps {
   src: string;
   subtitles?: unknown;
   onTimeUpdate?: (current: number) => void;
+  initialTime?: number;
 }
 
-export default function VideoPlayer({ src, subtitles, onTimeUpdate }: VideoPlayerProps) {
+export default function VideoPlayer({ src, subtitles, onTimeUpdate, initialTime }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
-  const [current, setCurrent] = useState(0);
+  const [current, setCurrent] = useState(initialTime || 0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
@@ -32,6 +33,22 @@ export default function VideoPlayer({ src, subtitles, onTimeUpdate }: VideoPlaye
     const cue = subs.find(c => current >= c.start && current < c.end) ?? null;
     setActiveCue(cue);
   }, [current, subtitles]);
+  
+  // 设置初始时间
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || initialTime == null) return;
+    
+    const handleLoadedMetadata = () => {
+      if (initialTime >= 0 && initialTime <= video.duration) {
+        video.currentTime = initialTime;
+        setCurrent(initialTime);
+      }
+    };
+    
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    return () => video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+  }, [initialTime]);
 
   const togglePlay = () => {
     const v = videoRef.current;
