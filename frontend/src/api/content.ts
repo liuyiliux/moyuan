@@ -182,9 +182,11 @@ export const contentApi = {
   pin: (id: string) => api.post<{ is_pinned: boolean }>(`/contents/${id}/pin`),
 
   /** 获取内容分块 */
-  getChunks: (id: string) => api.get<{
+  getChunks: (id: string, page?: number, pageSize?: number) => api.get<{
     content_id: string;
     total: number;
+    page: number;
+    page_size: number;
     chunks: {
       id: string;
       chunk_index: number;
@@ -199,5 +201,5 @@ export const contentApi = {
       image_path: string | null;
       has_embedding: boolean;
     }[];
-  }>(`/contents/${id}/chunks`),
+  }>(`/contents/${id}/chunks${page ? `?page=${page}&page_size=${pageSize || 50}` : ""}`),
 };

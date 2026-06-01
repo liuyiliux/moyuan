@@ -79,6 +79,9 @@ export default function ContentsDetail() {
     embedding_type: string | null; page_number: number | null; time_start: number | null;
     image_path: string | null; has_embedding: boolean;
   }[]>([]);
+  const [chunksPage, setChunksPage] = useState(1);
+  const [chunksPageSize] = useState(50);
+  const [chunksTotal, setChunksTotal] = useState(0);
   const [loadingChunks, setLoadingChunks] = useState(false);
 
   // Annotations
@@ -162,12 +165,14 @@ export default function ContentsDetail() {
     }
   }
 
-  async function loadChunks() {
+  async function loadChunks(page = 1) {
     if (!id) return;
     setLoadingChunks(true);
     try {
-      const res = await contentApi.getChunks(id);
+      const res = await contentApi.getChunks(id, page, chunksPageSize);
       setChunks(res.chunks);
+      setChunksTotal(res.total);
+      setChunksPage(res.page);
     } catch { /* ignore */ }
     finally { setLoadingChunks(false); }
   }
@@ -658,7 +663,7 @@ export default function ContentsDetail() {
               提取内容
             </button>
             <button
-              onClick={() => { setContentTab("chunks"); if (chunks.length === 0) loadChunks(); }}
+              onClick={() => { setContentTab("chunks"); if (chunks.length === 0) loadChunks(1); }}
               className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${contentTab === "chunks" ? "bg-[var(--accent-soft)] text-[var(--accent-text)]" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"}`}
             >
               分块预览
@@ -734,31 +739,58 @@ export default function ContentsDetail() {
               ) : chunks.length === 0 ? (
                 <p className="text-sm text-[var(--text-muted)] italic text-center py-8">暂无分块数据</p>
               ) : (
-                <div className="space-y-2">
-                  <p className="text-xs text-[var(--text-muted)] mb-3">共 {chunks.length} 个分块</p>
-                  {chunks.map((c) => (
-                    <div key={c.id} className="border border-[var(--border-subtle)] rounded-lg p-3 hover:border-[var(--accent)]/30 transition-colors">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-mono text-[var(--text-muted)]">#{c.chunk_index}</span>
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-muted)]">{c.chunk_type}</span>
-                        {c.page_number != null && (
-                          <span className="text-xs text-[var(--accent-text)]">第 {c.page_number} 页</span>
+                <div>
+                  <div className="space-y-2 mb-4">
+                    <p className="text-xs text-[var(--text-muted)] mb-3">
+                      共 {chunksTotal} 个分块 · 第 {chunksPage}/{Math.ceil(chunksTotal / chunksPageSize)} 页
+                    </p>
+                    {chunks.map((c) => (
+                      <div key={c.id} className="border border-[var(--border-subtle)] rounded-lg p-3 hover:border-[var(--accent)]/30 transition-colors">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-mono text-[var(--text-muted)]">#{c.chunk_index}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-muted)]">{c.chunk_type}</span>
+                          {c.page_number != null && (
+                            <span className="text-xs text-[var(--accent-text)]">第 {c.page_number} 页</span>
+                          )}
+                          {c.time_start != null && (
+                            <span className="text-xs text-purple-500">{Math.floor(c.time_start / 60)}:{String(Math.floor(c.time_start % 60)).padStart(2, "0")}</span>
+                          )}
+                          {c.has_embedding && (
+                            <span className="text-xs text-emerald-500">已向量化</span>
+                          )}
+                        </div>
+                        {c.chunk_text && (
+                          <p className="text-xs text-[var(--text-secondary)] line-clamp-3 leading-relaxed">{c.chunk_text.slice(0, 300)}</p>
                         )}
-                        {c.time_start != null && (
-                          <span className="text-xs text-purple-500">{Math.floor(c.time_start / 60)}:{String(Math.floor(c.time_start % 60)).padStart(2, "0")}</span>
-                        )}
-                        {c.has_embedding && (
-                          <span className="text-xs text-emerald-500">已向量化</span>
+                        {c.image_path && (
+                          <p className="text-xs text-[var(--text-muted)] mt-1">图片: {c.image_path}</p>
                         )}
                       </div>
-                      {c.chunk_text && (
-                        <p className="text-xs text-[var(--text-secondary)] line-clamp-3 leading-relaxed">{c.chunk_text.slice(0, 300)}</p>
-                      )}
-                      {c.image_path && (
-                        <p className="text-xs text-[var(--text-muted)] mt-1">图片: {c.image_path}</p>
-                      )}
+                    ))}
+                  </div>
+                  
+                  {/* 分页控件 */}
+                  {chunksTotal > chunksPageSize && (
+                    <div className="flex items-center justify-between pt-3 border-t border-[var(--border-subtle)]">
+                      <button
+                        onClick={() => loadChunks(chunksPage - 1)}
+                        disabled={chunksPage <= 1}
+                        className="px-3 py-1.5 text-xs text-[var(--text-secondary)] disabled:text-[var(--text-muted)] disabled:opacity-50 hover:bg-[var(--bg-secondary)] rounded-lg transition-colors"
+                      >
+                        上一页
+                      </button>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        第 {chunksPage} / {Math.ceil(chunksTotal / chunksPageSize)} 页
+                      </span>
+                      <button
+                        onClick={() => loadChunks(chunksPage + 1)}
+                        disabled={chunksPage >= Math.ceil(chunksTotal / chunksPageSize)}
+                        className="px-3 py-1.5 text-xs text-[var(--text-secondary)] disabled:text-[var(--text-muted)] disabled:opacity-50 hover:bg-[var(--bg-secondary)] rounded-lg transition-colors"
+                      >
+                        下一页
+                      </button>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>

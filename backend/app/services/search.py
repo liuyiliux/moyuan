@@ -62,7 +62,9 @@ async def _vector_search(
         base += " AND cc.embedding_type = 'image'"
     base += " ORDER BY cc.embedding <=> :query_vec LIMIT :top_k"
 
-    params = {"query_vec": query_vec, "top_k": top_k}
+    # 把向量列表转换成 pgvector 字符串格式: [x, y, z]
+    vec_str = "[" + ",".join(map(str, query_vec)) + "]"
+    params = {"query_vec": vec_str, "top_k": top_k}
     if content_type:
         params["ctype"] = content_type
 
