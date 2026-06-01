@@ -88,6 +88,7 @@ export default function ContentsDetail() {
   const [chunksPageSize] = useState(50);
   const [chunksTotal, setChunksTotal] = useState(0);
   const [loadingChunks, setLoadingChunks] = useState(false);
+  const [contentExpanded, setContentExpanded] = useState(false);
 
   // Annotations
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -724,8 +725,40 @@ export default function ContentsDetail() {
                 />
                 <div className="prose dark:prose-invert max-w-none">
                   {item.text_content ? (
-                    <div className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] font-sans leading-relaxed">
-                      {renderTextWithAnnotations(item.text_content, annotations)}
+                    <div>
+                      {item.text_content.length > 2000 && !contentExpanded ? (
+                        <>
+                          <div className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] font-sans leading-relaxed line-clamp-[20]">
+                            {renderTextWithAnnotations(item.text_content.slice(0, 2000), annotations)}
+                          </div>
+                          <div className="mt-3 text-center">
+                            <button
+                              onClick={() => setContentExpanded(true)}
+                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] transition-colors"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5" />
+                              展开查看全部（{item.text_content.length} 字）
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] font-sans leading-relaxed">
+                            {renderTextWithAnnotations(item.text_content, annotations)}
+                          </div>
+                          {item.text_content.length > 2000 && contentExpanded && (
+                            <div className="mt-3 text-center">
+                              <button
+                                onClick={() => setContentExpanded(false)}
+                                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] transition-colors"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                                收起内容
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   ) : (
                     <p className="text-sm text-[var(--text-muted)] italic">
