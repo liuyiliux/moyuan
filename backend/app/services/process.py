@@ -419,7 +419,9 @@ class ContentProcessService:
                         chunk.embedding_type = "image"
                         success += 1
                     else:
-                        logger.warning(f"embed_image returned None for chunk {chunk.id}, path={chunk.image_path}")
+                        msg = f"embed_image returned None for chunk {chunk.id}, path={chunk.image_path}"
+                        print(f"[Process] WARNING: {msg}")
+                        logger.warning(msg)
                         failed += 1
                 elif chunk.chunk_text:
                     vec = await embed_text(self.db, chunk.chunk_text)
@@ -428,17 +430,25 @@ class ContentProcessService:
                         chunk.embedding_type = "text"
                         success += 1
                     else:
-                        logger.warning(f"embed_text returned None for chunk {chunk.id}")
+                        msg = f"embed_text returned None for chunk {chunk.id} — 可能未配置 embedding 模型或 API 调用失败"
+                        print(f"[Process] WARNING: {msg}")
+                        logger.warning(msg)
                         failed += 1
                 else:
-                    logger.warning(f"Chunk {chunk.id} has no text and no image_path, skipping")
+                    msg = f"Chunk {chunk.id} has no text and no image_path, skipping"
+                    print(f"[Process] WARNING: {msg}")
+                    logger.warning(msg)
                     failed += 1
             except Exception as e:
-                logger.error(f"embed_chunks error for chunk {chunk.id}: {e}")
+                msg = f"embed_chunks error for chunk {chunk.id}: {e}"
+                print(f"[Process] ERROR: {msg}")
+                logger.error(msg)
                 failed += 1
                 continue
 
-        logger.info(f"embed_chunks done: content_id={content_id}, success={success}, failed={failed}, total={len(chunks)}")
+        summary = f"embed_chunks done: content_id={content_id}, success={success}, failed={failed}, total={len(chunks)}"
+        print(f"[Process] {summary}")
+        logger.info(summary)
         await self.db.flush()
 
     def _resolve_path(self, file_path: str | None) -> str:

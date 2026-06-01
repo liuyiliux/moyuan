@@ -56,7 +56,12 @@ async def _call_openai_embedding(
 
 
 async def _get_embedding_binding(db: AsyncSession) -> dict | None:
-    """从 provider-config 读取 embedding 功能绑定"""
+    """从 provider-config 读取 embedding 功能绑定
+
+    优先级：
+    1. Provider.default_models["embedding"]（数据库持久化）
+    2. 功能绑定 /api/providers/bindings（内存，fallback）
+    """
     result = await db.execute(
         select(ProviderConfig).where(ProviderConfig.is_active == True)
     )
@@ -67,11 +72,29 @@ async def _get_embedding_binding(db: AsyncSession) -> dict | None:
                 "provider_id": str(p.id),
                 "model": models["embedding"],
             }
+
+    # Fallback: 检查功能绑定（内存中的 FunctionBindings）
+    try:
+        from app.api.provider import _function_bindings
+        fb = _function_bindings.get("embedding")
+        if fb and fb.provider_id and fb.model:
+            return {
+                "provider_id": str(fb.provider_id),
+                "model": fb.model,
+            }
+    except Exception:
+        pass
+
     return None
 
 
 async def _get_chunking_binding(db: AsyncSession) -> dict | None:
-    """从 provider-config 读取 chunking 功能绑定"""
+    """从 provider-config 读取 chunking 功能绑定
+
+    优先级：
+    1. Provider.default_models["chunking"]（数据库持久化）
+    2. 功能绑定 /api/providers/bindings（内存，fallback）
+    """
     result = await db.execute(
         select(ProviderConfig).where(ProviderConfig.is_active == True)
     )
@@ -82,6 +105,19 @@ async def _get_chunking_binding(db: AsyncSession) -> dict | None:
                 "provider_id": str(p.id),
                 "model": models["chunking"],
             }
+
+    # Fallback: 检查功能绑定
+    try:
+        from app.api.provider import _function_bindings
+        fb = _function_bindings.get("chunking")
+        if fb and fb.provider_id and fb.model:
+            return {
+                "provider_id": str(fb.provider_id),
+                "model": fb.model,
+            }
+    except Exception:
+        pass
+
     return None
 
 
