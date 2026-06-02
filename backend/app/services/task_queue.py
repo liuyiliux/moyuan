@@ -75,7 +75,15 @@ async def enqueue(content_id: str, task_type: str = "parse", priority: int = 0, 
         result = await db.execute(select(Content).where(Content.id == content_id))
         content = result.scalar_one_or_none()
         if content:
-            content.processing_status = "pending"
+            # 根据任务类型设置不同的状态
+            if task_type == "chunk":
+                content.processing_status = "chunking"
+            elif task_type == "embed":
+                content.processing_status = "embedding"
+            elif task_type == "parse":
+                content.processing_status = "processing"
+            else:
+                content.processing_status = "pending"
             await db.flush()
 
         if not use_existing_session:
@@ -160,12 +168,17 @@ async def _worker():
                     svc = ContentProcessService(db)
                     await svc.process(content=content)
                     print(f"[TaskQueue] Task {task_id}: parse completed, text_len={len(content.text_content or '')}")
-                    # 处理完成后自动入队嵌入任务
-                    await enqueue_embed(content_id_str)
+
+                elif task.task_type == "chunk":
+                    from app.services.process import ContentProcessService
+                    svc = ContentProcessService(db)
+                    await svc.chunk(content=content)
+                    print(f"[TaskQueue] Task {task_id}: chunk completed, text_len={len(content.text_content or '')}")
 
                 elif task.task_type == "embed":
-                    from app.services.embedding import embed_content
-                    await embed_content(db, content_id_str)
+                    from app.services.process import ContentProcessService
+                    svc = ContentProcessService(db)
+                    await svc.embed(content=content)
                     print(f"[TaskQueue] Task {task_id}: embed completed")
 
                 # 完成

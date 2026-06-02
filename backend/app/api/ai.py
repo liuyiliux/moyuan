@@ -75,7 +75,7 @@ async def summarize(body: SummarizeRequest, db: AsyncSession = Depends(get_db)):
     if content is None:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    text = content.text_content or content.title or ""
+    text = content.text_content or ""
     if not text.strip():
         return {"summary": "暂无文本内容可供摘要", "content_id": body.content_id}
 

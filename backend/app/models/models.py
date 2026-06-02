@@ -23,8 +23,8 @@ class Content(Base):
     # Text content (for notes, OCR text, transcriptions)
     text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Processing
-    processing_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, processing, completed, failed
+    # Processing status: pending -> chunking -> chunked -> embedding -> completed/failed
+    processing_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, chunking, chunked, embedding, processing, completed, failed
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # 多模态嵌入 - 使用统一的向量空间（Qwen3-VL-Embedding-8B 输出 4096 维）

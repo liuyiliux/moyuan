@@ -360,7 +360,7 @@ async def update_content(content_id: str, body: ContentUpdate, db: AsyncSession 
 
 @contents_router.post("/{content_id}/process", response_model=dict)
 async def trigger_process(content_id: str, reprocess_all: bool = Query(False), db: AsyncSession = Depends(get_db)):
-    """触发内容处理（解析、分块、嵌入）
+    """触发内容处理（解析、分块、嵌入）- 完整流程
     
     :param reprocess_all: 是否重新处理所有块（包括已成功嵌入的），默认为 False
     """
@@ -374,6 +374,101 @@ async def trigger_process(content_id: str, reprocess_all: bool = Query(False), d
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing failed: {e}")
+
+
+@contents_router.post("/{content_id}/chunk", response_model=dict)
+async def trigger_chunk(content_id: str, db: AsyncSession = Depends(get_db)):
+    """触发智能分块（仅分块，不生成嵌入）"""
+    from app.services.task_queue import enqueue
+
+    try:
+        await enqueue(content_id, task_type="chunk", priority=0, db=db)
+        return {"status": "queued", "processing_status": "chunking"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chunking failed: {e}")
+
+
+@contents_router.post("/{content_id}/embed", response_model=dict)
+async def trigger_embed(content_id: str, db: AsyncSession = Depends(get_db)):
+    """触发生成嵌入（对已分块的内容生成向量嵌入）"""
+    from sqlalchemy import select, func
+    from app.models.models import Content, ContentChunk
+    from app.services.task_queue import enqueue
+
+    result = await db.execute(select(Content).where(Content.id == content_id))
+    content = result.scalar_one_or_none()
+    if content is None:
+        raise HTTPException(status_code=404, detail=f"Content {content_id} not found")
+    
+    # 检查是否有 chunks
+    chunk_count_result = await db.execute(
+        select(func.count(ContentChunk.id)).where(ContentChunk.content_id == content_id)
+    )
+    chunk_count = chunk_count_result.scalar() or 0
+    
+    if chunk_count == 0:
+        raise HTTPException(status_code=400, detail="内容还没有分块，请先进行智能分块")
+    
+    if content.processing_status not in ("chunked", "embedding", "completed", "partial", "failed"):
+        raise HTTPException(status_code=400, detail=f"内容状态不允许生成嵌入: {content.processing_status}")
+
+    try:
+        await enqueue(content_id, task_type="embed", priority=1, db=db)
+        return {"status": "queued", "processing_status": "embedding"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Embedding failed: {e}")
+
+
+@contents_router.post("/batch-chunk", response_model=dict)
+async def batch_chunk(content_ids: list[str], db: AsyncSession = Depends(get_db)):
+    """批量触发智能分块"""
+    from app.services.task_queue import enqueue
+
+    success = 0
+    failed = []
+    for content_id in content_ids:
+        try:
+            await enqueue(content_id, task_type="chunk", priority=0, db=db)
+            success += 1
+        except Exception as e:
+            failed.append({"content_id": content_id, "error": str(e)})
+
+    return {
+        "status": "queued",
+        "total": len(content_ids),
+        "success": success,
+        "failed": failed,
+    }
+
+
+@contents_router.post("/batch-embed", response_model=dict)
+async def batch_embed(content_ids: list[str], db: AsyncSession = Depends(get_db)):
+    """批量触发生成嵌入"""
+    from sqlalchemy import select
+    from app.models.models import Content
+    from app.services.task_queue import enqueue
+
+    success = 0
+    failed = []
+    for content_id in content_ids:
+        try:
+            result = await db.execute(select(Content).where(Content.id == content_id))
+            content = result.scalar_one_or_none()
+            if content is None:
+                raise ValueError(f"Content {content_id} not found")
+            if content.processing_status not in ("chunked", "embedding", "completed", "partial", "failed"):
+                raise ValueError(f"内容状态不允许生成嵌入: {content.processing_status}")
+            await enqueue(content_id, task_type="embed", priority=1, db=db)
+            success += 1
+        except Exception as e:
+            failed.append({"content_id": content_id, "error": str(e)})
+
+    return {
+        "status": "queued",
+        "total": len(content_ids),
+        "success": success,
+        "failed": failed,
+    }
 
 
 @contents_router.post("/rechunk-all", response_model=dict)
@@ -506,6 +601,54 @@ async def batch_action(body: BatchActionRequest, db: AsyncSession = Depends(get_
 
     await db.commit()
     return {"status": "ok", "action": body.action, "updated": updated}
+
+
+@contents_router.post("/maintenance/reset-stuck-embeddings", response_model=dict)
+async def reset_stuck_embeddings(db: AsyncSession = Depends(get_db)):
+    """将长时间停留在 embedding 的内容重置为 failed，便于用户重新处理"""
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, func
+    from app.models.models import Content, ProcessingTask
+
+    from sqlalchemy import func as sa_func
+    server_now = (await db.execute(select(sa_func.now()))).scalar()
+    cutoff = server_now - timedelta(minutes=30)
+
+    result = await db.execute(
+        select(Content).where(
+            Content.processing_status == "embedding",
+            Content.updated_at < cutoff,
+        )
+    )
+    stuck_contents = result.scalars().all()
+
+    for content in stuck_contents:
+        content.processing_status = "failed"
+        content.processing_error = "长时间停留在 embedding，自动回滚为 failed"
+
+    if stuck_contents:
+        stuck_ids = [c.id for c in stuck_contents]
+        task_result = await db.execute(
+            select(ProcessingTask).where(
+                ProcessingTask.content_id.in_(stuck_ids),
+                ProcessingTask.task_type == "embed",
+                ProcessingTask.status.in_(["queued", "processing"]),
+            )
+        )
+        for task in task_result.scalars().all():
+            task.status = "failed"
+            task.error_message = "长时间停留在 embedding，自动回滚为 failed"
+
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "reset_count": len(stuck_contents),
+        "cutoff_minutes": 30,
+        "reset_ids": [str(c.id) for c in stuck_contents],
+        "server_now": server_now.isoformat(),
+        "local_now": datetime.now().astimezone().isoformat(),
+    }
 
 
 @contents_router.post("/{content_id}/star", response_model=dict)

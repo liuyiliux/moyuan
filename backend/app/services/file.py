@@ -124,9 +124,8 @@ class FileService:
         await self.db.flush()
         await self.db.refresh(content)
 
-        # 自动加入处理队列（传入现有会话，避免外键约束问题）
-        from app.services.task_queue import enqueue
-        await enqueue(str(content.id), task_type="parse", priority=0, db=self.db)
+        # 不再自动加入处理队列，用户需要手动触发智能分块
+        # 状态保持为 pending，等待用户手动操作
 
         return content
 

@@ -1,10 +1,13 @@
 """数据统计面板 API"""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from pathlib import Path
+from datetime import datetime
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.models.models import Content, Tag, ContentTag, SearchLog
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -97,4 +100,49 @@ async def growth_stats(db: AsyncSession = Depends(get_db)):
             {"week": str(r.week), "count": r.cnt}
             for r in res.fetchall()
         ]
+    }
+
+
+@router.get("/logs")
+async def get_logs(
+    lines: int = Query(100, ge=1, le=1000),
+    content_id: str | None = Query(None),
+):
+    """获取应用日志
+    
+    :param lines: 返回的行数（默认100，最多1000）
+    :param content_id: 可选，只显示指定内容ID相关的日志
+    """
+    settings = get_settings()
+    log_dir = Path(settings.log_dir)
+    
+    main_log = log_dir / "moyuan.log"
+    if not main_log.exists():
+        raise HTTPException(status_code=404, detail="日志文件不存在")
+    
+    # 读取最后 N 行
+    try:
+        with open(main_log, "r", encoding="utf-8", errors="ignore") as f:
+            all_lines = f.readlines()
+            last_lines = all_lines[-lines:]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取日志失败: {str(e)}")
+    
+    # 如果指定了 content_id，过滤相关日志
+    if content_id:
+        filtered = [
+            line for line in last_lines 
+            if content_id.lower() in line.lower()
+        ]
+        # 如果过滤后为空，返回原始日志
+        if not filtered:
+            filtered = last_lines[:20]
+    else:
+        filtered = last_lines
+    
+    return {
+        "logs": filtered,
+        "total_lines": len(all_lines),
+        "returned_lines": len(filtered),
+        "timestamp": datetime.now().isoformat(),
     }

@@ -181,6 +181,18 @@ export const contentApi = {
   /** 置顶/取消置顶 */
   pin: (id: string) => api.post<{ is_pinned: boolean }>(`/contents/${id}/pin`),
 
+  /** 触发智能分块 */
+  chunkContent: (id: string) => api.post<{ status: string; processing_status: string }>(`/contents/${id}/chunk`),
+
+  /** 触发生成嵌入 */
+  embedContent: (id: string) => api.post<{ status: string; processing_status: string }>(`/contents/${id}/embed`),
+
+  /** 批量触发智能分块 */
+  batchChunk: (ids: string[]) => api.post<{ status: string; total: number; success: number; failed: { content_id: string; error: string }[] }>("/contents/batch-chunk", ids),
+
+  /** 批量触发生成嵌入 */
+  batchEmbed: (ids: string[]) => api.post<{ status: string; total: number; success: number; failed: { content_id: string; error: string }[] }>("/contents/batch-embed", ids),
+
   /** 获取内容分块 */
   getChunks: (id: string, page?: number, pageSize?: number) => api.get<{
     content_id: string;

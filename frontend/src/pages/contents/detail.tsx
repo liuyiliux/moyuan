@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fileApi, contentApi, type FileItem } from "../../api/content";
 import { annotationApi, type Annotation } from "../../api/annotations";
@@ -13,13 +13,14 @@ import AnnotationToolbar from "../../components/AnnotationToolbar";
 import AnnotationPanel from "../../components/AnnotationPanel";
 import KnowledgeGraph from "../../components/KnowledgeGraph";
 import SeriesNavigation from "../../components/SeriesNavigation";
+import Toast from "../../components/Toast";
 import {
   ArrowLeft, Save, RefreshCw, Trash2, FileText,
   FileAudio, FileVideo, Image, FileSpreadsheet, File, Globe,
   Star, Bookmark, Tag as TagIcon,
   Sparkles, Brain, BookOpen, Loader2,
   MessageSquare, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown,
+  ArrowUp, ArrowDown, ZoomIn, X, RefreshCw as RefreshIcon
 } from "lucide-react";
 
 const TYPE_ICON_MAP: Record<string, React.ReactNode> = {
@@ -38,7 +39,11 @@ function getTypeIcon(type: string) {
 
 const STATUS_MAP: Record<string, string> = {
   pending: "bg-[var(--warning-soft)] text-amber-700 dark:bg-amber-900/40",
+  chunking: "bg-purple-100 text-purple-700 dark:bg-purple-900/40",
+  chunked: "bg-teal-100 text-teal-700 dark:bg-teal-900/40",
+  embedding: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40",
   processing: "bg-blue-100 text-blue-700 dark:bg-blue-900/40",
+  partial: "bg-orange-100 text-orange-700 dark:bg-orange-900/40",
   completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40",
   failed: "bg-[var(--danger-soft)] text-red-700 dark:bg-red-900/40",
 };
@@ -48,7 +53,6 @@ export default function ContentsDetail() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
-  // 从URL读取参数
   const targetPage = searchParams.get("page") ? parseInt(searchParams.get("page")!, 10) : undefined;
   const targetTime = searchParams.get("t") ? parseFloat(searchParams.get("t")!) : undefined;
 
@@ -59,7 +63,6 @@ export default function ContentsDetail() {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
 
-  // Tags & categories
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [allCats, setAllCats] = useState<Category[]>([]);
   const [itemTags, setItemTags] = useState<string[]>([]);
@@ -69,16 +72,14 @@ export default function ContentsDetail() {
   const [favorited, setFavorited] = useState(false);
   const [loadingOrg, setLoadingOrg] = useState(false);
 
-  // AI panel
   const [showAiPanel, setShowAiPanel] = useState(false);
-  const [summary, setSummary] = useState("");
+  const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
-  const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number }[]>([]);
+  const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number }[] | null>(null);
   const [loadingRelated, setLoadingRelated] = useState(false);
-  const [quizQuestions, setQuizQuestions] = useState<{ type: string; question: string; options?: string[]; answer?: string }[]>([]);
+  const [quizQuestions, setQuizQuestions] = useState<{ type: string; question: string; options?: string[]; answer?: string }[] | null>(null);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
 
-  // Chunks
   const [contentTab, setContentTab] = useState<"text" | "chunks">("text");
   const [chunks, setChunks] = useState<{
     id: string; chunk_index: number; chunk_type: string; chunk_text: string | null;
@@ -90,36 +91,45 @@ export default function ContentsDetail() {
   const [chunksTotal, setChunksTotal] = useState(0);
   const [loadingChunks, setLoadingChunks] = useState(false);
   const [contentExpanded, setContentExpanded] = useState(false);
-  const [showScrollButtons, setShowScrollButtons] = useState(false);
+  const [statusInfo, setStatusInfo] = useState<{
+    chunk_count: number;
+    text_chunks: number;
+    image_chunks: number;
+    embedded_chunks: number;
+  } | null>(null);
   const mainContentRef = useRef<HTMLDivElement>(null);
 
-  // Annotations
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
   const [loadingAnnotations, setLoadingAnnotations] = useState(false);
 
-  // Series
   const [series, setSeries] = useState<SeriesInfo | null>(null);
   const [loadingSeries, setLoadingSeries] = useState(false);
 
-  // Graph panel
   const [showGraphPanel, setShowGraphPanel] = useState(false);
+
+  const [showImageViewer, setShowImageViewer] = useState(false);
+
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+
+  const [showScrollButtons, setShowScrollButtons] = useState(false);
 
   async function load() {
     if (!id) return;
     setLoading(true);
     setError(null);
     try {
-      const [data, tags, cats] = await Promise.all([
+      const [data, tags, cats, statusRes] = await Promise.all([
         fileApi.get(id),
         tagApi.list(1, 200),
         categoryApi.listAll(),
+        fetch(`/api/contents/${id}/status`).then(r => r.json()),
       ]);
       setItem(data);
+      setStatusInfo(statusRes);
       setEditText(data.text_content || "");
       setAllTags(tags);
       setAllCats(cats);
-      // Load item's tags (we'd need a backend endpoint for this, use extra_meta for now)
       setItemTags((data.extra_meta?.tags as string[] | undefined) || []);
       setItemCat((data.extra_meta?.category_id as string | null | undefined) || null);
       setFavorited(Boolean(data.extra_meta?.favorited));
@@ -132,7 +142,6 @@ export default function ContentsDetail() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
@@ -153,46 +162,77 @@ export default function ContentsDetail() {
       .finally(() => setLoadingSeries(false));
   }, [id]);
 
-  // 滚动事件监听
-  useEffect(() => {
-    const container = mainContentRef.current;
-    if (!container) return;
-
-    const handleScroll = () => {
-      setShowScrollButtons(container.scrollTop > 200);
-    };
-
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
+  const scrollToTop = useCallback(() => {
+    mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  // 滚动到顶部
-  const scrollToTop = () => {
-    mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // 滚动到底部
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     const container = mainContentRef.current;
     if (!container) return;
     container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-  };
+  }, []);
+
+  useEffect(() => {
+    const container = mainContentRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      setShowScrollButtons(container.scrollTop > 200);
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  async function pollProcessingStatus(doneStatuses: string[] = ["completed", "failed", "partial", "chunked"]) {
+    if (!id) return;
+    const poll = async () => {
+      const status = await fetch(`/api/contents/${id}/status`).then(r => r.json());
+      if (doneStatuses.includes(status.processing_status)) {
+        await load();
+        if (status.processing_status === "chunked") {
+          setContentTab("chunks");
+          await loadChunks(1);
+        }
+        setProcessing(false);
+      } else {
+        setTimeout(poll, 1500);
+      }
+    };
+    poll();
+  }
 
   async function handleReprocess() {
     if (!id) return;
     setProcessing(true);
     try {
       await fetch(`/api/contents/${id}/process`, { method: "POST" });
-      const poll = async () => {
-        const status = await fetch(`/api/contents/${id}/status`).then(r => r.json());
-        if (status.processing_status === "completed" || status.processing_status === "failed") {
-          load();
-          setProcessing(false);
-        } else {
-          setTimeout(poll, 1500);
-        }
-      };
-      poll();
+      pollProcessingStatus(["completed", "failed", "partial"]);
+    } catch (err) {
+      const msg = "重新处理失败: " + (err as Error).message;
+      setError(msg);
+      setToast({ type: "error", message: msg });
+      setProcessing(false);
+    }
+  }
+
+  async function handleChunk() {
+    if (!id) return;
+    setProcessing(true);
+    try {
+      await contentApi.chunkContent(id);
+      pollProcessingStatus(["chunked", "failed"]);
+    } catch (err) {
+      setError((err as Error).message);
+      setProcessing(false);
+    }
+  }
+
+  async function handleEmbed() {
+    if (!id) return;
+    setProcessing(true);
+    try {
+      await contentApi.embedContent(id);
+      pollProcessingStatus(["completed", "failed", "partial"]);
     } catch (err) {
       setError((err as Error).message);
       setProcessing(false);
@@ -217,8 +257,9 @@ export default function ContentsDetail() {
       await contentApi.update(id, { text_content: editText });
       setItem(prev => prev ? { ...prev, text_content: editText } : prev);
       setEditing(false);
+      setToast({ type: "success", message: "文本已保存" });
     } catch (err) {
-      setError((err as Error).message);
+      setToast({ type: "error", message: "保存失败: " + (err as Error).message });
     }
   }
 
@@ -228,63 +269,90 @@ export default function ContentsDetail() {
       await fileApi.delete(id);
       navigate("/contents");
     } catch (err) {
-      setError((err as Error).message);
+      setToast({ type: "error", message: "删除失败: " + (err as Error).message });
     }
   }
 
-  // ── AI actions ──
-
-  async function handleSummarize() {
+  const handleSummarize = useCallback(async (force = false) => {
     if (!id) return;
+    if (summary !== null && !force) {
+      setShowAiPanel(true);
+      return;
+    }
     setShowAiPanel(true);
     setSummarizing(true);
-    setSummary("");
     try {
       const res = await fetch("/api/ai/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content_id: id, max_length: 500 }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `请求失败 (${res.status})`);
+      }
       const data = await res.json();
-      setSummary(data.summary || "No summary generated.");
+      setSummary(data.summary);
     } catch (e) {
-      setSummary("Summarize failed: " + (e as Error).message);
+      const msg = "摘要生成失败: " + (e as Error).message;
+      setSummary(msg);
+      setToast({ type: "error", message: msg });
     } finally {
       setSummarizing(false);
     }
-  }
+  }, [id, summary]);
 
-  async function handleRelated() {
+  const handleRelated = useCallback(async (force = false) => {
     if (!id) return;
+    if (relatedItems !== null && !force) {
+      setShowAiPanel(true);
+      return;
+    }
     setShowAiPanel(true);
     setLoadingRelated(true);
     try {
       const res = await fetch(`/api/ai/related/${id}?top_k=10`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `请求失败 (${res.status})`);
+      }
       const data = await res.json();
       setRelatedItems(data.related || []);
-    } catch { /* ignore */ }
-    finally { setLoadingRelated(false); }
-  }
+    } catch (e) {
+      setToast({ type: "error", message: "获取相关内容失败: " + (e as Error).message });
+    } finally {
+      setLoadingRelated(false);
+    }
+  }, [id, relatedItems]);
 
-  async function handleQuiz() {
+  const handleQuiz = useCallback(async (force = false) => {
     if (!id) return;
+    if (quizQuestions !== null && !force) {
+      setShowAiPanel(true);
+      return;
+    }
     setShowAiPanel(true);
     setGeneratingQuiz(true);
-    setQuizQuestions([]);
     try {
       const res = await fetch("/api/ai/quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content_ids: [id], question_count: 5 }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `请求失败 (${res.status})`);
+      }
       const data = await res.json();
       setQuizQuestions(data.questions || []);
     } catch (e) {
-      setQuizQuestions([{ type: "open", question: "Generation failed: " + (e as Error).message }]);
+      const msg = "题目生成失败: " + (e as Error).message;
+      setQuizQuestions([{ type: "open", question: msg }]);
+      setToast({ type: "error", message: msg });
     } finally {
       setGeneratingQuiz(false);
     }
-  }
+  }, [id, quizQuestions]);
 
   async function toggleTag(tagId: string) {
     if (!id) return;
@@ -331,18 +399,15 @@ export default function ContentsDetail() {
   function renderTextWithAnnotations(text: string, annotations: Annotation[]): React.ReactNode {
     if (!annotations.length) return <p className="whitespace-pre-wrap">{text}</p>;
     
-    // 按 start_offset 排序
     const sorted = [...annotations].sort((a, b) => a.start_offset - b.start_offset);
     
     const parts: React.ReactNode[] = [];
     let lastEnd = 0;
     
     sorted.forEach((ann, i) => {
-      // 高亮前的普通文字
       if (ann.start_offset > lastEnd) {
         parts.push(<span key={`text-${i}`}>{text.slice(lastEnd, ann.start_offset)}</span>);
       }
-      // 高亮文字
       parts.push(
         <mark
           key={`mark-${ann.id}`}
@@ -350,7 +415,6 @@ export default function ContentsDetail() {
           title={ann.annotation_text}
         >
           {text.slice(ann.start_offset, ann.end_offset)}
-          {/* hover 气泡 */}
           <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[var(--accent)] text-white text-xs rounded-lg shadow-[var(--shadow-lg)] opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap max-w-xs truncate pointer-events-none z-50">
             {ann.annotation_text}
           </span>
@@ -359,7 +423,6 @@ export default function ContentsDetail() {
       lastEnd = ann.end_offset;
     });
     
-    // 剩余文字
     if (lastEnd < text.length) {
       parts.push(<span key="text-end">{text.slice(lastEnd)}</span>);
     }
@@ -371,7 +434,6 @@ export default function ContentsDetail() {
     const markEl = document.querySelector(`mark[title="${ann.annotation_text}"]`);
     if (markEl) {
       markEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      // 闪烁效果
       markEl.classList.add("ring-2", "ring-blue-500");
       setTimeout(() => markEl.classList.remove("ring-2", "ring-blue-500"), 2000);
     }
@@ -403,18 +465,20 @@ export default function ContentsDetail() {
   }
 
   const statusLabel: Record<string, string> = {
-    pending: "待处理",
+    pending: "待分块",
+    chunking: "分块中...",
+    chunked: "分块完成",
+    embedding: "嵌入中...",
     processing: "处理中...",
+    partial: "部分成功",
     completed: "已完成",
     failed: "失败",
   };
 
   return (
     <div className="flex h-screen relative">
-      {/* Main content */}
       <div ref={mainContentRef} className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-6 py-6">
-          {/* Back nav */}
           <Link
             to="/contents"
             className="inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-[var(--text-primary)] dark:hover:text-[var(--text-primary)] mb-4"
@@ -423,7 +487,6 @@ export default function ContentsDetail() {
             返回列表
           </Link>
 
-      {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-6">
         <div className="flex items-center gap-3 min-w-0">
           {getTypeIcon(item.content_type)}
@@ -474,37 +537,66 @@ export default function ContentsDetail() {
             </svg>
           </button>
           <button
-            onClick={handleSummarize}
-            disabled={summarizing}
-            className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg transition-colors"
-            title="AI 摘要"
+            onClick={() => setShowAiPanel(v => !v)}
+            className={`p-2 rounded-lg transition-colors ${
+              showAiPanel
+                ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                : "text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+            }`}
+            title="AI 助手"
           >
             <Sparkles className="w-4 h-4" />
           </button>
-          <button
-            onClick={handleRelated}
-            disabled={loadingRelated}
-            className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 rounded-lg transition-colors"
-            title="相关内容"
-          >
-            <Brain className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleQuiz}
-            disabled={generatingQuiz}
-            className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-[var(--warning)] hover:bg-[var(--warning-soft)] dark:hover:bg-amber-950/30 rounded-lg transition-colors"
-            title="生成题目"
-          >
-            <BookOpen className="w-4 h-4" />
-          </button>
-          {item.processing_status !== "processing" && (
+          {(
+            item.processing_status === "pending" || 
+            (item.processing_status === "failed" && (!statusInfo || statusInfo.chunk_count === 0))
+          ) && (
+            <button
+              onClick={handleChunk}
+              disabled={processing}
+              className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30 rounded-lg transition-colors disabled:opacity-50"
+              title="智能分块"
+            >
+              <RefreshCw className={`w-4 h-4 ${processing ? "animate-spin" : ""}`} />
+            </button>
+          )}
+          {(
+            item.processing_status === "chunked" || 
+            item.processing_status === "partial" || 
+            (item.processing_status === "failed" && statusInfo && statusInfo.chunk_count > 0)
+          ) && (
+            <button
+              onClick={handleEmbed}
+              disabled={processing}
+              className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 rounded-lg transition-colors disabled:opacity-50"
+              title="生成嵌入"
+            >
+              <Sparkles className={`w-4 h-4 ${processing ? "animate-pulse" : ""}`} />
+            </button>
+          )}
+          {(
+            item.processing_status === "chunked" || 
+            item.processing_status === "completed" || 
+            item.processing_status === "partial" ||
+            (item.processing_status === "failed" && statusInfo && statusInfo.chunk_count > 0)
+          ) && (
+            <button
+              onClick={handleChunk}
+              disabled={processing}
+              className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] dark:hover:bg-[var(--bg-elevated)] rounded-lg transition-colors disabled:opacity-50"
+              title="重新分块"
+            >
+              <RefreshCw className={`w-4 h-4 ${processing ? "animate-spin" : ""}`} />
+            </button>
+          )}
+          {item.processing_status !== "processing" && item.processing_status !== "chunking" && item.processing_status !== "embedding" && (
             <button
               onClick={handleReprocess}
               disabled={processing}
-              className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] dark:hover:bg-[var(--bg-elevated)] rounded-lg transition-colors"
-              title="重新处理"
+              className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] dark:hover:bg-[var(--bg-elevated)] rounded-lg transition-colors disabled:opacity-50"
+              title="完整处理"
             >
-              <RefreshCw className={`w-4 h-4 ${processing ? "animate-spin" : ""}`} />
+              <Loader2 className={`w-4 h-4 ${processing ? "animate-spin" : ""}`} />
             </button>
           )}
           <button
@@ -517,7 +609,6 @@ export default function ContentsDetail() {
         </div>
       </div>
 
-      {/* Series Navigation (only shown when content is part of a series) */}
       {(series || loadingSeries) && (
         <div className="mb-6">
           <SeriesNavigation
@@ -534,7 +625,6 @@ export default function ContentsDetail() {
         </div>
       )}
 
-      {/* Meta info */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6 text-sm">
         <div className="bg-[var(--bg-primary)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-lg p-3">
           <p className="text-xs text-[var(--text-muted)] mb-1">文件大小</p>
@@ -562,9 +652,7 @@ export default function ContentsDetail() {
         </div>
       </div>
 
-      {/* Organization actions */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">
-        {/* Tags */}
         <div className="relative">
           <button
             onClick={() => setShowTagPicker(v => !v)}
@@ -599,7 +687,6 @@ export default function ContentsDetail() {
           )}
         </div>
 
-        {/* Category */}
         <div className="relative">
           <button
             onClick={() => setShowCatPicker(v => !v)}
@@ -629,7 +716,6 @@ export default function ContentsDetail() {
           )}
         </div>
 
-        {/* Favorite */}
         <button
           onClick={() => void toggleFavorite()}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
@@ -643,15 +729,32 @@ export default function ContentsDetail() {
         </button>
       </div>
 
-      {/* Preview area */}
       {(item.content_type === "image" || item.content_type === "pdf" ||
         item.content_type === "video" || item.content_type === "audio") && (
         <div className="mb-6">
           {item.content_type === "image" && item.file_path && (
-            <ImageViewer
-              src={`/files/${item.file_path}`}
-              alt={item.title}
-            />
+            <div className="relative group cursor-pointer overflow-hidden rounded-xl border border-[var(--border-subtle)]" onClick={() => setShowImageViewer(true)}>
+              <img
+                src={`/api/contents/${item.id}/preview?mode=raw`}
+                alt={item.title}
+                className="max-h-[70vh] w-full object-contain bg-black/5"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/50 text-white text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                  <ZoomIn className="w-4 h-4" />
+                  查看大图
+                </div>
+              </div>
+              {showImageViewer && (
+                <div className="contents" onClick={(e) => e.stopPropagation()}>
+                  <ImageViewer
+                    src={`/api/contents/${item.id}/preview?mode=raw`}
+                    alt={item.title}
+                    onClose={() => setShowImageViewer(false)}
+                  />
+                </div>
+              )}
+            </div>
           )}
           {item.content_type === "pdf" && item.file_path && (
             <div className="h-[70vh]">
@@ -664,14 +767,14 @@ export default function ContentsDetail() {
           )}
           {item.content_type === "video" && item.file_path && (
             <VideoPlayer
-              src={`/files/${item.file_path}`}
+              src={`/api/contents/${item.id}/preview?mode=raw`}
               subtitles={item.extra_meta?.subtitles}
               initialTime={targetTime}
             />
           )}
           {item.content_type === "audio" && item.file_path && (
             <AudioPlayer
-              src={`/files/${item.file_path}`}
+              src={`/api/contents/${item.id}/preview?mode=raw`}
               title={item.title}
               initialTime={targetTime}
             />
@@ -679,7 +782,6 @@ export default function ContentsDetail() {
         </div>
       )}
 
-      {/* Processing error */}
       {item.processing_status === "failed" && item.processing_error && (
         <div className="mb-6 bg-[var(--danger-soft)] dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <p className="text-sm font-medium text-red-700 dark:text-red-400 mb-1">处理失败</p>
@@ -689,7 +791,6 @@ export default function ContentsDetail() {
         </div>
       )}
 
-      {/* Text content / Chunks tabs */}
       <div className="bg-[var(--bg-card)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
           <div className="flex items-center gap-1">
@@ -838,7 +939,6 @@ export default function ContentsDetail() {
                     ))}
                   </div>
                   
-                  {/* 分页控件 */}
                   {chunksTotal > chunksPageSize && (
                     <div className="flex items-center justify-between pt-3 border-t border-[var(--border-subtle)]">
                       <button
@@ -867,50 +967,109 @@ export default function ContentsDetail() {
         </div>
       </div>
 
-      {/* ── AI Panel ── */}
+      {showGraphPanel && (
+        <div className="mt-6">
+          <KnowledgeGraph
+            contentId={item.id}
+            contentTitle={item.title}
+            contentType={item.content_type}
+          />
+        </div>
+      )}
+
+      {showAnnotationPanel && (
+        <AnnotationPanel
+          annotations={annotations}
+          loading={loadingAnnotations}
+          onLocate={handleLocateAnnotation}
+          onDelete={handleDeleteAnnotation}
+          onClose={() => setShowAnnotationPanel(false)}
+        />
+      )}
+        </div>
+      </div>
+
       {showAiPanel && (
-        <div className="mt-6 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] dark:border-[var(--border-subtle)] bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)]/50">
+        <div className="w-96 border-l border-[var(--border-subtle)] bg-[var(--bg-card)] dark:bg-[var(--bg-elevated)] overflow-y-auto flex flex-col h-screen">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)]/50 shrink-0">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-500" />
               <h2 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)]">AI 助手</h2>
             </div>
-            <button onClick={() => setShowAiPanel(false)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-lg leading-none">&times;</button>
+            <button onClick={() => setShowAiPanel(false)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1 rounded-lg hover:bg-[var(--bg-secondary)]">
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          <div className="p-4 space-y-4">
-            {/* 摘要 */}
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+            {!item.text_content && !item.title && (
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg p-3 text-sm text-amber-800 dark:text-amber-300">
+                <p>⚠️ 当前内容暂无文本数据</p>
+                <p className="text-xs mt-1 opacity-80">部分 AI 功能需要文本内容才能使用</p>
+              </div>
+            )}
+
             <div>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-2">
                 <button
-                  onClick={handleSummarize}
+                  onClick={() => handleSummarize(false)}
                   disabled={summarizing}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-medium hover:bg-indigo-200 dark:hover:bg-indigo-900/50 disabled:opacity-50 transition-colors"
                 >
                   {summarizing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                  {summarizing ? "摘要生成中..." : "生成摘要"}
+                  {summarizing ? "生成中..." : summary ? "重新生成" : "生成摘要"}
                 </button>
+                {summary && (
+                  <button
+                    onClick={() => handleSummarize(true)}
+                    className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] rounded-lg"
+                    title="重新生成"
+                  >
+                    <RefreshIcon className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-              {summary && (
+              {summarizing ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
+                </div>
+              ) : summary ? (
                 <div className="bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] rounded-lg p-3 text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] leading-relaxed">
                   {summary}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-sm text-[var(--text-muted)]">
+                  点击上方按钮生成摘要
                 </div>
               )}
             </div>
 
-            {/* 相关内容 */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-2">
                 <button
-                  onClick={handleRelated}
-                  disabled={loadingRelated}
+                  onClick={() => handleRelated(false)}
+                  disabled={loadingRelated || !item.embedding}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 disabled:opacity-50 transition-colors"
+                  title={!item.embedding ? "需要先生成嵌入向量" : ""}
                 >
                   {loadingRelated ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
-                  相关内容
+                  {loadingRelated ? "加载中..." : relatedItems ? "重新搜索" : "相关内容"}
                 </button>
+                {relatedItems && (
+                  <button
+                    onClick={() => handleRelated(true)}
+                    className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] rounded-lg"
+                    title="重新搜索"
+                  >
+                    <RefreshIcon className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-              {relatedItems.length > 0 && (
+              {loadingRelated ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
+                </div>
+              ) : relatedItems && relatedItems.length > 0 ? (
                 <div className="space-y-1">
                   {relatedItems.map(r => (
                     <Link
@@ -918,27 +1077,48 @@ export default function ContentsDetail() {
                       to={`/contents/${r.id}`}
                       className="flex items-center justify-between px-3 py-2 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] rounded-lg hover:bg-[var(--bg-secondary)] dark:hover:bg-zinc-700 transition-colors text-sm"
                     >
-                      <span className="text-[var(--text-secondary)] dark:text-[var(--text-muted)] truncate">{r.title}</span>
-                      <span className="text-xs text-[var(--text-muted)]">{r.content_type} · {Math.round(r.similarity * 100)}%</span>
+                      <span className="text-[var(--text-secondary)] dark:text-[var(--text-muted)] truncate flex-1 mr-2">{r.title}</span>
+                      <span className="text-xs text-[var(--text-muted)] shrink-0">{r.content_type} · {Math.round(r.similarity * 100)}%</span>
                     </Link>
                   ))}
+                </div>
+              ) : relatedItems ? (
+                <div className="text-center py-6 text-sm text-[var(--text-muted)]">
+                  {!item.embedding ? "请先生成嵌入向量" : "暂无相关内容"}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-sm text-[var(--text-muted)]">
+                  点击上方按钮搜索相关内容
                 </div>
               )}
             </div>
 
-            {/* 出题 */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-2">
                 <button
-                  onClick={handleQuiz}
-                  disabled={generatingQuiz}
+                  onClick={() => handleQuiz(false)}
+                  disabled={generatingQuiz || !item.text_content}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--warning-soft)] dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-medium hover:bg-amber-200 dark:hover:bg-amber-900/50 disabled:opacity-50 transition-colors"
+                  title={!item.text_content ? "需要文本内容才能生成题目" : ""}
                 >
                   {generatingQuiz ? <Loader2 className="w-3 h-3 animate-spin" /> : <BookOpen className="w-3 h-3" />}
-                  {generatingQuiz ? "题目生成中..." : "生成题目"}
+                  {generatingQuiz ? "生成中..." : quizQuestions ? "重新生成" : "生成题目"}
                 </button>
+                {quizQuestions && (
+                  <button
+                    onClick={() => handleQuiz(true)}
+                    className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] rounded-lg"
+                    title="重新生成"
+                  >
+                    <RefreshIcon className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-              {quizQuestions.length > 0 && (
+              {generatingQuiz ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
+                </div>
+              ) : quizQuestions && quizQuestions.length > 0 ? (
                 <div className="space-y-2">
                   {quizQuestions.map((q, i) => (
                     <div key={i} className="bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] rounded-lg p-3">
@@ -962,54 +1142,40 @@ export default function ContentsDetail() {
                     </div>
                   ))}
                 </div>
+              ) : quizQuestions ? (
+                <div className="text-center py-6 text-sm text-[var(--text-muted)]">
+                  {!item.text_content ? "请先提取文本内容（图片PDF需要OCR支持）" : "暂无题目"}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-sm text-[var(--text-muted)]">
+                  点击上方按钮生成题目
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
-
-      {/* ── Knowledge Graph Panel ── */}
-      {showGraphPanel && (
-        <div className="mt-6">
-          <KnowledgeGraph
-            contentId={item.id}
-            contentTitle={item.title}
-            contentType={item.content_type}
-          />
+      
+      {showScrollButtons && (
+        <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-[9999]">
+          <button
+            onClick={scrollToTop}
+            className="p-3 rounded-full bg-[var(--bg-card)] dark:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
+            title="回到顶部"
+          >
+            <ArrowUp className="w-5 h-5 text-[var(--text-secondary)]" />
+          </button>
+          <button
+            onClick={scrollToBottom}
+            className="p-3 rounded-full bg-[var(--bg-card)] dark:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
+            title="滚动到底部"
+          >
+            <ArrowDown className="w-5 h-5 text-[var(--text-secondary)]" />
+          </button>
         </div>
       )}
 
-      {/* ── Annotation Panel ── */}
-      {showAnnotationPanel && (
-        <AnnotationPanel
-          annotations={annotations}
-          loading={loadingAnnotations}
-          onLocate={handleLocateAnnotation}
-          onDelete={handleDeleteAnnotation}
-          onClose={() => setShowAnnotationPanel(false)}
-        />
-      )}
-      
-        </div>
-      </div>
-      
-      {/* Floating scroll buttons */}
-      <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-[9999]">
-        <button
-          onClick={scrollToTop}
-          className="p-3 rounded-full bg-[var(--bg-card)] dark:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
-          title="回到顶部"
-        >
-          <ArrowUp className="w-5 h-5 text-[var(--text-secondary)]" />
-        </button>
-        <button
-          onClick={scrollToBottom}
-          className="p-3 rounded-full bg-[var(--bg-card)] dark:bg-[var(--bg-elevated)] border border-[var(--border-subtle)] shadow-[var(--shadow-lg)] hover:bg-[var(--bg-secondary)] transition-colors"
-          title="滚动到底部"
-        >
-          <ArrowDown className="w-5 h-5 text-[var(--text-secondary)]" />
-        </button>
-      </div>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

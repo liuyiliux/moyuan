@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 import time
+from datetime import datetime, timedelta
 
 from app.api.provider import router as provider_router
 from app.api.file import router as file_router, contents_router, storage_router, recycle_router
@@ -37,8 +38,10 @@ async def lifespan(app: FastAPI):
     
     logger.info("启动生命周期开始...")
     from app.models.base import Base
-    from app.core.database import engine
-    from app.models.models import ProcessingTask, Annotation
+    from app.core.database import engine, async_session_factory
+    from app.models.models import ProcessingTask, Content
+    from sqlalchemy import select, update
+    
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
@@ -50,6 +53,44 @@ async def lifespan(app: FastAPI):
         # 如需索引，请将向量维度降至 1536 或 2000 以内
         
     logger.info("数据库表初始化完成")
+    
+    # 重置卡住的任务
+    logger.info("检查并重置卡住的处理任务...")
+    async with async_session_factory() as session:
+        # 重置内容状态：服务重启 + 长时间未推进的任务都兜底处理
+        cutoff = datetime.utcnow() - timedelta(minutes=30)
+        result = await session.execute(
+            select(Content).where(
+                Content.processing_status.in_(["processing", "chunking", "embedding"]),
+                Content.updated_at < cutoff,
+            )
+        )
+        stuck_contents = result.scalars().all()
+        if stuck_contents:
+            for content in stuck_contents:
+                logger.warning(f"重置卡住的内容：{content.id} ({content.title}) - {content.processing_status}")
+                content.processing_status = "failed"
+                content.processing_error = "服务重启，任务被中断"
+        
+        # 重置任务队列状态
+        result_tasks = await session.execute(
+            select(ProcessingTask).where(
+                ProcessingTask.status.in_(["queued", "processing"])
+            )
+        )
+        stuck_tasks = result_tasks.scalars().all()
+        if stuck_tasks:
+            for task in stuck_tasks:
+                logger.warning(f"重置卡住的任务：{task.id} (content: {task.content_id}) - {task.status}")
+                task.status = "failed"
+                task.error_message = "服务重启，任务被中断"
+        
+        await session.commit()
+        if stuck_contents or stuck_tasks:
+            logger.info(f"已重置 {len(stuck_contents)} 个内容和 {len(stuck_tasks)} 个任务")
+        else:
+            logger.info("没有发现卡住的任务")
+    
     start_worker()
     logger.info("后台任务队列 Worker 已启动")
     yield
@@ -66,6 +107,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 请求追踪中间件（记录日志 + 添加 X-Request-ID 响应头）
+from app.middleware.tracing import RequestIdMiddleware
+app.add_middleware(RequestIdMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],  # Vite dev server
@@ -73,31 +118,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """请求日志中间件：记录每个 API 请求的详情"""
-    logger = get_logger("http")
-    start_time = time.time()
-    
-    # 记录请求开始
-    method = request.method
-    path = request.url.path
-    logger.info(f"请求开始 - {method} {path}")
-    
-    try:
-        response = await call_next(request)
-        process_time = (time.time() - start_time) * 1000
-        status_code = response.status_code
-        
-        # 记录请求完成
-        logger.info(f"请求完成 - {method} {path} - 状态: {status_code} - 耗时: {process_time:.2f}ms")
-        return response
-    except Exception as e:
-        process_time = (time.time() - start_time) * 1000
-        logger.error(f"请求异常 - {method} {path} - 耗时: {process_time:.2f}ms - 错误: {str(e)}", exc_info=True)
-        raise
 
 # Routers
 app.include_router(provider_router)

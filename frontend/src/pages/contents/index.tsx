@@ -66,11 +66,22 @@ export default function ContentsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
+  const [chunkingId, setChunkingId] = useState<string | null>(null);
+  const [embeddingId, setEmbeddingId] = useState<string | null>(null);
+  
+  // 存储每个内容的 status 信息
+  const [statusMap, setStatusMap] = useState<Record<string, {
+    chunk_count: number;
+    text_chunks: number;
+    image_chunks: number;
+    embedded_chunks: number;
+  }>>({});
   
   // 批量选择状态
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [batchProcessing, setBatchProcessing] = useState(false);
 
   const PAGE_SIZE = 20;
 
@@ -90,6 +101,20 @@ export default function ContentsPage() {
       });
       setData({ ...res, items: sorted });
       setSelectedIds([]);
+      
+      // 为每个内容加载 status 信息
+      const newStatusMap: typeof statusMap = {};
+      for (const item of sorted) {
+        try {
+          const statusRes = await fetch(`/api/contents/${item.id}/status`);
+          if (statusRes.ok) {
+            newStatusMap[item.id] = await statusRes.json();
+          }
+        } catch (e) {
+          // 忽略加载失败的 status
+        }
+      }
+      setStatusMap(newStatusMap);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -159,6 +184,69 @@ export default function ContentsPage() {
     }
   }
 
+  async function handleChunk(id: string) {
+    setChunkingId(id);
+    try {
+      await contentApi.chunkContent(id);
+      await load();
+    } catch (err) {
+      alert(`智能分块失败: ${(err as Error).message}`);
+    } finally {
+      setChunkingId(null);
+    }
+  }
+
+  async function handleEmbed(id: string) {
+    setEmbeddingId(id);
+    try {
+      await contentApi.embedContent(id);
+      await load();
+    } catch (err) {
+      alert(`生成嵌入失败: ${(err as Error).message}`);
+    } finally {
+      setEmbeddingId(null);
+    }
+  }
+
+  async function handleBatchChunk() {
+    if (chunkableIds.length === 0) return;
+    setBatchProcessing(true);
+    try {
+      await contentApi.batchChunk(chunkableIds);
+      await load();
+    } catch (err) {
+      alert(`批量分块失败: ${(err as Error).message}`);
+    } finally {
+      setBatchProcessing(false);
+    }
+  }
+
+  async function handleBatchEmbed() {
+    if (embeddableIds.length === 0) return;
+    setBatchProcessing(true);
+    try {
+      await contentApi.batchEmbed(embeddableIds);
+      await load();
+    } catch (err) {
+      alert(`批量嵌入失败: ${(err as Error).message}`);
+    } finally {
+      setBatchProcessing(false);
+    }
+  }
+
+  async function handleResetStuckEmbeddings() {
+    try {
+      const res = await fetch("/api/contents/maintenance/reset-stuck-embeddings", { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "重置失败");
+      }
+      await load();
+    } catch (err) {
+      alert(`重置卡住嵌入失败: ${(err as Error).message}`);
+    }
+  }
+
   async function handlePin(id: string) {
     setPinningId(id);
     try {
@@ -191,6 +279,28 @@ export default function ContentsPage() {
   }
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+  const selectedItems = data?.items.filter(item => selectedIds.includes(item.id)) || [];
+  const chunkableIds = selectedItems
+    .filter(item => {
+      if (item.processing_status === "pending") return true;
+      if (item.processing_status === "failed") {
+        // 对于 failed 状态，只选择没有 chunk 的内容
+        return !statusMap[item.id] || statusMap[item.id].chunk_count === 0;
+      }
+      return false;
+    })
+    .map(item => item.id);
+  
+  const embeddableIds = selectedItems
+    .filter(item => {
+      if (item.processing_status === "chunked" || item.processing_status === "partial") return true;
+      if (item.processing_status === "failed") {
+        // 对于 failed 状态，选择已有 chunk 的内容
+        return statusMap[item.id] && statusMap[item.id].chunk_count > 0;
+      }
+      return false;
+    })
+    .map(item => item.id);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
@@ -204,16 +314,48 @@ export default function ContentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* 批量删除按钮 */}
+          <Button variant="secondary" onClick={() => load()} className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4" />
+            刷新
+          </Button>
+          <Button variant="secondary" onClick={handleResetStuckEmbeddings} className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4" />
+            重置卡住嵌入
+          </Button>
+          {/* 批量操作按钮 */}
           {selectedIds.length > 0 && (
-            <Button 
-              variant="danger" 
-              onClick={() => setShowBatchConfirm(true)}
-              className="flex items-center gap-2"
-            >
-              <Trash2 className="w-4 h-4" />
-              归入归墟 ({selectedIds.length})
-            </Button>
+            <div className="flex items-center gap-2">
+              {chunkableIds.length > 0 && (
+                <Button 
+                  variant="secondary" 
+                  onClick={handleBatchChunk}
+                  disabled={batchProcessing}
+                  className="flex items-center gap-2"
+                >
+                  <Loader2 className={`w-4 h-4 ${batchProcessing ? "animate-spin" : ""}`} />
+                  批量分块 ({chunkableIds.length})
+                </Button>
+              )}
+              {embeddableIds.length > 0 && (
+                <Button 
+                  variant="secondary" 
+                  onClick={handleBatchEmbed}
+                  disabled={batchProcessing}
+                  className="flex items-center gap-2"
+                >
+                  <Loader2 className={`w-4 h-4 ${batchProcessing ? "animate-spin" : ""}`} />
+                  批量嵌入 ({embeddableIds.length})
+                </Button>
+              )}
+              <Button 
+                variant="danger" 
+                onClick={() => setShowBatchConfirm(true)}
+                className="flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                归入归墟 ({selectedIds.length})
+              </Button>
+            </div>
           )}
           <Button onClick={() => setShowUpload(v => !v)}>
             <UploadCloud className="w-4 h-4" />
@@ -387,19 +529,79 @@ export default function ContentsPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <StatusBadge status={item.processing_status} />
-                      {item.processing_status === "failed" && (
+                      {item.processing_status === "pending" && (
                         <button
-                          onClick={e => { e.stopPropagation(); handleRetry(item.id); }}
-                          disabled={retryingId === item.id}
+                          onClick={e => { e.stopPropagation(); handleChunk(item.id); }}
+                          disabled={chunkingId === item.id}
                           className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
                         >
-                          {retryingId === item.id ? (
+                          {chunkingId === item.id ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
                             <RefreshCw className="w-3 h-3" />
                           )}
-                          重炼
+                          分块
                         </button>
+                      )}
+                      {item.processing_status === "chunked" && (
+                        <button
+                          onClick={e => { e.stopPropagation(); handleEmbed(item.id); }}
+                          disabled={embeddingId === item.id}
+                          className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {embeddingId === item.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3" />
+                          )}
+                          嵌入
+                        </button>
+                      )}
+                      {item.processing_status === "failed" && (
+                        <>
+                          {(!statusMap[item.id] || statusMap[item.id].chunk_count === 0) && (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleChunk(item.id); }}
+                              disabled={chunkingId === item.id}
+                              className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                            >
+                              {chunkingId === item.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3 h-3" />
+                              )}
+                              分块
+                            </button>
+                          )}
+                          {statusMap[item.id] && statusMap[item.id].chunk_count > 0 && (
+                            <>
+                              <button
+                                onClick={e => { e.stopPropagation(); handleEmbed(item.id); }}
+                                disabled={embeddingId === item.id}
+                                className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {embeddingId === item.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="w-3 h-3" />
+                                )}
+                                嵌入
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); handleChunk(item.id); }}
+                                disabled={chunkingId === item.id}
+                                className="text-xs text-text-muted hover:underline disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {chunkingId === item.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="w-3 h-3" />
+                                )}
+                                重分块
+                              </button>
+                            </>
+                          )}
+                        </>
                       )}
                     </div>
                   </td>
@@ -485,8 +687,82 @@ export default function ContentsPage() {
               <p className="text-xs text-text-muted">
                 {formatSize(item.file_size)} · {formatDate(item.created_at)}
               </p>
-              <div className="mt-2">
+              <div className="mt-2 flex items-center gap-2">
                 <StatusBadge status={item.processing_status} />
+                {item.processing_status === "pending" && (
+                  <button
+                    onClick={e => { e.stopPropagation(); handleChunk(item.id); }}
+                    disabled={chunkingId === item.id}
+                    className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {chunkingId === item.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    分块
+                  </button>
+                )}
+                {item.processing_status === "chunked" && (
+                  <button
+                    onClick={e => { e.stopPropagation(); handleEmbed(item.id); }}
+                    disabled={embeddingId === item.id}
+                    className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {embeddingId === item.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    嵌入
+                  </button>
+                )}
+                {item.processing_status === "failed" && (
+                  <>
+                    {(!statusMap[item.id] || statusMap[item.id].chunk_count === 0) && (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleChunk(item.id); }}
+                        disabled={chunkingId === item.id}
+                        className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {chunkingId === item.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-3 h-3" />
+                        )}
+                        分块
+                      </button>
+                    )}
+                    {statusMap[item.id] && statusMap[item.id].chunk_count > 0 && (
+                      <>
+                        <button
+                          onClick={e => { e.stopPropagation(); handleEmbed(item.id); }}
+                          disabled={embeddingId === item.id}
+                          className="text-xs text-jade hover:underline disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {embeddingId === item.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3" />
+                          )}
+                          嵌入
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); handleChunk(item.id); }}
+                          disabled={chunkingId === item.id}
+                          className="text-xs text-text-muted hover:underline disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {chunkingId === item.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3" />
+                          )}
+                          重分块
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             </Card>
           ))}
@@ -535,16 +811,22 @@ function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     queued: "bg-bg-secondary text-text-secondary",
     pending: "bg-amber-50 text-amber-600",
+    chunking: "bg-purple-50 text-purple-600 animate-pulse",
+    chunked: "bg-teal-50 text-teal-600",
+    embedding: "bg-cyan-50 text-cyan-600 animate-pulse",
     processing: "bg-blue-50 text-blue-600 animate-pulse",
     completed: "bg-accent-soft text-jade",
     failed: "bg-danger-soft text-danger",
   };
   const label: Record<string, string> = {
     queued: "待收录",
-    pending: "待炼化",
+    pending: "待分块",
+    chunking: "分块中",
+    chunked: "分块完成",
+    embedding: "嵌入中",
     processing: "炼化中",
     completed: "已入藏",
-    failed: "炼化失败",
+    failed: "处理失败",
   };
   return (
     <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${map[status] || map.pending}`}>

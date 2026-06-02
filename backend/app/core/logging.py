@@ -5,11 +5,15 @@
 - 控制台输出（INFO 级别以上）
 - 文件输出（DEBUG 级别以上，按天滚动）
 - 日志格式包含时间、级别、模块、消息
+- 支持请求追踪ID（request_id）
 
 使用方式：
     from app.core.logging import get_logger
     logger = get_logger(__name__)
     logger.info("消息")
+    
+    # 带请求ID的日志
+    logger.info("消息", extra={"request_id": "xxx"})
 """
 
 import logging
@@ -17,6 +21,18 @@ import sys
 from pathlib import Path
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
+from contextvars import ContextVar
+
+# 请求ID上下文变量
+request_id_ctx = ContextVar("request_id", default=None)
+
+
+class RequestIdLogFilter(logging.Filter):
+    """日志过滤器：添加请求ID"""
+    
+    def filter(self, record):
+        record.request_id = getattr(record, 'request_id', request_id_ctx.get()) or "-"
+        return True
 
 
 def setup_logging(log_dir: str = "../data/logs", debug: bool = False):
@@ -45,12 +61,16 @@ def setup_logging(log_dir: str = "../data/logs", debug: bool = False):
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
+    # 创建请求ID过滤器
+    request_id_filter = RequestIdLogFilter()
+
     # ========================================
     # 1. 控制台输出 handler
     # ========================================
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(log_format)
+    console_handler.addFilter(request_id_filter)
     root_logger.addHandler(console_handler)
 
     # ========================================
@@ -66,6 +86,7 @@ def setup_logging(log_dir: str = "../data/logs", debug: bool = False):
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(log_format)
+    file_handler.addFilter(request_id_filter)
     root_logger.addHandler(file_handler)
 
     # ========================================
@@ -81,6 +102,7 @@ def setup_logging(log_dir: str = "../data/logs", debug: bool = False):
     )
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(log_format)
+    error_handler.addFilter(request_id_filter)
     root_logger.addHandler(error_handler)
 
     # 记录启动信息

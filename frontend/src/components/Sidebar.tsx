@@ -14,6 +14,7 @@ import {
   Settings,
   Sun,
   Moon,
+  ScrollText,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 
@@ -153,6 +154,12 @@ export default function Sidebar() {
             icon={<BarChart3 className="w-4 h-4" />}
             label="卦象"
             tooltip="统计"
+          />
+          <SidebarLink
+            to="/logs"
+            icon={<ScrollText className="w-4 h-4" />}
+            label="玄鉴"
+            tooltip="日志"
           />
           <SidebarLink
             to="/backup"

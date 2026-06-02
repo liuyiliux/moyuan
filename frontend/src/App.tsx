@@ -19,6 +19,7 @@ const BackupPage = lazy(() => import("./pages/backup"));
 const CollectionsPage = lazy(() => import("./pages/collections"));
 const RecyclePage = lazy(() => import("./pages/recycle"));
 const BrainsPage = lazy(() => import("./pages/brains"));
+const LogsPage = lazy(() => import("./pages/logs"));
 
 function PageLoader() {
   return (
@@ -48,6 +49,7 @@ function Header() {
             {location.pathname === "/collections" && "藏经"}
             {location.pathname === "/brains" && "丹室"}
             {location.pathname === "/analytics" && "卦象"}
+            {location.pathname === "/logs" && "玄鉴"}
             {location.pathname === "/backup" && "封魔"}
             {location.pathname === "/settings" && "玄台"}
             {location.pathname === "/recycle" && "归墟"}
@@ -84,6 +86,7 @@ function Layout() {
                   <Route path="/recycle" element={<RecyclePage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/brains" element={<BrainsPage />} />
+                  <Route path="/logs" element={<LogsPage />} />
                 </Routes>
               </PageTransition>
             </Suspense>
