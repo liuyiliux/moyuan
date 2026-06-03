@@ -75,7 +75,7 @@ export default function ContentsDetail() {
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
-  const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number }[] | null>(null);
+  const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number; matched_chunk?: { chunk_id: string; chunk_index: number; page_number: number | null; image_path: string | null } }[] | null>(null);
   const [loadingRelated, setLoadingRelated] = useState(false);
   const [quizQuestions, setQuizQuestions] = useState<{ type: string; question: string; options?: string[]; answer?: string }[] | null>(null);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
@@ -640,9 +640,23 @@ export default function ContentsDetail() {
         </div>
         <div className="bg-[var(--bg-primary)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-lg p-3">
           <p className="text-xs text-[var(--text-muted)] mb-1">嵌入状态</p>
-          <p className="font-medium text-[var(--text-primary)] dark:text-[var(--text-primary)]">
-            {item.embedding ? "✅ 已生成" : "⏳ 未生成"}
-          </p>
+          <div className="flex flex-wrap gap-1">
+            {item.embedding && (
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                ✅ 内容向量
+              </span>
+            )}
+            {statusInfo && statusInfo.embedded_chunks !== undefined && statusInfo.embedded_chunks > 0 && (
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400">
+                📊 分块 {statusInfo.embedded_chunks}/{statusInfo.chunk_count}
+              </span>
+            )}
+            {!item.embedding && (!statusInfo || statusInfo.embedded_chunks === undefined || statusInfo.embedded_chunks === 0) && (
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-[var(--text-muted)]">
+                ⏳ 未生成
+              </span>
+            )}
+          </div>
         </div>
         <div className="bg-[var(--bg-primary)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-lg p-3">
           <p className="text-xs text-[var(--text-muted)] mb-1">文本内容</p>
@@ -1048,9 +1062,9 @@ export default function ContentsDetail() {
               <div className="flex items-center justify-between gap-2 mb-2">
                 <button
                   onClick={() => handleRelated(false)}
-                  disabled={loadingRelated || !item.embedding}
+                  disabled={loadingRelated || (!item.embedding && (!statusInfo || statusInfo.embedded_chunks === 0))}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 disabled:opacity-50 transition-colors"
-                  title={!item.embedding ? "需要先生成嵌入向量" : ""}
+                  title={(!item.embedding && (!statusInfo || statusInfo.embedded_chunks === 0)) ? "需要先生成嵌入向量" : ""}
                 >
                   {loadingRelated ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
                   {loadingRelated ? "加载中..." : relatedItems ? "重新搜索" : "相关内容"}
@@ -1075,16 +1089,21 @@ export default function ContentsDetail() {
                     <Link
                       key={r.id}
                       to={`/contents/${r.id}`}
-                      className="flex items-center justify-between px-3 py-2 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] rounded-lg hover:bg-[var(--bg-secondary)] dark:hover:bg-zinc-700 transition-colors text-sm"
+                      className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] rounded-lg hover:bg-[var(--bg-secondary)] dark:hover:bg-zinc-700 transition-colors text-sm"
                     >
-                      <span className="text-[var(--text-secondary)] dark:text-[var(--text-muted)] truncate flex-1 mr-2">{r.title}</span>
-                      <span className="text-xs text-[var(--text-muted)] shrink-0">{r.content_type} · {Math.round(r.similarity * 100)}%</span>
+                      <span className="text-[var(--text-secondary)] dark:text-[var(--text-muted)] truncate flex-1">{r.title}</span>
+                      <div className="flex flex-col items-end">
+                        <span className="text-xs text-[var(--text-muted)]">{r.content_type} · {Math.round(r.similarity * 100)}%</span>
+                        {r.matched_chunk?.page_number && (
+                          <span className="text-xs text-blue-500">第{r.matched_chunk.page_number}页</span>
+                        )}
+                      </div>
                     </Link>
                   ))}
                 </div>
               ) : relatedItems ? (
                 <div className="text-center py-6 text-sm text-[var(--text-muted)]">
-                  {!item.embedding ? "请先生成嵌入向量" : "暂无相关内容"}
+                  {(!item.embedding && (!statusInfo || statusInfo.embedded_chunks === 0)) ? "请先生成嵌入向量" : "暂无相关内容"}
                 </div>
               ) : (
                 <div className="text-center py-6 text-sm text-[var(--text-muted)]">

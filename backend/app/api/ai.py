@@ -6,7 +6,7 @@ from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Content, ContentRelation, FunctionBindingConfig, ProviderConfig
+from app.models.models import Content, ContentRelation, ContentChunk, FunctionBindingConfig, ProviderConfig
 from app.core.crypto import crypto_service
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -98,7 +98,7 @@ async def summarize(body: SummarizeRequest, db: AsyncSession = Depends(get_db)):
             model=provider["model"],
             messages=[
                 {"role": "system", "content": f"请用简洁的中文总结以下内容，不超过{body.max_length}字。保留关键信息和逻辑结构。"},
-                {"role": "user", "content": text[:8000]},  # 限制输入长度
+                {"role": "user", "content": text[:8000]},
             ],
             max_tokens=min(body.max_length, 1000),
         )
@@ -128,11 +128,12 @@ async def get_related(
     """基于向量相似度 + 图谱关系权重的关联内容推荐
 
     策略：
-    1. 先获取 Top-20 向量相似内容
-    2. 查询这些内容与当前内容的关系（reference/series 关系给予排序提升）
-    3. 关系权重：series(0.3) > reference(0.2) > similar(0.1)
-    4. 综合得分 = similarity + relation_bonus
-    5. 返回 Top-10
+    1. 优先使用内容级向量检索
+    2. 若无内容级向量，使用分块级向量检索（取相似度最高的分块）
+    3. 查询这些内容与当前内容的关系（reference/series 关系给予排序提升）
+    4. 关系权重：series(0.3) > reference(0.2) > similar(0.1)
+    5. 综合得分 = similarity + relation_bonus
+    6. 返回 Top-K
     """
     from uuid import UUID
 
@@ -141,46 +142,83 @@ async def get_related(
     if content is None:
         raise HTTPException(status_code=404, detail="Content not found")
 
-    if content.embedding is None:
-        return {"related": [], "content_id": content_id, "note": "No embedding available"}
-
-    # 关系权重映射
     RELATION_WEIGHTS = {
         "series": 0.3,
         "reference": 0.2,
         "similar": 0.1,
     }
 
-    # Step 1: pgvector 余弦相似度 — 获取 Top-20 候选
-    vec_str = str(content.embedding)
-    sql = text("""
-        SELECT id, title, content_type,
-               1 - (embedding <=> :query_vec) AS similarity
-        FROM contents
-        WHERE is_deleted = false
-          AND id != :exclude_id
-          AND embedding IS NOT NULL
-        ORDER BY embedding <=> :query_vec
-        LIMIT :candidate_k
-    """)
+    # Step 1: 获取候选内容
+    # 优先使用内容级向量，否则使用分块级向量
+    if content.embedding is not None:
+        vec_str = str(content.embedding)
+        sql = text("""
+            SELECT id, title, content_type, NULL as chunk_id, NULL as chunk_index, NULL as page_number, NULL as image_path,
+                   1 - (embedding <=> :query_vec) AS similarity
+            FROM contents
+            WHERE is_deleted = false
+              AND id != :exclude_id
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> :query_vec
+            LIMIT :candidate_k
+        """)
 
-    candidate_k = max(top_k * 2, 20)  # 取足够多的候选
-    conn = await db.bind.raw_connection()
-    try:
-        result = await conn.execute(sql, {
-            "query_vec": vec_str,
-            "exclude_id": content_id,
-            "candidate_k": candidate_k,
-        })
-        rows = result.fetchall()
-    finally:
-        await conn.close()
+        candidate_k = max(top_k * 2, 20)
+        conn = await db.bind.raw_connection()
+        try:
+            result = await conn.execute(sql, {
+                "query_vec": vec_str,
+                "exclude_id": content_id,
+                "candidate_k": candidate_k,
+            })
+            rows = result.fetchall()
+        finally:
+            await conn.close()
+    else:
+        chunk_res = await db.execute(
+            select(ContentChunk).where(
+                ContentChunk.content_id == content_id,
+                ContentChunk.embedding.is_not(None)
+            )
+        )
+        current_chunks = chunk_res.scalars().all()
+        
+        if not current_chunks:
+            return {"related": [], "content_id": content_id, "note": "No embedding available"}
+
+        query_chunk = current_chunks[0]
+        vec_str = str(query_chunk.embedding)
+
+        sql = text("""
+            SELECT c.id as content_id, c.title, c.content_type,
+                   cc.id as chunk_id, cc.chunk_index, cc.page_number, cc.image_path,
+                   1 - (cc.embedding <=> :query_vec) AS similarity
+            FROM content_chunks cc
+            JOIN contents c ON cc.content_id = c.id
+            WHERE c.is_deleted = false
+              AND cc.content_id != :exclude_id
+              AND cc.embedding IS NOT NULL
+            ORDER BY cc.embedding <=> :query_vec
+            LIMIT :candidate_k
+        """)
+
+        candidate_k = max(top_k * 2, 20)
+        conn = await db.bind.raw_connection()
+        try:
+            result = await conn.execute(sql, {
+                "query_vec": vec_str,
+                "exclude_id": content_id,
+                "candidate_k": candidate_k,
+            })
+            rows = result.fetchall()
+        finally:
+            await conn.close()
 
     if not rows:
         return {"related": [], "content_id": content_id}
 
     # Step 2: 查询候选内容与当前内容的关系
-    candidate_ids = [r.id for r in rows]
+    candidate_ids = [r[0] if isinstance(r, (tuple, list)) else r.id for r in rows]
     cid = UUID(content_id)
 
     relations_result = await db.execute(
@@ -194,7 +232,6 @@ async def get_related(
     )
     relations = relations_result.scalars().all()
 
-    # 构建关系权重映射: content_id -> max_weight
     relation_bonus: dict[str, float] = {}
     relation_types: dict[str, str] = {}
     for rel in relations:
@@ -204,25 +241,53 @@ async def get_related(
             relation_bonus[related_id] = weight
             relation_types[related_id] = rel.relation_type
 
-    # Step 3: 综合排序
-    scored_items = []
+    # Step 3: 综合排序（按 content_id 聚合，取最高相似度）
+    content_results: dict[str, dict] = {}
     for r in rows:
-        rid = str(r.id)
-        sim = round(float(r.similarity), 4)
-        bonus = relation_bonus.get(rid, 0.0)
-        total_score = round(sim + bonus, 4)
-        scored_items.append({
-            "id": rid,
-            "title": r.title,
-            "content_type": r.content_type,
-            "similarity": sim,
-            "relation_bonus": bonus,
-            "relation_type": relation_types.get(rid),
-            "score": total_score,
-        })
+        if isinstance(r, (tuple, list)):
+            rid = str(r[0])
+            title = r[1]
+            content_type = r[2]
+            chunk_id = r[3]
+            chunk_index = r[4]
+            page_number = r[5]
+            image_path = r[6]
+            sim = round(float(r[7]), 4)
+        else:
+            rid = str(r.id)
+            title = r.title
+            content_type = r.content_type
+            chunk_id = None
+            chunk_index = None
+            page_number = None
+            image_path = None
+            sim = round(float(r.similarity), 4)
 
-    # 按综合得分降序排序
-    scored_items.sort(key=lambda x: x["score"], reverse=True)
+        if rid not in content_results or sim > content_results[rid]["similarity"]:
+            bonus = relation_bonus.get(rid, 0.0)
+            total_score = round(sim + bonus, 4)
+            
+            matched_chunk = None
+            if chunk_id is not None:
+                matched_chunk = {
+                    "chunk_id": str(chunk_id),
+                    "chunk_index": chunk_index,
+                    "page_number": page_number,
+                    "image_path": image_path,
+                }
+            
+            content_results[rid] = {
+                "id": rid,
+                "title": title,
+                "content_type": content_type,
+                "similarity": sim,
+                "relation_bonus": bonus,
+                "relation_type": relation_types.get(rid),
+                "score": total_score,
+                "matched_chunk": matched_chunk,
+            }
+
+    scored_items = sorted(content_results.values(), key=lambda x: x["score"], reverse=True)
 
     return {
         "related": scored_items[:top_k],
@@ -238,7 +303,6 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
     if not body.content_ids:
         raise HTTPException(status_code=400, detail="No content_ids provided")
 
-    # 收集文本
     texts = []
     for cid in body.content_ids:
         res = await db.execute(select(Content).where(Content.id == cid))
@@ -252,7 +316,6 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
 
     provider = await _get_ai_provider(db, "quiz")
     if provider is None:
-        # Fallback: 返回简单占位题目
         return {
             "questions": [
                 {"type": "open", "question": f"总结以下内容的核心要点", "answer": combined[:200]},
