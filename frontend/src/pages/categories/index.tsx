@@ -152,7 +152,14 @@ export default function CategoriesPage() {
           <p className="text-sm text-[var(--text-muted)] mt-1.5">{t.subtitle}</p>
         </div>
         <button
-          onClick={() => { cancelForm(); setShowForm((v) => !v); }}
+          onClick={() => {
+            if (showForm && !editing) {
+              cancelForm(); // 关闭表单并清空
+            } else {
+              cancelForm(); // 先清空旧数据
+              setShowForm(true); // 再打开新表单
+            }
+          }}
           className="dao-btn dao-btn-primary flex items-center gap-2 text-sm"
         >
           <Plus className="w-4 h-4" />

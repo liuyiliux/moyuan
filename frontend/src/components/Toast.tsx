@@ -36,7 +36,7 @@ export default function Toast({ type, message, onClose, duration = 3000 }: Toast
 
   return (
     <div
-      className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md dao-toast-enter ${bgMap[type]}`}
+      className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md dao-toast-enter ${bgMap[type]}`}
       role="alert"
     >
       <Icon className={`w-4 h-4 ${textMap[type]} flex-shrink-0`} />
