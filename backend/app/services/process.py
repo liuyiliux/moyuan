@@ -513,3 +513,219 @@ class ContentProcessService:
             "image_chunks": stats.image_chunks or 0,
             "embedded_chunks": stats.embedded_chunks or 0,
         }
+
+    # ── 各内容类型的分块处理 ──
+
+    async def _process_pdf(self, content: Content) -> None:
+        """PDF 处理：文字提取 → 语义分块 + 图片提取"""
+        content_id = str(content.id)
+        file_path = self._resolve_path(content.file_path)
+
+        # 提取 PDF 文字
+        pages = _extract_pdf_text(Path(file_path))
+        if not pages:
+            logger.warning(f"PDF 无可提取文字 - content_id={content_id}")
+            return
+
+        # 拼接全文并记录每页的字符偏移
+        full_text_parts: list[str] = []
+        page_offsets: list[tuple[int, int]] = []  # (page_number, cumulative_offset)
+        offset = 0
+        for page_num, page_text in pages:
+            full_text_parts.append(page_text)
+            page_offsets.append((page_num, offset))
+            offset += len(page_text)
+        full_text = "".join(full_text_parts)
+
+        content.text_content = full_text
+
+        # 语义分块
+        from app.services.chunking import chunk_text
+        chunks = await chunk_text(full_text, self.db)
+
+        chunk_index = 0
+        for tc in chunks:
+            page_num = self._find_page_number(tc.start_offset, page_offsets)
+            self.db.add(ContentChunk(
+                content_id=content.id,
+                chunk_index=chunk_index,
+                chunk_type="text",
+                chunk_text=tc.text,
+                page_number=page_num,
+                start_offset=tc.start_offset,
+                end_offset=tc.end_offset,
+            ))
+            chunk_index += 1
+
+        # 提取 PDF 内嵌图片
+        storage_root = Path(settings.file_storage_root)
+        images_dir = storage_root / "images" / content_id
+        images = _extract_pdf_images(Path(file_path), images_dir)
+
+        for page_num, img_filename in images:
+            self.db.add(ContentChunk(
+                content_id=content.id,
+                chunk_index=chunk_index,
+                chunk_type="image",
+                image_path=f"images/{content_id}/{img_filename}",
+                page_number=page_num,
+            ))
+            chunk_index += 1
+
+        await self.db.flush()
+        logger.info(
+            f"PDF 分块完成 - content_id={content_id}, "
+            f"text_chunks={len(chunks)}, image_chunks={len(images)}"
+        )
+
+    async def _process_image(self, content: Content) -> None:
+        """图片处理：单块，chunk_type='image'"""
+        self.db.add(ContentChunk(
+            content_id=content.id,
+            chunk_index=0,
+            chunk_type="image",
+            image_path=content.file_path,
+        ))
+        await self.db.flush()
+        logger.info(f"图片分块完成 - content_id={content.id}")
+
+    async def _process_doc(self, content: Content) -> None:
+        """Office 文档处理：文字提取 → 语义分块"""
+        content_id = str(content.id)
+        file_path = self._resolve_path(content.file_path)
+        p = Path(file_path)
+
+        suffix = p.suffix.lower()
+        if suffix == ".docx":
+            text = _extract_docx(p)
+        elif suffix in (".xlsx", ".xls"):
+            text = _extract_xlsx(p)
+        else:
+            text = ""
+
+        if not text:
+            logger.warning(f"文档无可提取文字 - content_id={content_id}")
+            return
+
+        content.text_content = text
+        await self._text_chunk(content, text)
+
+    async def _process_note(self, content: Content) -> None:
+        """笔记处理：直接对 text_content 语义分块"""
+        text = content.text_content or ""
+        if not text.strip():
+            logger.warning(f"笔记无文字内容 - content_id={content.id}")
+            return
+        await self._text_chunk(content, text)
+
+    async def _process_web(self, content: Content) -> None:
+        """网页处理：正文提取（或使用已有 text_content）→ 语义分块"""
+        text = content.text_content or ""
+        if not text.strip() and content.source_url:
+            text = await _extract_web(content.source_url)
+            content.text_content = text
+        if not text.strip():
+            logger.warning(f"网页无可提取文字 - content_id={content.id}")
+            return
+        await self._text_chunk(content, text)
+
+    async def _process_audio(self, content: Content) -> None:
+        """音频处理：转写 → 按字幕时间戳分块"""
+        content_id = str(content.id)
+
+        segments: list[dict] = []
+        if content.file_path:
+            file_path = self._resolve_path(content.file_path)
+            segments = await _transcribe_audio(Path(file_path))
+
+        if not segments:
+            logger.warning(f"无转写数据，跳过音频分块 - content_id={content_id}")
+            return
+
+        full_text = " ".join(s.get("text", "") for s in segments)
+        content.text_content = full_text
+
+        for i, seg in enumerate(segments):
+            seg_text = seg.get("text", "").strip()
+            if not seg_text:
+                continue
+            self.db.add(ContentChunk(
+                content_id=content.id,
+                chunk_index=i,
+                chunk_type="text",
+                chunk_text=seg_text,
+                time_start=seg.get("start"),
+                time_end=seg.get("end"),
+            ))
+
+        await self.db.flush()
+        logger.info(f"音频分块完成 - content_id={content_id}, chunks={len(segments)}")
+
+    async def _process_video(self, content: Content) -> None:
+        """视频处理：转写 + 关键帧截图 → 按时间戳分块"""
+        content_id = str(content.id)
+
+        segments: list[dict] = []
+        screenshots: list[str] = []
+
+        if content.file_path:
+            # 调用模块级 _process_video（预留接口）
+            import sys
+            module = sys.modules[__name__]
+            segments, screenshots = await module._process_video(Path(content.file_path))
+
+        if not segments:
+            logger.warning(f"无转写数据，跳过视频分块 - content_id={content_id}")
+            return
+
+        full_text = " ".join(s.get("text", "") for s in segments)
+        content.text_content = full_text
+
+        chunk_index = 0
+        for seg in segments:
+            seg_text = seg.get("text", "").strip()
+            if not seg_text:
+                continue
+            self.db.add(ContentChunk(
+                content_id=content.id,
+                chunk_index=chunk_index,
+                chunk_type="text",
+                chunk_text=seg_text,
+                time_start=seg.get("start"),
+                time_end=seg.get("end"),
+            ))
+            chunk_index += 1
+
+        # 关键帧截图作为 image chunks
+        for img_path in screenshots:
+            self.db.add(ContentChunk(
+                content_id=content.id,
+                chunk_index=chunk_index,
+                chunk_type="image",
+                image_path=img_path,
+            ))
+            chunk_index += 1
+
+        await self.db.flush()
+        logger.info(
+            f"视频分块完成 - content_id={content_id}, "
+            f"text_chunks={len(segments)}, screenshots={len(screenshots)}"
+        )
+
+    async def _text_chunk(self, content: Content, text: str) -> None:
+        """通用文本分块：语义分块 → 写入 ContentChunk（doc/note/web 共用）"""
+        from app.services.chunking import chunk_text
+        chunks = await chunk_text(text, self.db)
+
+        for i, tc in enumerate(chunks):
+            self.db.add(ContentChunk(
+                content_id=content.id,
+                chunk_index=i,
+                chunk_type="text",
+                chunk_text=tc.text,
+                start_offset=tc.start_offset,
+                end_offset=tc.end_offset,
+            ))
+
+        await self.db.flush()
+        logger.info(f"文本分块完成 - content_id={content.id}, chunks={len(chunks)}")
