@@ -14,6 +14,7 @@ import AnnotationPanel from "../../components/AnnotationPanel";
 import KnowledgeGraph from "../../components/KnowledgeGraph";
 import SeriesNavigation from "../../components/SeriesNavigation";
 import Toast from "../../components/Toast";
+import PromptEditor from "../../components/PromptEditor";
 import {
   ArrowLeft, Save, RefreshCw, Trash2, FileText,
   FileAudio, FileVideo, Image, FileSpreadsheet, File, Globe,
@@ -77,8 +78,18 @@ export default function ContentsDetail() {
   const [summarizing, setSummarizing] = useState(false);
   const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number; matched_chunk?: { chunk_id: string; chunk_index: number; page_number: number | null; image_path: string | null } }[] | null>(null);
   const [loadingRelated, setLoadingRelated] = useState(false);
-  const [quizQuestions, setQuizQuestions] = useState<{ type: string; question: string; options?: string[]; answer?: string }[] | null>(null);
+  const [quizQuestions, setQuizQuestions] = useState<{
+    type: string; question: string; options?: string[]; answer?: string;
+    sources?: { chunk_id: string | null; page_number: number | null }[];
+    explanation?: string; difficulty?: string;
+  }[] | null>(null);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
+  const [quizMode, setQuizMode] = useState<"random" | "topic">("random");
+  const [quizTopic, setQuizTopic] = useState("");
+  const [quizCount, setQuizCount] = useState(5);
+  const [revealedAnswers, setRevealedAnswers] = useState<Set<number>>(new Set());
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+
 
   const [contentTab, setContentTab] = useState<"text" | "chunks">("text");
   const [chunks, setChunks] = useState<{
@@ -325,6 +336,28 @@ export default function ContentsDetail() {
     }
   }, [id, relatedItems]);
 
+  // 3.4: 页面加载时查询历史题目
+  useEffect(() => {
+    if (!id) return;
+    fetch(`/api/ai/quiz/${id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.questions?.length) {
+          setRevealedAnswers(new Set());
+          setQuizQuestions(data.questions.map((q: Record<string, unknown>) => ({
+            type: q.type as string || "open",
+            question: q.question as string || "",
+            options: q.options as string[] | undefined,
+            answer: q.answer as string | undefined,
+            sources: q.sources as { chunk_id: string | null; page_number: number | null }[] | undefined,
+            explanation: q.explanation as string | undefined,
+            difficulty: q.difficulty as string | undefined,
+          })));
+        }
+      })
+      .catch(() => {}); // 静默失败
+  }, [id]);
+
   const handleQuiz = useCallback(async (force = false) => {
     if (!id) return;
     if (quizQuestions !== null && !force) {
@@ -334,25 +367,41 @@ export default function ContentsDetail() {
     setShowAiPanel(true);
     setGeneratingQuiz(true);
     try {
+      // 构造请求体
+      const body: Record<string, unknown> = {
+        content_ids: [id],
+        question_count: quizCount,
+        mode: quizMode,
+        question_types: ["single", "multiple", "truefalse", "open"],
+      };
+      if (quizMode === "topic" && quizTopic.trim()) {
+        body.topic = quizTopic.trim();
+      }
       const res = await fetch("/api/ai/quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content_ids: [id], question_count: 5 }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.detail || `请求失败 (${res.status})`);
       }
       const data = await res.json();
-      setQuizQuestions(data.questions || []);
+      setRevealedAnswers(new Set());
+      if (data.note) {
+        setQuizQuestions([{ type: "open", question: data.note }]);
+      } else {
+        setQuizQuestions(data.questions || []);
+      }
     } catch (e) {
       const msg = "题目生成失败: " + (e as Error).message;
+      setRevealedAnswers(new Set());
       setQuizQuestions([{ type: "open", question: msg }]);
       setToast({ type: "error", message: msg });
     } finally {
       setGeneratingQuiz(false);
     }
-  }, [id, quizQuestions]);
+  }, [id, quizQuestions, quizCount, quizMode, quizTopic]);
 
   async function toggleTag(tagId: string) {
     if (!id) return;
@@ -1113,12 +1162,62 @@ export default function ContentsDetail() {
             </div>
 
             <div>
+              {/* 3.1: 出题模式切换 */}
+              <div className="flex items-center gap-1 mb-2">
+                <button
+                  onClick={() => { setQuizMode("random"); setQuizQuestions(null); }}
+                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                    quizMode === "random"
+                      ? "bg-[var(--warning-soft)] dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-medium"
+                      : "bg-[var(--bg-secondary)] dark:bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                  }`}
+                >
+                  随机出题
+                </button>
+                <button
+                  onClick={() => { setQuizMode("topic"); setQuizQuestions(null); }}
+                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                    quizMode === "topic"
+                      ? "bg-[var(--warning-soft)] dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-medium"
+                      : "bg-[var(--bg-secondary)] dark:bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                  }`}
+                >
+                  按主题出题
+                </button>
+              </div>
+
+              {/* 3.2: 按主题出题时显示主题输入框 */}
+              {quizMode === "topic" && (
+                <div className="mb-2">
+                  <input
+                    type="text"
+                    value={quizTopic}
+                    onChange={(e) => setQuizTopic(e.target.value)}
+                    placeholder={'输入主题关键词，如"人像摄影"'}
+                    className="w-full px-3 py-1.5 text-xs border border-[var(--border-subtle)] dark:border-zinc-600 rounded-lg bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)] dark:text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                </div>
+              )}
+
+              {/* 题目数量 */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs text-[var(--text-muted)]">数量</span>
+                <select
+                  value={quizCount}
+                  onChange={(e) => setQuizCount(Number(e.target.value))}
+                  className="text-xs border border-[var(--border-subtle)] dark:border-zinc-600 rounded px-2 py-0.5 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+                >
+                  {[3, 5, 8, 10].map(n => (
+                    <option key={n} value={n}>{n} 题</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex items-center justify-between gap-2 mb-2">
                 <button
-                  onClick={() => handleQuiz(false)}
-                  disabled={generatingQuiz || !item.text_content}
+                  onClick={() => handleQuiz(!!quizQuestions)}
+                  disabled={generatingQuiz}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--warning-soft)] dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-medium hover:bg-amber-200 dark:hover:bg-amber-900/50 disabled:opacity-50 transition-colors"
-                  title={!item.text_content ? "需要文本内容才能生成题目" : ""}
                 >
                   {generatingQuiz ? <Loader2 className="w-3 h-3 animate-spin" /> : <BookOpen className="w-3 h-3" />}
                   {generatingQuiz ? "生成中..." : quizQuestions ? "重新生成" : "生成题目"}
@@ -1132,7 +1231,17 @@ export default function ContentsDetail() {
                     <RefreshIcon className="w-3.5 h-3.5" />
                   </button>
                 )}
+                <button
+                  onClick={() => setShowPromptEditor(true)}
+                  className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] rounded-lg"
+                  title="编辑出题 Prompt"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                </button>
               </div>
+
+              {/* 5.1: Prompt 编辑弹窗 */}
+              {showPromptEditor && <PromptEditor onClose={() => setShowPromptEditor(false)} />}
               {generatingQuiz ? (
                 <div className="flex items-center justify-center py-6">
                   <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
@@ -1141,6 +1250,23 @@ export default function ContentsDetail() {
                 <div className="space-y-2">
                   {quizQuestions.map((q, i) => (
                     <div key={i} className="bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] rounded-lg p-3">
+                      {/* 3.6: 题型标签 */}
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          q.type === "single" ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" :
+                          q.type === "multiple" ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300" :
+                          q.type === "truefalse" ? "bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300" :
+                          "bg-gray-100 dark:bg-zinc-700 text-gray-600 dark:text-zinc-400"
+                        }`}>
+                          {{single: "单选", multiple: "多选", truefalse: "判断", open: "简答"}[q.type] || q.type}
+                        </span>
+                        {/* 3.5: 来源页码 */}
+                        {q.sources?.[0]?.page_number && (
+                          <span className="text-[10px] text-[var(--accent-text)] bg-[var(--accent-soft)] dark:bg-indigo-900/20 px-1.5 py-0.5 rounded">
+                            第{q.sources[0].page_number}页
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm font-medium text-[var(--text-primary)] dark:text-[var(--text-primary)] mb-1">
                         {i + 1}. {q.question}
                       </p>
@@ -1154,8 +1280,32 @@ export default function ContentsDetail() {
                         </div>
                       )}
                       {q.answer && (
-                        <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">
-                          答案: {q.answer}
+                        <div className="mt-1">
+                          {revealedAnswers.has(i) ? (
+                            <div>
+                              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                ✓ 答案: {q.answer}
+                              </p>
+                              {q.explanation && (
+                                <p className="mt-0.5 text-xs text-[var(--text-muted)] italic">
+                                  {q.explanation}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setRevealedAnswers(prev => new Set(prev).add(i))}
+                              className="text-xs text-[var(--text-muted)] hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors flex items-center gap-1"
+                            >
+                              <span className="inline-block w-4 h-4 rounded-full border border-current text-[10px] leading-4 text-center">?</span>
+                              点击查看答案
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {q.explanation && !q.answer && (
+                        <p className="mt-1 text-xs text-[var(--text-muted)] italic">
+                          {q.explanation}
                         </p>
                       )}
                     </div>
@@ -1163,11 +1313,11 @@ export default function ContentsDetail() {
                 </div>
               ) : quizQuestions ? (
                 <div className="text-center py-6 text-sm text-[var(--text-muted)]">
-                  {!item.text_content ? "请先提取文本内容（图片PDF需要OCR支持）" : "暂无题目"}
+                  暂无题目
                 </div>
               ) : (
                 <div className="text-center py-6 text-sm text-[var(--text-muted)]">
-                  点击上方按钮生成题目
+                  选择模式并点击上方按钮生成题目
                 </div>
               )}
             </div>

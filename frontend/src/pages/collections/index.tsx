@@ -13,7 +13,9 @@ import {
   MoreHorizontal,
   FileText,
   X,
+  BookOpen,
 } from "lucide-react";
+import QuizModal from "../../components/QuizModal";
 
 // ── Types ──
 
@@ -43,6 +45,7 @@ export default function CollectionsPage() {
   const [removingItem, setRemovingItem] = useState<string | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<Collection | null>(null);
   const [removeDialog, setRemoveDialog] = useState<CollectionItem | null>(null);
+  const [quizCollection, setQuizCollection] = useState<{ id: string; name: string } | null>(null);
 
   // ── Data Loading ──
 
@@ -306,7 +309,17 @@ export default function CollectionsPage() {
               </div>
 
               {/* Actions */}
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setQuizCollection({ id: col.id, name: col.name });
+                  }}
+                  className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-amber-600 hover:bg-[var(--warning-soft)] transition-colors"
+                  title={`对合集"${col.name}"出题`}
+                >
+                  <BookOpen className="w-4 h-4" />
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -557,6 +570,16 @@ export default function CollectionsPage() {
         onConfirm={handleRemoveItem}
         onCancel={() => setRemoveDialog(null)}
       />
+
+      {/* Quiz Modal */}
+      {quizCollection && (
+        <QuizModal
+          scopeType="collection"
+          scopeId={quizCollection.id}
+          scopeName={quizCollection.name}
+          onClose={() => setQuizCollection(null)}
+        />
+      )}
     </div>
   );
 }

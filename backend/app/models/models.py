@@ -220,3 +220,43 @@ class ContentChunk(Base):
 
     extra_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Question(Base):
+    """题目表：RAG 题库生成结果持久化，支持溯源和错题收集"""
+    __tablename__ = "questions"
+    __table_args__ = (
+        Index("ix_questions_content_id", "content_id"),
+        Index("ix_questions_source_chunk_id", "source_chunk_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contents.id", ondelete="CASCADE"), nullable=False)
+    q_type: Mapped[str] = mapped_column(String(20), nullable=False)  # single / multiple / truefalse / open
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # 选项列表 ["A选项", "B选项", ...]
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)  # 解析
+    source_chunk_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("content_chunks.id", ondelete="SET NULL"), nullable=True)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(String(10), nullable=True)  # easy / medium / hard
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromptTemplate(Base):
+    """Prompt 模板表：各 AI 功能可编辑的 Prompt 模板，按 template_type 区分用途"""
+    __tablename__ = "prompt_templates"
+    __table_args__ = (
+        Index("ix_prompt_templates_brain_type", "brain_id", "template_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    brain_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("brains.id", ondelete="CASCADE"), nullable=True)
+    template_type: Mapped[str] = mapped_column(String(50), nullable=False)  # quiz / summarize / recommend
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    user_prompt_template: Mapped[str] = mapped_column(Text, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -1,16 +1,64 @@
 """工作区（Brain）管理 API"""
 
 import uuid
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Brain, Content
+from app.models.models import Brain, Content, PromptTemplate
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/brains", tags=["brains"])
 config_router = APIRouter(prefix="/api/brains", tags=["brain-config"])
+
+
+# ── 默认 Prompt 模板 ──
+
+DEFAULT_PROMPT_TEMPLATES = {
+    "quiz": {
+        "system_prompt": """你是一位专业的出题老师。你的任务是基于给定的原文知识点和干扰项素材，生成高质量的题目。
+
+规则：
+1. 只能使用"原文知识点"中的内容出题，不得编造或使用课外知识
+2. 每道题必须标注来源 chunk_id 和 page_number（如果能确定）
+3. 干扰项必须来自"干扰项素材"中的相似知识点，不得自由编造
+4. 单选题：4 个选项（A/B/C/D），只有一个正确答案，干扰项从相似素材中提取同类概念
+5. 多选题：4 个选项，2-3 个正确答案，干扰项来自相似素材
+6. 判断题：判断陈述是否正确，错误的陈述修改细节必须来自相似素材
+7. 简答题：答案严格限定在原文内容，禁止课外拓展
+8. 对错比例要均衡，不要全对或全错
+
+输出格式为 JSON 数组，每道题格式如下：
+{
+  "type": "single|multiple|truefalse|open",
+  "question": "题目内容",
+  "options": ["选项A", "选项B", "选项C", "选项D"],  // 仅选择题需要
+  "answer": "正确答案（单选填选项字母如 A，多选填如 ABC，判断填对/错，简答填答案文本）",
+  "explanation": "解析说明（可选）",
+  "sources": [
+    {"chunk_id": "xxx", "page_number": N},
+    {"chunk_id": "yyy", "page_number": M}
+  ],
+  "difficulty": "easy|medium|hard"
+}""",
+        "user_prompt_template": """请基于以下原文知识点，生成 {{question_count}} 道题目。
+
+出题模式：{{mode_desc}}
+题型要求：{{type_desc}}
+请均匀分配各题型。
+
+── 原文知识点 ──
+{{sources}}
+
+── 干扰项素材（选择题/判断题的干扰项和错误陈述 MUST 从此素材中提取）──
+{{distractors}}
+
+请严格遵循系统指令中的规则，输出 JSON 数组格式的题目。""",
+    },
+}
 
 
 # ── Schemas ──
@@ -53,6 +101,18 @@ async def create_brain(body: BrainCreate, db: AsyncSession = Depends(get_db)):
     from app.models.models import Category
     root = Category(name="未分类", brain_id=brain.id, sort_order=0)
     db.add(root)
+    await db.commit()
+
+    # 自动创建各类型默认 Prompt 模板
+    for template_type, content in DEFAULT_PROMPT_TEMPLATES.items():
+        db.add(PromptTemplate(
+            brain_id=brain.id,
+            template_type=template_type,
+            name=f"默认{template_type}模板",
+            system_prompt=content["system_prompt"],
+            user_prompt_template=content["user_prompt_template"],
+            is_default=True,
+        ))
     await db.commit()
 
     return _brain_dict(brain, 0)

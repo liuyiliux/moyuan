@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { categoryApi } from "../../api/organization";
 import type { Category } from "../../api/organization";
-import { Plus, Edit, Trash2, Loader2, FolderTree, ChevronRight } from "lucide-react";
+import { Plus, Edit, Trash2, Loader2, FolderTree, ChevronRight, BookOpen } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
 import { categoriesCopy, useCopy } from "../../lib/copywriting";
+import QuizModal from "../../components/QuizModal";
 
 interface CatNode extends Category {
   children?: CatNode[];
@@ -22,6 +23,7 @@ export default function CategoriesPage() {
   const [editing, setEditing] = useState<Category | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [quizCategory, setQuizCategory] = useState<{ id: string; name: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -98,6 +100,13 @@ export default function CategoriesPage() {
             {depth > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0" />}
             <span className="text-sm text-[var(--text-primary)] flex-1">{node.name}</span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => setQuizCategory({ id: node.id, name: node.name })}
+                className="p-1 rounded text-[var(--text-muted)] hover:text-amber-600 hover:bg-[var(--warning-soft)] transition-colors"
+                title={`对分类"${node.name}"出题`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => startEdit(node)}
                 className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--accent-text)] hover:bg-[var(--accent-soft)] transition-colors"
@@ -209,6 +218,15 @@ export default function CategoriesPage() {
         </div>
       ) : (
         renderTree(tree)
+      )}
+
+      {quizCategory && (
+        <QuizModal
+          scopeType="category"
+          scopeId={quizCategory.id}
+          scopeName={quizCategory.name}
+          onClose={() => setQuizCategory(null)}
+        />
       )}
     </div>
   );
