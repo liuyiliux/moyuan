@@ -186,7 +186,7 @@ export default function VersionHistoryPanel({
                           </button>
                     <button
                           onClick={() => setConfirmRestore(null)}
-                          className="taste-btn-ghost text-xs"
+                          className="dao-btn dao-btn-ghost text-xs"
                         >
                             取消
                           </button>
@@ -194,7 +194,7 @@ export default function VersionHistoryPanel({
                       ) : (
                         <button
                           onClick={() => setConfirmRestore(v.id)}
-                          className="taste-btn-secondary text-xs flex items-center gap-1.5"
+                          className="dao-btn dao-btn-secondary text-xs flex items-center gap-1.5"
                         >
                           <RotateCcw className="w-3 h-3" />
                           恢复此版本

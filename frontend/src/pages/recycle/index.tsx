@@ -7,6 +7,7 @@ import {
   Globe, File, Loader2, CheckSquare, Square,
 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { recycleCopy, useCopy } from "../../lib/copywriting";
 
 // ── Type Filters ──
 
@@ -62,6 +63,7 @@ function formatDate(iso: string): string {
 // ── Main Component ──
 
 export default function RecyclePage() {
+  const rt = useCopy(recycleCopy);
   const [items, setItems] = useState<DeletedItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -263,10 +265,10 @@ export default function RecyclePage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <input
             type="text"
-            placeholder="搜索标题..."
+            placeholder={rt.searchPlaceholder}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="taste-input w-48 pl-9"
+            className="dao-input w-48 pl-9"
           />
         </div>
       </div>
@@ -296,11 +298,11 @@ export default function RecyclePage() {
           <p className="text-[var(--text-muted)] dark:text-[var(--text-muted)]">
             {search || typeFilter
               ? "没有匹配的已删除内容"
-              : "归墟为空"}
+              : rt.empty}
           </p>
           {!search && !typeFilter && (
             <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-2">
-              删除的内容会出现在这里
+              {rt.emptyHint}
             </p>
           )}
         </div>

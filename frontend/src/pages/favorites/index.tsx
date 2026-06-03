@@ -5,8 +5,10 @@ import type { Collection, CollectionItem } from "../../api/organization";
 import { Plus, Trash2, X, Loader2, Bookmark, FolderOpen } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
+import { favoritesCopy, useCopy } from "../../lib/copywriting";
 
 export default function FavoritesPage() {
+  const t = useCopy(favoritesCopy);
   const navigate = useNavigate();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [activeCol, setActiveCol] = useState<Collection | null>(null);
@@ -55,7 +57,7 @@ export default function FavoritesPage() {
       setNewName("");
       setNewDesc("");
       setShowNew(false);
-      setToast({ type: "success", message: "收藏夹创建成功" });
+      setToast({ type: "success", message: t.toastCreated });
       await loadCols();
     } catch (err: any) {
       setToast({ type: "error", message: err.response?.data?.detail || "创建失败" });
@@ -69,7 +71,7 @@ export default function FavoritesPage() {
     try {
       await collectionApi.delete(deleteColTarget.id);
       if (activeCol?.id === deleteColTarget.id) setActiveCol(null);
-      setToast({ type: "success", message: `收藏夹「${deleteColTarget.name}」已删除` });
+      setToast({ type: "success", message: t.toastDeleted });
       setDeleteColTarget(null);
       await loadCols();
     } catch {
@@ -81,7 +83,7 @@ export default function FavoritesPage() {
     if (!activeCol) return;
     try {
       await collectionApi.removeItem(activeCol.id, item.content_id);
-      setToast({ type: "success", message: "已从收藏夹移除" });
+      setToast({ type: "success", message: t.toastRemoved });
       await loadItems(activeCol);
     } catch {
       setToast({ type: "error", message: "移除失败" });
@@ -90,14 +92,12 @@ export default function FavoritesPage() {
 
   return (
     <div className="flex h-[calc(100vh-44px)] overflow-hidden">
-      {/* Toast */}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
-      {/* Confirm Dialog */}
       <ConfirmDialog
         open={deleteColTarget !== null}
-        title="删除收藏夹"
-        message={`确定要删除收藏夹「${deleteColTarget?.name}」？内容不会被删除。`}
+        title={t.confirmDeleteTitle}
+        message={t.confirmDeleteMsg(deleteColTarget?.name || "")}
         confirmLabel="删除"
         variant="danger"
         onConfirm={handleDeleteCol}
@@ -110,34 +110,34 @@ export default function FavoritesPage() {
           <form onSubmit={handleCreate} className="mb-4 space-y-2 p-3 rounded-lg bg-[var(--accent-soft)]">
             <input
               type="text"
-              placeholder="新收藏夹名称"
+              placeholder={t.placeholder}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               required
-              className="taste-input text-sm"
+              className="dao-input text-sm"
               autoFocus
             />
             <input
               type="text"
-              placeholder="描述（可选）"
+              placeholder={t.descPlaceholder}
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
-              className="taste-input text-sm"
+              className="dao-input text-sm"
             />
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={saving || !newName.trim()}
-                className="taste-btn-primary text-xs flex-1 py-1.5"
+                className="dao-btn dao-btn-primary text-xs flex-1 py-1.5"
               >
-                {saving ? "创建中..." : "创建"}
+                {saving ? t.creating : t.btnCreate}
               </button>
               <button
                 type="button"
                 onClick={() => setShowNew(false)}
-                className="taste-btn-secondary text-xs px-3 py-1.5"
+                className="dao-btn dao-btn-secondary text-xs px-3 py-1.5"
               >
-                取消
+                {t.btnCancel}
               </button>
             </div>
           </form>
@@ -146,26 +146,26 @@ export default function FavoritesPage() {
         {loading ? (
           <div className="text-center py-8 text-sm text-[var(--text-muted)]">
             <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2" />
-            加载中...
+            {t.loading}
           </div>
         ) : collections.length === 0 ? (
           <div className="text-center py-8">
             <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-[var(--bg-secondary)] flex items-center justify-center">
               <Bookmark className="w-6 h-6 text-[var(--text-muted)]" />
             </div>
-            <p className="text-sm text-[var(--text-muted)] mb-3">暂无收藏夹</p>
+            <p className="text-sm text-[var(--text-muted)] mb-3">{t.empty}</p>
             <button
               onClick={() => setShowNew(true)}
-              className="taste-btn-primary text-xs px-4 py-1.5"
+              className="dao-btn dao-btn-primary text-xs px-4 py-1.5"
             >
               <Plus className="w-3 h-3 inline-block mr-1" />
-              新建收藏夹
+              {t.btnCreate}
             </button>
           </div>
         ) : (
           <>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-[var(--text-muted)]">我的收藏</h3>
+              <h3 className="text-sm font-medium text-[var(--text-muted)]">{t.sectionTitle}</h3>
               <button
                 onClick={() => setShowNew((v) => !v)}
                 className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--accent-text)] hover:bg-[var(--bg-secondary)] transition-colors"
@@ -217,8 +217,8 @@ export default function FavoritesPage() {
               <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-[var(--bg-secondary)] flex items-center justify-center">
                 <FolderOpen className="w-8 h-8 text-[var(--text-muted)]" />
               </div>
-              <p className="text-sm text-[var(--text-muted)]">此收藏夹暂无内容</p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">浏览内容时点击收藏即可添加</p>
+              <p className="text-sm text-[var(--text-muted)]">{t.emptyContent}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">{t.emptyContentHint}</p>
             </div>
           </div>
         ) : (
@@ -233,7 +233,7 @@ export default function FavoritesPage() {
               {items.map((item) => (
                 <div
                   key={item.id}
-                  className="taste-card-glow flex items-center justify-between px-4 py-3 group cursor-pointer"
+                  className="dao-card dao-glow-hover flex items-center justify-between px-4 py-3 group cursor-pointer"
                   onClick={() => navigate(`/contents/${item.content_id}`)}
                 >
                   <div className="flex items-center gap-3">

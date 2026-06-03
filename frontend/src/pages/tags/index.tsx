@@ -4,8 +4,10 @@ import type { Tag } from "../../api/organization";
 import { Plus, Trash2, Loader2, TagIcon } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
+import { tagsCopy, useCopy } from "../../lib/copywriting";
 
 export default function TagsPage() {
+  const t = useCopy(tagsCopy);
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -33,7 +35,7 @@ export default function TagsPage() {
     try {
       await tagApi.create(newName.trim(), newColor);
       setNewName("");
-      setToast({ type: "success", message: "标签创建成功" });
+      setToast({ type: "success", message: t.toastCreated });
       await load();
     } catch (err: any) {
       setToast({ type: "error", message: err.response?.data?.detail || "创建失败" });
@@ -46,7 +48,7 @@ export default function TagsPage() {
     if (!deleteTarget) return;
     try {
       await tagApi.delete(deleteTarget.id);
-      setToast({ type: "success", message: `标签「${deleteTarget.name}」已删除` });
+      setToast({ type: "success", message: t.toastDeleted });
       setDeleteTarget(null);
       await load();
     } catch {
@@ -61,16 +63,14 @@ export default function TagsPage() {
   ];
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-6 taste-page-enter">
-      {/* Toast */}
+    <div className="max-w-3xl mx-auto px-6 py-6 dao-page-enter">
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
-      {/* Confirm Dialog */}
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="删除标签"
-        message={`确定要删除标签「${deleteTarget?.name}」？关联内容不会被删除。`}
-        confirmLabel="删除"
+        title={t.confirmTitle}
+        message={t.confirmMsg(deleteTarget?.name || "")}
+        confirmLabel={t.confirmBtn}
         variant="danger"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
@@ -78,22 +78,22 @@ export default function TagsPage() {
 
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">标签管理</h1>
-        <p className="text-sm text-[var(--text-muted)] mt-1.5">创建和管理内容标签</p>
+        <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">{t.title}</h1>
+        <p className="text-sm text-[var(--text-muted)] mt-1.5">{t.subtitle}</p>
       </div>
 
       {/* Create Form */}
-      <form onSubmit={handleCreate} className="taste-card-glow p-5 mb-6">
+      <form onSubmit={handleCreate} className="dao-card dao-glow-hover p-5 mb-6">
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
           <div className="flex-1 w-full">
-            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">标签名称</label>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">{t.title}</label>
             <input
               type="text"
-              placeholder="输入标签名称"
+              placeholder={t.placeholder}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               maxLength={100}
-              className="taste-input w-full"
+              className="dao-input w-full"
             />
           </div>
           <div>
@@ -115,10 +115,10 @@ export default function TagsPage() {
           <button
             type="submit"
             disabled={saving || !newName.trim()}
-            className="taste-btn-primary text-sm flex items-center gap-2 h-9 shrink-0"
+            className="dao-btn dao-btn-primary text-sm flex items-center gap-2 h-9 shrink-0"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            创建标签
+            {saving ? t.creating : t.btnCreate}
           </button>
         </div>
       </form>
@@ -133,14 +133,14 @@ export default function TagsPage() {
           <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-[var(--bg-secondary)] flex items-center justify-center">
             <TagIcon className="w-8 h-8 text-[var(--text-muted)]" />
           </div>
-          <p className="text-sm text-[var(--text-muted)]">暂无标签，创建一个吧</p>
+          <p className="text-sm text-[var(--text-muted)]">{t.empty}</p>
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
           {tags.map((tag) => (
             <div
               key={tag.id}
-              className="taste-card-glow flex items-center gap-2.5 px-3.5 py-2 group"
+              className="dao-card dao-glow-hover flex items-center gap-2.5 px-3.5 py-2 group"
             >
               <span
                 className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -150,7 +150,7 @@ export default function TagsPage() {
               <button
                 onClick={() => setDeleteTarget(tag)}
                 className="ml-1 p-0.5 rounded text-[var(--text-muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-all"
-                title="删除标签"
+                title={t.confirmBtn}
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>

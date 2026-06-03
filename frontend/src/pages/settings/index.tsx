@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { ProviderModal } from "../../components/ProviderModal";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { settingsCopy, useCopy } from "../../lib/copywriting";
 import { Check, Plus, Pencil, Trash2, Loader2, Server, Settings2, HardDrive, AlertCircle, CheckCircle2, X, Zap, BarChart3, RefreshCw } from "lucide-react";
 
 const FUNCTION_LABELS: Record<string, string> = {
@@ -17,6 +18,7 @@ const FUNCTION_LABELS: Record<string, string> = {
 };
 
 export default function SettingsPage() {
+  const st = useCopy(settingsCopy);
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [bindings, setBindings] = useState<FunctionBindings | null>(null);
   const [bindingDrafts, setBindingDrafts] = useState<FunctionBindings | null>(null);
@@ -384,7 +386,7 @@ export default function SettingsPage() {
                     value={(bindingDrafts.bindings[fn] || binding).provider_id || ""}
                     disabled={editingBinding !== fn || savingBinding === fn}
                     onChange={(e) => handleBindingDraftChange(fn, "provider_id", e.target.value || null)}
-                    className="taste-input w-full min-w-0"
+                    className="dao-input w-full min-w-0"
                   >
                     <option value="">选择提供商...</option>
                     {providers.filter((p) => p.is_active).map((p) => (
@@ -396,7 +398,7 @@ export default function SettingsPage() {
                     disabled={editingBinding !== fn || savingBinding === fn}
                     onChange={(e) => handleBindingDraftChange(fn, "model", e.target.value || null)}
                     placeholder="模型名称"
-                    className="taste-input w-full min-w-0"
+                    className="dao-input w-full min-w-0"
                   />
                   {editingBinding === fn ? (
                     <div className="flex items-center gap-2">
@@ -474,7 +476,7 @@ export default function SettingsPage() {
 
                 {/* 存储路径配置 */}
                 <div className="p-6 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-xl border border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
-                  <h3 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)] mb-4">存储路径</h3>
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)] mb-4">{st.storageTitle}</h3>
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)]">
                       <span className="text-[var(--text-muted)]">当前路径：</span>
@@ -497,15 +499,15 @@ export default function SettingsPage() {
                         type="text"
                         value={storagePath}
                         onChange={(e) => setStoragePath(e.target.value)}
-                        placeholder="输入新的存储路径..."
-                        className="taste-input flex-1"
+                        placeholder={st.storagePlaceholder}
+                        className="dao-input flex-1"
                       />
                       <button
                         onClick={handleUpdateStorage}
                         disabled={storageLoading || storagePath === storageConfig.storage_root}
-                        className="taste-btn-primary text-sm"
+                        className="dao-btn dao-btn-primary text-sm"
                       >
-                        {storageLoading ? "更新中..." : "更新路径"}
+                        {storageLoading ? st.storageUpdating : st.storageUpdate}
                       </button>
                     </div>
 
@@ -594,29 +596,29 @@ export default function SettingsPage() {
 
                 {/* 重新索引按钮 */}
                 <div className="p-6 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-xl border border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
-                  <h3 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)] mb-4">索引管理</h3>
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)] mb-4">{st.reindexTitle}</h3>
                   <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)] mb-4">
-                    当更换嵌入模型或需要重建索引时，可以清空现有嵌入并重新生成。
+                    {st.reindexDesc}
                   </p>
                   <div className="flex items-center gap-4">
                     <button
                       onClick={handleReindex}
                       disabled={embedLoading}
-                      className="taste-btn-primary text-sm flex items-center gap-2"
+                      className="dao-btn dao-btn-primary text-sm flex items-center gap-2"
                     >
                       {embedLoading ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <BarChart3 className="w-4 h-4" />
                       )}
-                      重建索引
+                      {st.reindexBtn}
                     </button>
                     <button
                       onClick={loadEmbedStats}
                       disabled={embedLoading}
-                      className="taste-btn-ghost text-sm flex items-center gap-2"
+                      className="dao-btn dao-btn-ghost text-sm flex items-center gap-2"
                     >
-                      <RefreshCw className="w-4 h-4" /> 刷新统计
+                      <RefreshCw className="w-4 h-4" /> {st.reindexRefresh}
                     </button>
                   </div>
                   {embedMsg && (

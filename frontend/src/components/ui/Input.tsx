@@ -16,7 +16,7 @@ export function Input({ label, error, className = "", id, ...props }: InputProps
       )}
       <input
         id={inputId}
-        className={`taste-input w-full
+        className={`dao-input w-full
           ${error ? "border-[var(--danger)] focus:ring-[var(--danger)]" : ""}
           ${className}`}
         {...props}

@@ -85,7 +85,7 @@ export default function DuplicateModal({
           <button
             onClick={onSkip}
             disabled={uploading}
-            className="taste-btn-secondary text-sm w-full justify-center"
+            className="dao-btn dao-btn-secondary text-sm w-full justify-center"
           >
             <SkipForward className="w-4 h-4" />
             跳过，不上传此文件

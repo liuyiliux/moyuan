@@ -3,8 +3,10 @@ import { Brain, ChevronDown, Plus, Settings, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useBrain } from "../lib/brain-context";
 import { brainApi, type Brain as BrainType } from "../api/brains";
+import { brainSwitcherCopy, useCopy } from "../lib/copywriting";
 
 export default function BrainSwitcher() {
+  const b = useCopy(brainSwitcherCopy);
   const { currentBrain, setCurrentBrain } = useBrain();
   const [brains, setBrains] = useState<BrainType[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -66,7 +68,7 @@ export default function BrainSwitcher() {
           <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-jade rounded-full animate-pulse opacity-70" />
         </span>
         <span className="max-w-[100px] truncate">
-          {currentBrain?.name || "选择丹室"}
+          {currentBrain?.name || b.select}
         </span>
         <ChevronDown className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
@@ -76,7 +78,7 @@ export default function BrainSwitcher() {
           <div className="max-h-60 overflow-y-auto px-2">
             {brains.length === 0 && (
               <div className="px-3 py-6 text-center text-[13px] text-[var(--text-muted)]">
-                丹室尚空
+                {b.empty}
               </div>
             )}
             {brains.map((brain) => (
@@ -118,7 +120,7 @@ export default function BrainSwitcher() {
               className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors rounded-lg"
             >
               <Settings className="w-3.5 h-3.5" />
-              管理丹室
+              {b.manage}
             </Link>
             <Link
               to="/brains?create=true"
@@ -126,7 +128,7 @@ export default function BrainSwitcher() {
               className="flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--jade)] hover:bg-[var(--jade)]/10 transition-colors rounded-lg"
             >
               <Plus className="w-3.5 h-3.5" />
-              新建丹室
+              {b.create}
             </Link>
           </div>
         </div>

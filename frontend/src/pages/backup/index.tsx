@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { backupApi, type BackupItem } from "../../api/backup";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { backupCopy, useCopy } from "../../lib/copywriting";
 
 /**
  * 格式化文件大小为人类可读格式
@@ -76,6 +77,7 @@ function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
 // ── Backup Page ──
 
 export default function BackupPage() {
+  const bt = useCopy(backupCopy);
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -158,11 +160,11 @@ export default function BackupPage() {
               <HardDrive className="w-5 h-5 text-[var(--accent-text)]" />
             </div>
             <h1 className="text-2xl font-bold text-[var(--text-primary)]">
-              数据管理
+              {bt.title}
             </h1>
           </div>
           <p className="text-sm text-[var(--text-muted)] ml-12">
-            创建备份、导出知识库，保障数据安全
+            {bt.subtitle}
           </p>
         </div>
 
@@ -176,19 +178,19 @@ export default function BackupPage() {
             <button
               onClick={handleCreate}
               disabled={creating}
-              className="taste-btn-primary text-sm flex items-center gap-2"
+              className="dao-btn dao-btn-primary text-sm flex items-center gap-2"
             >
               {creating ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Plus className="w-4 h-4" />
               )}
-              {creating ? "创建中..." : "创建备份"}
+              {creating ? bt.creating : bt.btnCreate}
             </button>
             <button
               onClick={handleExport}
               disabled={exporting}
-              className="taste-btn-secondary text-sm flex items-center gap-2"
+              className="dao-btn dao-btn-secondary text-sm flex items-center gap-2"
             >
               {exporting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -223,9 +225,9 @@ export default function BackupPage() {
           {!loading && backups.length === 0 && (
             <div className="text-center py-16">
               <Database className="w-12 h-12 mx-auto text-[#a39e98] dark:text-[var(--text-secondary)] mb-4" />
-              <p className="text-[#615d59] dark:text-[var(--text-muted)] font-medium">暂无备份</p>
+              <p className="text-[#615d59] dark:text-[var(--text-muted)] font-medium">{bt.empty}</p>
               <p className="text-sm text-[#a39e98] dark:text-[var(--text-muted)] mt-1">
-                点击「创建备份」按钮生成第一个备份
+                {bt.emptyHint}
               </p>
             </div>
           )}

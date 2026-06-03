@@ -10,6 +10,7 @@ import {
   BookOpen, CheckSquare, Square,
 } from "lucide-react";
 import { Card, Button } from "../../components";
+import { contentsCopy, useCopy } from "../../lib/copywriting";
 
 const TYPE_FILTERS = [
   { value: "", label: "万象" },
@@ -52,6 +53,7 @@ function formatDate(iso: string): string {
 }
 
 export default function ContentsPage() {
+  const ct = useCopy(contentsCopy);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -307,20 +309,20 @@ export default function ContentsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-serif font-semibold text-text-primary">
-            道藏
+            {ct.title}
           </h1>
           <p className="text-sm text-text-muted mt-1.5">
-            收纳天地万象，传承千古智慧
+            {ct.subtitle}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="secondary" onClick={() => load()} className="flex items-center gap-2">
             <RefreshCw className="w-4 h-4" />
-            刷新
+            {ct.refresh}
           </Button>
           <Button variant="secondary" onClick={handleResetStuckEmbeddings} className="flex items-center gap-2">
             <RefreshCw className="w-4 h-4" />
-            重置卡住嵌入
+            {ct.resetStuck}
           </Button>
           {/* 批量操作按钮 */}
           {selectedIds.length > 0 && (
@@ -333,7 +335,7 @@ export default function ContentsPage() {
                   className="flex items-center gap-2"
                 >
                   <Loader2 className={`w-4 h-4 ${batchProcessing ? "animate-spin" : ""}`} />
-                  批量分块 ({chunkableIds.length})
+                  {ct.batchChunk(chunkableIds.length)}
                 </Button>
               )}
               {embeddableIds.length > 0 && (
@@ -344,7 +346,7 @@ export default function ContentsPage() {
                   className="flex items-center gap-2"
                 >
                   <Loader2 className={`w-4 h-4 ${batchProcessing ? "animate-spin" : ""}`} />
-                  批量嵌入 ({embeddableIds.length})
+                  {ct.batchEmbed(embeddableIds.length)}
                 </Button>
               )}
               <Button 
@@ -353,13 +355,13 @@ export default function ContentsPage() {
                 className="flex items-center gap-2"
               >
                 <Trash2 className="w-4 h-4" />
-                归入归墟 ({selectedIds.length})
+                {ct.batchDelete(selectedIds.length)}
               </Button>
             </div>
           )}
           <Button onClick={() => setShowUpload(v => !v)}>
             <UploadCloud className="w-4 h-4" />
-            收录典籍
+            {ct.uploadBtn}
           </Button>
         </div>
       </div>
@@ -367,9 +369,9 @@ export default function ContentsPage() {
       {showUpload && (
         <Card className="mb-6 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-serif font-semibold text-text-primary">收录典籍</h2>
+            <h2 className="text-lg font-serif font-semibold text-text-primary">{ct.uploadTitle}</h2>
             <Button variant="ghost" onClick={() => setShowUpload(false)}>
-              取消
+              {ct.cancel}
             </Button>
           </div>
           <UploadArea onUploaded={handleUploaded} />
@@ -398,7 +400,7 @@ export default function ContentsPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input
               type="text"
-              placeholder="探寻道藏..."
+              placeholder={ct.searchPlaceholder}
               value={search}
               onChange={e => setSearch(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && search.trim()) navigate(`/search?q=${encodeURIComponent(search.trim())}`); }}
@@ -433,10 +435,10 @@ export default function ContentsPage() {
       )}
       {error && (
         <Card className="p-6 text-center border-danger/20 bg-danger-soft">
-          <p className="text-sm text-danger">气机紊乱：{error}</p>
+          <p className="text-sm text-danger">{ct.error}{error}</p>
           <Button variant="secondary" onClick={() => load()} className="mt-4">
             <RefreshCw className="w-4 h-4" />
-            重新感应
+            {ct.retry}
           </Button>
         </Card>
       )}
@@ -445,11 +447,11 @@ export default function ContentsPage() {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-xl bg-accent-soft mb-6">
             <BookOpen className="w-10 h-10 text-jade/60" />
           </div>
-          <p className="text-text-muted mb-4">道藏空虚</p>
-          <p className="text-sm text-text-muted mb-6">尚无收录任何典籍</p>
+          <p className="text-text-muted mb-4">{ct.empty}</p>
+          <p className="text-sm text-text-muted mb-6">{ct.emptyHint}</p>
           <Button onClick={() => setShowUpload(true)}>
             <UploadCloud className="w-4 h-4" />
-            收录典籍
+            {ct.uploadBtn}
           </Button>
         </div>
       )}

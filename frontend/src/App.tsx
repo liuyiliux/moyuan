@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./lib/theme";
+import { StyleThemeProvider } from "./lib/style-theme";
 import { BrainProvider } from "./lib/brain-context";
 import { Suspense, lazy } from "react";
 import { Loader2 } from "lucide-react";
 import { Sidebar, QiParticles, PageTransition } from "./components";
 import BrainSwitcher from "./components/BrainSwitcher";
+import { sidebarCopy, useCopy } from "./lib/copywriting";
 
 const SearchPage = lazy(() => import("./pages/search"));
 const SettingsPage = lazy(() => import("./pages/settings"));
@@ -31,7 +33,8 @@ function PageLoader() {
 
 function Header() {
   const location = useLocation();
-  
+  const s = useCopy(sidebarCopy);
+
   return (
     <header className="sticky top-0 z-30 bg-[var(--bg-primary)]/80 backdrop-blur-md border-b border-[var(--border-subtle)]">
       <div className="h-12 flex items-center justify-between px-6">
@@ -40,19 +43,19 @@ function Header() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-text-secondary">
-            {location.pathname === "/" && "道藏"}
-            {location.pathname === "/search" && "问玄"}
-            {location.pathname === "/notes" && "墨宝"}
-            {location.pathname === "/tags" && "符印"}
-            {location.pathname === "/categories" && "坤舆"}
-            {location.pathname === "/favorites" && "珍藏"}
-            {location.pathname === "/collections" && "藏经"}
-            {location.pathname === "/brains" && "丹室"}
-            {location.pathname === "/analytics" && "卦象"}
-            {location.pathname === "/logs" && "玄鉴"}
-            {location.pathname === "/backup" && "封魔"}
-            {location.pathname === "/settings" && "玄台"}
-            {location.pathname === "/recycle" && "归墟"}
+            {location.pathname === "/" && s.contents}
+            {location.pathname === "/search" && s.search}
+            {location.pathname === "/notes" && s.notes}
+            {location.pathname === "/tags" && s.tags}
+            {location.pathname === "/categories" && s.categories}
+            {location.pathname === "/favorites" && s.favorites}
+            {location.pathname === "/collections" && s.collections}
+            {location.pathname === "/brains" && s.brains}
+            {location.pathname === "/analytics" && s.analytics}
+            {location.pathname === "/logs" && s.logs}
+            {location.pathname === "/backup" && s.backup}
+            {location.pathname === "/settings" && s.settings}
+            {location.pathname === "/recycle" && s.recycle}
           </span>
         </div>
       </div>
@@ -101,9 +104,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
-        <BrainProvider>
-          <Layout />
-        </BrainProvider>
+        <StyleThemeProvider>
+          <BrainProvider>
+            <Layout />
+          </BrainProvider>
+        </StyleThemeProvider>
       </ThemeProvider>
     </BrowserRouter>
   );

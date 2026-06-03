@@ -17,6 +17,8 @@ import {
   ScrollText,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
+import { useStyleTheme, type StyleTheme } from "../lib/style-theme";
+import { sidebarCopy, useCopy } from "../lib/copywriting";
 
 function TaijiDecor() {
   return (
@@ -69,11 +71,27 @@ function SidebarLink({ to, icon, label, tooltip }: SidebarLinkProps) {
   );
 }
 
+const STYLE_LABELS: Record<StyleTheme, string> = {
+  daoist: "道",
+  normal: "常",
+  anime: "萌",
+};
+
+const STYLE_CYCLE: StyleTheme[] = ["daoist", "normal", "anime"];
+
 export default function Sidebar() {
   const { resolved, setTheme } = useTheme();
+  const { styleTheme, setStyleTheme } = useStyleTheme();
+  const s = useCopy(sidebarCopy);
 
   const toggleTheme = () => {
     setTheme(resolved === "dark" ? "light" : "dark");
+  };
+
+  const cycleStyle = () => {
+    const idx = STYLE_CYCLE.indexOf(styleTheme);
+    const next = STYLE_CYCLE[(idx + 1) % STYLE_CYCLE.length];
+    setStyleTheme(next);
   };
 
   return (
@@ -88,118 +106,53 @@ export default function Sidebar() {
         <Link to="/" className="dao-sidebar-logo">
           <div className="dao-sidebar-logo-icon">墨</div>
           <div className="dao-sidebar-logo-text">
-            <span className="dao-sidebar-logo-title">墨渊</span>
-            <span className="dao-sidebar-logo-subtitle">Moyuan</span>
+            <span className="dao-sidebar-logo-title">{s.logoTitle}</span>
+            <span className="dao-sidebar-logo-subtitle">{s.logoSubtitle}</span>
           </div>
         </Link>
 
         {/* 道藏模块 - 乾位 */}
         <div className="dao-sidebar-section">
-          <span className="dao-sidebar-section-title">道藏</span>
-          <SidebarLink
-            to="/search"
-            icon={<Search className="w-4 h-4" />}
-            label="问玄"
-            tooltip="搜索"
-          />
-          <SidebarLink
-            to="/contents"
-            icon={<BookOpen className="w-4 h-4" />}
-            label="道藏"
-            tooltip="知识库"
-          />
-          <SidebarLink
-            to="/notes"
-            icon={<FileText className="w-4 h-4" />}
-            label="墨宝"
-            tooltip="笔记"
-          />
-          <SidebarLink
-            to="/tags"
-            icon={<Tags className="w-4 h-4" />}
-            label="符印"
-            tooltip="标签"
-          />
-          <SidebarLink
-            to="/categories"
-            icon={<FolderTree className="w-4 h-4" />}
-            label="坤舆"
-            tooltip="分类"
-          />
-          <SidebarLink
-            to="/favorites"
-            icon={<Bookmark className="w-4 h-4" />}
-            label="珍藏"
-            tooltip="收藏"
-          />
-          <SidebarLink
-            to="/collections"
-            icon={<FolderOpen className="w-4 h-4" />}
-            label="藏经"
-            tooltip="合集"
-          />
+          <span className="dao-sidebar-section-title">{s.sectionDaoCang}</span>
+          <SidebarLink to="/search" icon={<Search className="w-4 h-4" />} label={s.search} tooltip={s.searchTip} />
+          <SidebarLink to="/contents" icon={<BookOpen className="w-4 h-4" />} label={s.contents} tooltip={s.contentsTip} />
+          <SidebarLink to="/notes" icon={<FileText className="w-4 h-4" />} label={s.notes} tooltip={s.notesTip} />
+          <SidebarLink to="/tags" icon={<Tags className="w-4 h-4" />} label={s.tags} tooltip={s.tagsTip} />
+          <SidebarLink to="/categories" icon={<FolderTree className="w-4 h-4" />} label={s.categories} tooltip={s.categoriesTip} />
+          <SidebarLink to="/favorites" icon={<Bookmark className="w-4 h-4" />} label={s.favorites} tooltip={s.favoritesTip} />
+          <SidebarLink to="/collections" icon={<FolderOpen className="w-4 h-4" />} label={s.collections} tooltip={s.collectionsTip} />
         </div>
 
         {/* 丹室模块 - 坤位 */}
         <div className="dao-sidebar-section">
-          <span className="dao-sidebar-section-title">丹室</span>
-          <SidebarLink
-            to="/brains"
-            icon={<Brain className="w-4 h-4" />}
-            label="丹室"
-            tooltip="工作区"
-          />
-          <SidebarLink
-            to="/analytics"
-            icon={<BarChart3 className="w-4 h-4" />}
-            label="卦象"
-            tooltip="统计"
-          />
-          <SidebarLink
-            to="/logs"
-            icon={<ScrollText className="w-4 h-4" />}
-            label="玄鉴"
-            tooltip="日志"
-          />
-          <SidebarLink
-            to="/backup"
-            icon={<HardDrive className="w-4 h-4" />}
-            label="封魔"
-            tooltip="备份"
-          />
+          <span className="dao-sidebar-section-title">{s.sectionDanShi}</span>
+          <SidebarLink to="/brains" icon={<Brain className="w-4 h-4" />} label={s.brains} tooltip={s.brainsTip} />
+          <SidebarLink to="/analytics" icon={<BarChart3 className="w-4 h-4" />} label={s.analytics} tooltip={s.analyticsTip} />
+          <SidebarLink to="/logs" icon={<ScrollText className="w-4 h-4" />} label={s.logs} tooltip={s.logsTip} />
+          <SidebarLink to="/backup" icon={<HardDrive className="w-4 h-4" />} label={s.backup} tooltip={s.backupTip} />
         </div>
 
         <div className="dao-sidebar-spacer" />
 
         {/* 玄台模块 - 中位 */}
         <div className="dao-sidebar-section">
-          <span className="dao-sidebar-section-title">玄台</span>
-          <SidebarLink
-            to="/settings"
-            icon={<Settings className="w-4 h-4" />}
-            label="玄台"
-            tooltip="设置"
-          />
-          <SidebarLink
-            to="/recycle"
-            icon={<Trash2 className="w-4 h-4" />}
-            label="归墟"
-            tooltip="归墟"
-          />
+          <span className="dao-sidebar-section-title">{s.sectionXuanTai}</span>
+          <SidebarLink to="/settings" icon={<Settings className="w-4 h-4" />} label={s.settings} tooltip={s.settingsTip} />
+          <SidebarLink to="/recycle" icon={<Trash2 className="w-4 h-4" />} label={s.recycle} tooltip={s.recycleTip} />
         </div>
 
-        {/* 主题切换 */}
-        <button
-          onClick={toggleTheme}
-          className="dao-sidebar-link"
-          title={resolved === "dark" ? "切换至阳间" : "切换至道"}
-        >
+        {/* 风格切换 */}
+        <button onClick={cycleStyle} className="dao-sidebar-link" title={`当前：${STYLE_LABELS[styleTheme]}风格 · 点击切换`}>
+          <span className="dao-sidebar-link-icon text-xs font-bold">{STYLE_LABELS[styleTheme]}</span>
+          <span className="dao-sidebar-link-text">{STYLE_LABELS[styleTheme]}风格</span>
+        </button>
+
+        {/* 明暗切换 */}
+        <button onClick={toggleTheme} className="dao-sidebar-link" title={resolved === "dark" ? "切换至阳间" : "切换至道"}>
           <span className="dao-sidebar-link-icon">
             {resolved === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </span>
-          <span className="dao-sidebar-link-text">
-            {resolved === "dark" ? "阳间" : "道"}
-          </span>
+          <span className="dao-sidebar-link-text">{resolved === "dark" ? "阳间" : "道"}</span>
         </button>
       </div>
     </aside>

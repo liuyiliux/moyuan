@@ -140,7 +140,7 @@ export function ProviderModal({ open, provider, onClose, onSaved }: Props) {
           <select
             value={providerType}
             onChange={(e) => setProviderType(e.target.value)}
-            className="taste-input w-full"
+            className="dao-input w-full"
           >
             {PROVIDER_TYPES.map((t) => (
               <option key={t.value} value={t.value}>{t.label}</option>
@@ -172,7 +172,7 @@ export function ProviderModal({ open, provider, onClose, onSaved }: Props) {
                     setDefaultModels((prev) => ({ ...prev, [fn]: e.target.value }))
                   }
                   placeholder={fn === "summarize" ? "gpt-4o" : fn === "embedding" ? "Qwen/Qwen3-VL-Embedding-8B" : fn === "chunking" ? "BAAI/bge-m3" : "gpt-4o"}
-                  className="taste-input flex-1"
+                  className="dao-input flex-1"
                 />
                 {fn === "embedding" && (
                   <span className="text-xs text-[var(--text-muted)]">支持多模态</span>

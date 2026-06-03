@@ -153,7 +153,7 @@ export default function AnnotationToolbar({
             onChange={(e) => setAnnotationText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="输入批注内容..."
-            className="taste-input w-full h-20 resize-none"
+            className="dao-input w-full h-20 resize-none"
           />
           <div className="flex items-center justify-end gap-2 mt-2">
             <button

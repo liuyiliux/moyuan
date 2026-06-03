@@ -19,18 +19,19 @@ import {
   Search,
   Tag,
 } from "lucide-react";
+import { analyticsCopy, useCopy } from "../../lib/copywriting";
 
 // ─── Design Tokens (use CSS variables) ───
 
 const CARD =
-  "taste-card hover:shadow-[var(--shadow-sm)] transition-shadow duration-200";
+  "dao-card hover:shadow-[var(--shadow-sm)] transition-shadow duration-200";
 const BTN_SEC =
-  "taste-btn-secondary text-xs px-3 py-1.5";
+  "dao-btn dao-btn-secondary text-xs px-3 py-1.5";
 const TEXT_PRIMARY = "text-[var(--text-primary)]";
 const TEXT_SECONDARY = "text-[var(--text-secondary)]";
 const TEXT_MUTED = "text-[var(--text-muted)]";
 const BADGE =
-  "taste-badge bg-[var(--bg-secondary)] text-[var(--text-secondary)]";
+  "dao-badge bg-[var(--bg-secondary)] text-[var(--text-secondary)]";
 
 // Content type color palette
 const TYPE_COLORS: Record<string, string> = {
@@ -143,7 +144,7 @@ function ContentTypeChart({ byType }: { byType: Record<string, number> }) {
             })}
           </div>
         ) : (
-          <EmptyState text="暂无内容数据" />
+          <EmptyState text={at.noData} />
         )}
       </div>
     </div>
@@ -343,7 +344,7 @@ function ErrorState({
 }) {
   return (
     <div className="max-w-7xl mx-auto px-6 py-16">
-      <div className="taste-card border-[var(--danger-soft)] border-opacity-50 p-8 text-center">
+      <div className="dao-card border-[var(--danger-soft)] border-opacity-50 p-8 text-center">
         <p className="text-sm font-medium text-[var(--danger)]">{error}</p>
         <button
           onClick={onRetry}
@@ -359,6 +360,7 @@ function ErrorState({
 // ─── Main Page ───
 
 export default function AnalyticsPage() {
+  const at = useCopy(analyticsCopy);
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [tags, setTags] = useState<TagStat[]>([]);
   const [trends, setTrends] = useState<SearchTrend[]>([]);
@@ -420,9 +422,9 @@ export default function AnalyticsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className={`text-2xl font-bold tracking-tight ${TEXT_PRIMARY}`} style={{ letterSpacing: "-0.02em" }}>
-              统计概览
+              {at.title}
             </h1>
-            <p className={`text-sm mt-1 ${TEXT_SECONDARY}`}>知识库数据分析与可视化</p>
+            <p className={`text-sm mt-1 ${TEXT_SECONDARY}`}>{at.subtitle}</p>
           </div>
           <button
             onClick={fetchData}

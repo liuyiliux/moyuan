@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { RefreshCw, Filter, Copy, Check, AlertCircle, Info, XCircle, Clock } from "lucide-react";
 import { Card, Button } from "../components";
+import { logsCopy, useCopy } from "../lib/copywriting";
 
 export default function LogsPage() {
+  const lt = useCopy(logsCopy);
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [contentIdFilter, setContentIdFilter] = useState("");
@@ -80,10 +82,10 @@ export default function LogsPage() {
       <div className="flex items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-serif font-semibold text-text-primary">
-            玄鉴
+            {lt.title}
           </h1>
           <p className="text-sm text-text-muted mt-1.5">
-            查看系统运行日志
+            {lt.subtitle}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -101,7 +103,7 @@ export default function LogsPage() {
             disabled={logs.length === 0}
           >
             {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copied ? "已复制" : "复制日志"}
+            {copied ? lt.copied : lt.copy}
           </Button>
         </div>
       </div>
@@ -111,7 +113,7 @@ export default function LogsPage() {
           <Filter className="w-4 h-4 text-text-muted" />
           <input
             type="text"
-            placeholder="按内容ID过滤日志..."
+            placeholder={lt.placeholder}
             value={contentIdFilter}
             onChange={(e) => setContentIdFilter(e.target.value)}
             className="flex-1 dao-input"
@@ -132,7 +134,7 @@ export default function LogsPage() {
             </div>
           ) : logs.length === 0 ? (
             <div className="text-center py-12 text-text-muted">
-              暂无日志
+              {lt.empty}
             </div>
           ) : (
             <div className="p-4 space-y-1">

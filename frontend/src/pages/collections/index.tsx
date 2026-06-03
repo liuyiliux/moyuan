@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { collectionApi } from "../../api/organization";
 import type { Collection, CollectionItem } from "../../api/organization";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import { collectionsCopy, useCopy } from "../../lib/copywriting";
 import {
   FolderOpen,
   Plus,
@@ -26,6 +27,7 @@ interface CreateFormData {
 // ── Component ──
 
 export default function CollectionsPage() {
+  const t = useCopy(collectionsCopy);
   // ── State ──
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,7 +182,7 @@ export default function CollectionsPage() {
         <div className="w-full max-w-md p-6 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] shadow-xl">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)]">
-              新建合集
+              {t.modalTitle}
             </h3>
             <button
               onClick={() => setShowCreateModal(false)}
@@ -199,9 +201,9 @@ export default function CollectionsPage() {
                 type="text"
                 value={createForm.name}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="输入合集名称"
+                placeholder={t.placeholder}
                 maxLength={100}
-                className="taste-input w-full"
+                className="dao-input w-full"
                 autoFocus
               />
             </div>
@@ -213,10 +215,10 @@ export default function CollectionsPage() {
               <textarea
                 value={createForm.description}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, description: e.target.value }))}
-                placeholder="输入合集描述（可选）"
+                placeholder={t.descPlaceholder}
                 rows={3}
                 maxLength={500}
-                className="taste-input w-full resize-none"
+                className="dao-input w-full resize-none"
               />
             </div>
 
@@ -224,21 +226,21 @@ export default function CollectionsPage() {
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="taste-btn-ghost text-sm"
+                className="dao-btn dao-btn-ghost text-sm"
               >
-                取消
+                {t.btnCancel}
               </button>
               <button
                 type="submit"
                 disabled={creating || !createForm.name.trim()}
-                className="taste-btn-primary text-sm flex items-center gap-2"
+                className="dao-btn dao-btn-primary text-sm flex items-center gap-2"
               >
                 {creating ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Plus className="w-4 h-4" />
                 )}
-                创建
+                {t.btnCreate}
               </button>
             </div>
           </form>
@@ -266,14 +268,14 @@ export default function CollectionsPage() {
             还没有合集
           </h3>
           <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)] mb-6">
-            创建你的第一个合集来整理内容
+            {t.emptyHint}
           </p>
           <button
             onClick={() => setShowCreateModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-[var(--text-inverse)] bg-[var(--accent)] rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
           >
             <Plus className="w-4 h-4" />
-            新建合集
+            {t.btnCreate}
           </button>
         </div>
       );
@@ -284,7 +286,7 @@ export default function CollectionsPage() {
         {filteredCollections.map((col) => (
           <div
             key={col.id}
-            className="taste-card-glow p-4 cursor-pointer"
+            className="dao-card dao-glow-hover p-4 cursor-pointer"
             onClick={() => handleViewDetail(col)}
           >
             {/* Header */}
@@ -298,7 +300,7 @@ export default function CollectionsPage() {
                     {col.name}
                   </h3>
                   <p className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-0.5">
-                    {col.item_count} 个内容
+                    {t.itemCount(col.item_count)}
                   </p>
                 </div>
               </div>
@@ -312,7 +314,7 @@ export default function CollectionsPage() {
                   }}
                   disabled={deleting === col.id}
                   className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 transition-colors"
-                  title="删除合集"
+                  title={t.confirmDeleteTitle}
                 >
                   {deleting === col.id ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -358,7 +360,7 @@ export default function CollectionsPage() {
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-[var(--text-primary)] dark:hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] dark:hover:bg-[var(--bg-elevated)] rounded-lg transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              返回
+              {t.detailBack}
             </button>
             <div>
               <h2 className="text-xl font-bold text-[var(--text-primary)] dark:text-[var(--text-primary)]">
@@ -383,7 +385,7 @@ export default function CollectionsPage() {
               ) : (
                 <Trash2 className="w-4 h-4" />
               )}
-              删除
+              {t.confirmDeleteTitle}
             </button>
           </div>
         </div>
@@ -393,11 +395,11 @@ export default function CollectionsPage() {
           <div className="px-5 py-4 border-b border-[var(--border-subtle)]">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)]">
-                内容列表 ({collectionItems.length})
+                {t.detailItems(collectionItems.length)}
               </h3>
               <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-[var(--accent-text)] hover:bg-[var(--accent-soft)] dark:hover:bg-blue-900/20 rounded-lg transition-colors">
                 <Plus className="w-4 h-4" />
-                添加内容到合集
+                {t.detailAddBtn}
               </button>
             </div>
           </div>
@@ -410,10 +412,10 @@ export default function CollectionsPage() {
             <div className="text-center py-12">
               <FileText className="w-12 h-12 mx-auto text-[var(--text-muted)] mb-3" />
               <p className="text-sm text-[var(--text-muted)]">
-                合集中还没有内容
+                {t.detailEmpty}
               </p>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                点击上方按钮添加内容
+                {t.detailEmptyHint}
               </p>
             </div>
           ) : (
@@ -477,10 +479,10 @@ export default function CollectionsPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-[var(--text-primary)] dark:text-[var(--text-primary)]">
-              合集管理
+              {t.title}
             </h1>
             <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-1">
-              创建和管理内容合集
+              {t.subtitle}
             </p>
           </div>
 
@@ -490,7 +492,7 @@ export default function CollectionsPage() {
               className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-[var(--text-inverse)] bg-[var(--accent)] rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
             >
               <Plus className="w-4 h-4" />
-              新建合集
+              {t.btnCreate}
             </button>
           )}
         </div>
@@ -504,8 +506,8 @@ export default function CollectionsPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索合集..."
-                className="taste-input w-full pl-10"
+                placeholder={t.searchPlaceholder}
+                className="dao-input w-full pl-10"
               />
             </div>
           </div>
@@ -522,10 +524,10 @@ export default function CollectionsPage() {
             <div className="text-center py-12">
               <Search className="w-12 h-12 mx-auto text-[var(--text-muted)] dark:text-[var(--text-secondary)] mb-3" />
               <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)]">
-                没有找到匹配的合集
+                {t.emptySearch}
               </p>
               <p className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-1">
-                尝试使用不同的关键词搜索
+                {t.emptySearchHint}
               </p>
             </div>
           )}
@@ -537,8 +539,8 @@ export default function CollectionsPage() {
       {/* Delete Confirmation */}
       <ConfirmDialog
         open={deleteDialog !== null}
-        title="删除合集"
-        message={`确定删除合集「${deleteDialog?.name}」？合集内的内容不会被删除。`}
+        title={t.confirmDeleteTitle}
+        message={t.confirmDeleteMsg(deleteDialog?.name || "")}
         confirmLabel="删除"
         variant="danger"
         onConfirm={handleDelete}
@@ -548,9 +550,9 @@ export default function CollectionsPage() {
       {/* Remove Item Confirmation */}
       <ConfirmDialog
         open={removeDialog !== null}
-        title="移除内容"
-        message={`确定将「${removeDialog?.title}」从合集中移除？`}
-        confirmLabel="移除"
+        title={t.confirmRemoveTitle}
+        message={t.confirmRemoveMsg(removeDialog?.title || "")}
+        confirmLabel={t.confirmRemoveBtn}
         variant="danger"
         onConfirm={handleRemoveItem}
         onCancel={() => setRemoveDialog(null)}

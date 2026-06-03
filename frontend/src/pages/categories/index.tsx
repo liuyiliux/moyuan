@@ -4,12 +4,14 @@ import type { Category } from "../../api/organization";
 import { Plus, Edit, Trash2, Loader2, FolderTree, ChevronRight } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
+import { categoriesCopy, useCopy } from "../../lib/copywriting";
 
 interface CatNode extends Category {
   children?: CatNode[];
 }
 
 export default function CategoriesPage() {
+  const t = useCopy(categoriesCopy);
   const [tree, setTree] = useState<CatNode[]>([]);
   const [flatList, setFlatList] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,10 +47,10 @@ export default function CategoriesPage() {
       const pid = parentId === "" ? null : parentId;
       if (editing) {
         await categoryApi.update(editing.id, { name: newName.trim(), parent_id: pid });
-        setToast({ type: "success", message: "分类已更新" });
+        setToast({ type: "success", message: t.toastUpdated });
       } else {
         await categoryApi.create(newName.trim(), pid);
-        setToast({ type: "success", message: "分类创建成功" });
+        setToast({ type: "success", message: t.toastCreated });
       }
       setNewName("");
       setParentId("");
@@ -66,7 +68,7 @@ export default function CategoriesPage() {
     if (!deleteTarget) return;
     try {
       await categoryApi.delete(deleteTarget.id);
-      setToast({ type: "success", message: `分类「${deleteTarget.name}」已删除` });
+      setToast({ type: "success", message: t.toastDeleted });
       setDeleteTarget(null);
       await load();
     } catch {
@@ -119,15 +121,15 @@ export default function CategoriesPage() {
   );
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-6 taste-page-enter">
+    <div className="max-w-3xl mx-auto px-6 py-6 dao-page-enter">
       {/* Toast */}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
       {/* Confirm Dialog */}
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="删除分类"
-        message={`确定要删除分类「${deleteTarget?.name}」？内容不会被删除，只会移出该分类。`}
+        title={t.confirmTitle}
+        message={t.confirmMsg(deleteTarget?.name || "")}
         confirmLabel="删除"
         variant="danger"
         onConfirm={handleDelete}
@@ -137,41 +139,41 @@ export default function CategoriesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">分类管理</h1>
-          <p className="text-sm text-[var(--text-muted)] mt-1.5">组织内容的层级分类结构</p>
+          <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">{t.title}</h1>
+          <p className="text-sm text-[var(--text-muted)] mt-1.5">{t.subtitle}</p>
         </div>
         <button
           onClick={() => { cancelForm(); setShowForm((v) => !v); }}
-          className="taste-btn-primary flex items-center gap-2 text-sm"
+          className="dao-btn dao-btn-primary flex items-center gap-2 text-sm"
         >
           <Plus className="w-4 h-4" />
-          {showForm && !editing ? "取消" : "新建分类"}
+          {showForm && !editing ? t.btnCancel : t.btnCreate}
         </button>
       </div>
 
       {/* Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="taste-card-glow p-5 mb-6">
+        <form onSubmit={handleSubmit} className="dao-card dao-glow-hover p-5 mb-6">
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <div className="flex-1 w-full">
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">分类名称</label>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">{t.title}</label>
               <input
                 type="text"
-                placeholder="输入分类名称"
+                placeholder={t.placeholder}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 required
-                className="taste-input w-full"
+                className="dao-input w-full"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">父分类</label>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">{t.parentLabel}</label>
               <select
                 value={parentId}
                 onChange={(e) => setParentId(e.target.value)}
-                className="taste-input h-9 text-sm"
+                className="dao-input h-9 text-sm"
               >
-                <option value="">（根分类）</option>
+                <option value="">{t.parentRoot}</option>
                 {flatList.map((c) => (
                   <option key={c.id} value={c.id} disabled={editing?.id === c.id}>
                     {c.name}
@@ -180,12 +182,12 @@ export default function CategoriesPage() {
               </select>
             </div>
             <div className="flex gap-2">
-              <button type="submit" disabled={saving} className="taste-btn-primary text-sm h-9">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : editing ? "更新" : "创建"}
+              <button type="submit" disabled={saving} className="dao-btn dao-btn-primary text-sm h-9">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : editing ? t.btnUpdate : t.btnCreate}
               </button>
               {editing && (
-                <button type="button" onClick={cancelForm} className="taste-btn-ghost text-sm h-9">
-                  取消
+                <button type="button" onClick={cancelForm} className="dao-btn dao-btn-ghost text-sm h-9">
+                  {t.btnCancel}
                 </button>
               )}
             </div>
@@ -203,7 +205,7 @@ export default function CategoriesPage() {
           <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-[var(--bg-secondary)] flex items-center justify-center">
             <FolderTree className="w-8 h-8 text-[var(--text-muted)]" />
           </div>
-          <p className="text-sm text-[var(--text-muted)]">暂无分类，创建一个吧</p>
+          <p className="text-sm text-[var(--text-muted)]">{t.empty}</p>
         </div>
       ) : (
         renderTree(tree)

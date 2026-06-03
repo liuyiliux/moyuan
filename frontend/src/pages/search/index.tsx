@@ -8,6 +8,7 @@ import {
   Sparkles, ChevronDown, ChevronUp, MapPin, Play,
 } from "lucide-react";
 import { Button, Card } from "../../components";
+import { searchCopy, useCopy } from "../../lib/copywriting";
 
 const TYPE_LABELS: Record<string, string> = {
   note: "墨宝", image: "图录", video: "影集", audio: "音箓",
@@ -80,6 +81,7 @@ function buildContentUrl(r: SearchResultItem): string {
 }
 
 export default function SearchPage() {
+  const st = useCopy(searchCopy);
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [activeQuery, setActiveQuery] = useState("");
@@ -147,8 +149,8 @@ export default function SearchPage() {
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
       <div className="text-center mb-8">
-        <h1 className="text-2xl font-serif font-semibold text-text-primary mb-2">问玄</h1>
-        <p className="text-sm text-text-muted">以符纹探知道藏，以气机感应万物</p>
+        <h1 className="text-2xl font-serif font-semibold text-text-primary mb-2">{st.title}</h1>
+        <p className="text-sm text-text-muted">{st.subtitle}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="mb-8">
@@ -160,7 +162,7 @@ export default function SearchPage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="输入符纹，探寻道藏..."
+              placeholder={st.placeholder}
               className="dao-input pl-11 pr-12 py-3 text-base"
               autoFocus
             />
@@ -172,7 +174,7 @@ export default function SearchPage() {
             )}
           </div>
           <Button type="submit" disabled={loading || !query.trim()} className="px-6">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Sparkles className="w-4 h-4" /> 悟道</>}
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Sparkles className="w-4 h-4" /> {st.btnSearch}</>}
           </Button>
           <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
             <SlidersHorizontal className="w-4 h-4" />
@@ -186,22 +188,22 @@ export default function SearchPage() {
           <Card className="mt-4 p-4">
             <div className="space-y-3">
               <div className="flex items-center gap-4 flex-wrap">
-                <span className="text-sm font-medium text-text-secondary">品类：</span>
+                <span className="text-sm font-medium text-text-secondary">{st.filterCategory}</span>
                 {["all", "note", "pdf", "image", "video", "audio", "doc", "web"].map((t) => (
                   <label key={t} className="flex items-center gap-1.5 cursor-pointer">
                     <input type="radio" name="ctype" checked={contentType === t} onChange={() => setContentType(t)} className="accent-jade" />
-                    <span className="text-sm">{t === "all" ? "万象" : TYPE_LABELS[t] ?? t}</span>
+                    <span className="text-sm">{t === "all" ? st.filterAll : TYPE_LABELS[t] ?? t}</span>
                   </label>
                 ))}
               </div>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-text-secondary">
                   <input type="checkbox" checked={enableVector} onChange={(e) => setEnableVector(e.target.checked)} className="accent-jade" />
-                  <Sparkles className="w-3.5 h-3.5" /> 气机感应
+                  <Sparkles className="w-3.5 h-3.5" /> {st.filterVector}
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-text-secondary">
                   <input type="checkbox" checked={enableKeyword} onChange={(e) => setEnableKeyword(e.target.checked)} className="accent-jade" />
-                  符纹匹配
+                  {st.filterKeyword}
                 </label>
               </div>
             </div>
@@ -211,9 +213,9 @@ export default function SearchPage() {
 
       {showHistory && (
         <Card className="mb-6 p-4">
-          <h3 className="text-sm font-semibold text-text-primary mb-3">探知记录</h3>
+          <h3 className="text-sm font-semibold text-text-primary mb-3">{st.historyTitle}</h3>
           {history.length === 0 ? (
-            <p className="text-sm text-text-muted text-center py-4">尚无探知记录</p>
+            <p className="text-sm text-text-muted text-center py-4">{st.historyEmpty}</p>
           ) : (
             <ul className="space-y-2">
               {history.map((h) => (
@@ -235,18 +237,13 @@ export default function SearchPage() {
 
       {error && (
         <div className="mb-4 p-4 bg-danger-soft border border-danger/20 rounded-lg text-sm text-danger">
-          气机紊乱：{error}
+          {st.errorPrefix}{error}
         </div>
       )}
 
       {activeQuery && !loading && (
         <p className="text-sm text-text-muted mb-4">
-          探得 <span className="font-semibold text-text-primary">{results.length}</span> 道玄机
-          {results.length > 0 && (
-            <span className="text-xs text-text-muted ml-2">
-              （契合度最高 {Math.round(results[0]?.score * 100)}%）
-            </span>
-          )}
+          {st.resultCount(results.length)}
         </p>
       )}
 
@@ -277,7 +274,7 @@ export default function SearchPage() {
 
                   <div className="flex items-center gap-3 mt-2">
                     <span className="text-xs text-text-muted">{TYPE_LABELS[r.content_type] ?? r.content_type}</span>
-                    <span className="text-xs text-jade">契合度 {Math.round(r.score * 100)}%</span>
+                    <span className="text-xs text-jade">{st.scoreLabel(Math.round(r.score * 100))}</span>
                     {hasMultipleChunks && (
                       <button onClick={() => toggleExpand(r.content_id)}
                         className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-jade transition-colors">
@@ -318,8 +315,8 @@ export default function SearchPage() {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-accent-soft mb-6">
             <Search className="w-8 h-8 text-jade/60" />
           </div>
-          <p className="text-sm text-text-secondary mb-2">输入符纹，开启探玄之旅</p>
-          <p className="text-xs text-text-muted">支持气机感应与符纹匹配，精准定位到段落与时间点</p>
+          <p className="text-sm text-text-secondary mb-2">{st.emptyHint}</p>
+          <p className="text-xs text-text-muted">{st.emptyHint2}</p>
         </div>
       )}
     </div>

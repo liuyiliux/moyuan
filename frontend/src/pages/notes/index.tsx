@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import VersionHistoryPanel from "../../components/VersionHistoryPanel";
 import { Card, Button } from "../../components";
+import { notesCopy, useCopy } from "../../lib/copywriting";
 
 interface Note {
   id: string;
@@ -38,6 +39,7 @@ const noteApi = {
 };
 
 export default function NotesPage() {
+  const nt = useCopy(notesCopy);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const noteId = searchParams.get("id");
@@ -166,8 +168,8 @@ export default function NotesPage() {
         <>
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-2xl font-serif font-semibold text-text-primary">墨宝</h1>
-              <p className="text-sm text-text-muted mt-1.5">记录悟道心得，书写数字修行</p>
+              <h1 className="text-2xl font-serif font-semibold text-text-primary">{nt.title}</h1>
+              <p className="text-sm text-text-muted mt-1.5">{nt.subtitle}</p>
             </div>
             <Button onClick={handleNew}>
               <Plus className="w-4 h-4" />
