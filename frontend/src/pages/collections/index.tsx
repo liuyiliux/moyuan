@@ -17,7 +17,7 @@ import {
   BookOpen,
   Pencil,
 } from "lucide-react";
-import QuizModal from "../../components/QuizModal";
+import QuizGenerator from "../../components/QuizGenerator";
 
 // ── Types ──
 
@@ -759,7 +759,7 @@ export default function CollectionsPage() {
 
       {/* Quiz Modal */}
       {quizCollection && (
-        <QuizModal
+        <QuizGenerator
           scopeType="collection"
           scopeId={quizCollection.id}
           scopeName={quizCollection.name}

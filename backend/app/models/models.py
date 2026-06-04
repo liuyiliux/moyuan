@@ -260,3 +260,18 @@ class PromptTemplate(Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class QuestionRecord(Base):
+    """答题记录表：记录用户对题目的作答结果，支撑错题本功能"""
+    __tablename__ = "question_records"
+    __table_args__ = (
+        Index("ix_question_records_question_id", "question_id"),
+        Index("ix_question_records_is_correct", "is_correct"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False)
+    user_answer: Mapped[str] = mapped_column(Text, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

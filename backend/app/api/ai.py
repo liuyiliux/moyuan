@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 
 from app.core.database import get_db
-from app.models.models import Content, ContentRelation, ContentChunk, FunctionBindingConfig, ProviderConfig, Question, PromptTemplate
+from app.models.models import Content, ContentRelation, ContentChunk, FunctionBindingConfig, ProviderConfig, Question, QuestionRecord, PromptTemplate
 from app.core.crypto import crypto_service
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,12 @@ class QuizRequest(BaseModel):
     question_types: list[str] = ["single", "multiple", "truefalse", "open"]  # 题型列表
     scope_type: str = "manual"  # "manual" | "category" | "collection"
     scope_id: str | None = None  # category_id 或 collection_id
+
+
+class QuizRecordRequest(BaseModel):
+    question_id: str
+    user_answer: str
+    is_correct: bool
 
 
 # ── 获取 AI provider ──
@@ -825,6 +831,86 @@ async def _save_questions(
 
 
 # 2.9: 查询历史题目
+def _question_to_dict(q: Question) -> dict:
+    return {
+        "id": str(q.id),
+        "type": q.q_type,
+        "question": q.question,
+        "options": q.options,
+        "answer": q.answer,
+        "explanation": q.explanation,
+        "sources": [
+            {
+                "chunk_id": str(q.source_chunk_id) if q.source_chunk_id else None,
+                "page_number": q.page_number,
+            }
+        ],
+        "difficulty": q.difficulty,
+        "content_id": str(q.content_id) if q.content_id else None,
+        "created_at": q.created_at.isoformat() if q.created_at else None,
+    }
+
+
+@router.get("/quiz/history")
+async def get_quiz_history_scoped(
+    scope_type: str | None = Query(None, description="category | collection | content"),
+    scope_id: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """查询历史题目，支持按范围过滤和分页"""
+    from app.models.models import Category, ContentCategory, CollectionItem
+
+    content_ids: list[UUID] | None = None
+    if scope_type and scope_id:
+        sid = UUID(scope_id)
+        if scope_type == "category":
+            async def _get_child_cat_ids(cat_id: UUID) -> list[UUID]:
+                result = await db.execute(select(Category.id).where(Category.parent_id == cat_id))
+                children = [r[0] for r in result.all()]
+                for child_id in list(children):
+                    children.extend(await _get_child_cat_ids(child_id))
+                return children
+            cat_ids = [sid] + await _get_child_cat_ids(sid)
+            result = await db.execute(
+                select(ContentCategory.content_id).where(ContentCategory.category_id.in_(cat_ids))
+            )
+            content_ids = [r[0] for r in result.all()]
+        elif scope_type == "collection":
+            result = await db.execute(
+                select(CollectionItem.content_id).where(CollectionItem.collection_id == sid)
+            )
+            content_ids = [r[0] for r in result.all()]
+        elif scope_type == "content":
+            content_ids = [sid]
+        if content_ids is None or len(content_ids) == 0:
+            return {"questions": [], "total": 0, "page": page, "page_size": page_size}
+
+    # 查询题目
+    if content_ids is not None:
+        query = select(Question).where(Question.content_id.in_(content_ids)).order_by(Question.created_at.desc())
+    else:
+        query = select(Question).order_by(Question.created_at.desc())
+
+    # 统计总数
+    count_query = select(func.count()).select_from(query.subquery())
+    total_res = await db.execute(count_query)
+    total = total_res.scalar() or 0
+
+    # 分页
+    offset = (page - 1) * page_size
+    result = await db.execute(query.offset(offset).limit(page_size))
+    questions = result.scalars().all()
+
+    return {
+        "questions": [_question_to_dict(q) for q in questions],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 @router.get("/quiz/{content_id}")
 async def get_quiz_history(
     content_id: str,
@@ -839,25 +925,7 @@ async def get_quiz_history(
     )
     questions = result.scalars().all()
     return {
-        "questions": [
-            {
-                "id": str(q.id),
-                "type": q.q_type,
-                "question": q.question,
-                "options": q.options,
-                "answer": q.answer,
-                "explanation": q.explanation,
-                "sources": [
-                    {
-                        "chunk_id": str(q.source_chunk_id) if q.source_chunk_id else None,
-                        "page_number": q.page_number,
-                    }
-                ],
-                "difficulty": q.difficulty,
-                "created_at": q.created_at.isoformat() if q.created_at else None,
-            }
-            for q in questions
-        ],
+        "questions": [_question_to_dict(q) for q in questions],
         "content_id": content_id,
     }
 
@@ -1045,3 +1113,148 @@ async def reset_quiz_template(db: AsyncSession = Depends(get_db)):
         },
         "message": "Template reset to default",
     }
+
+
+# ── 答题记录与错题本 ──
+
+@router.post("/quiz/record")
+async def record_quiz_answer(body: QuizRecordRequest, db: AsyncSession = Depends(get_db)):
+    """记录用户对题目的作答结果"""
+    qid = UUID(body.question_id)
+    # 验证题目存在
+    result = await db.execute(select(Question).where(Question.id == qid))
+    question = result.scalar_one_or_none()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    record = QuestionRecord(
+        question_id=qid,
+        user_answer=body.user_answer,
+        is_correct=body.is_correct,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return {
+        "id": str(record.id),
+        "question_id": str(record.question_id),
+        "is_correct": record.is_correct,
+        "recorded": True,
+    }
+
+
+@router.get("/quiz/wrong")
+async def get_wrong_answers(
+    scope_type: str | None = Query(None, description="category | collection | content"),
+    scope_id: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """查询错题列表（最近一次答错的题目），支持按范围过滤"""
+    from app.models.models import Category, ContentCategory, CollectionItem
+
+    # 确定 content_ids 范围
+    content_ids: list[UUID] | None = None
+    if scope_type and scope_id:
+        sid = UUID(scope_id)
+        if scope_type == "category":
+            async def _get_child_cat_ids(cat_id: UUID) -> list[UUID]:
+                result = await db.execute(select(Category.id).where(Category.parent_id == cat_id))
+                children = [r[0] for r in result.all()]
+                for child_id in list(children):
+                    children.extend(await _get_child_cat_ids(child_id))
+                return children
+            cat_ids = [sid] + await _get_child_cat_ids(sid)
+            result = await db.execute(
+                select(ContentCategory.content_id).where(ContentCategory.category_id.in_(cat_ids))
+            )
+            content_ids = [r[0] for r in result.all()]
+        elif scope_type == "collection":
+            result = await db.execute(
+                select(CollectionItem.content_id).where(CollectionItem.collection_id == sid)
+            )
+            content_ids = [r[0] for r in result.all()]
+        elif scope_type == "content":
+            content_ids = [sid]
+        if not content_ids:
+            return {"questions": [], "total": 0, "page": page, "page_size": page_size}
+
+    # 查询最近一次答错的题目（distinct on + order by answered_at desc）
+    # 使用 row_number 窗口函数获取每个 question 的最新记录
+    from sqlalchemy import and_, desc, over
+
+    inner_query = (
+        select(
+            QuestionRecord.question_id,
+            QuestionRecord.id.label("record_id"),
+            QuestionRecord.is_correct,
+            QuestionRecord.user_answer,
+            QuestionRecord.answered_at,
+            func.row_number().over(
+                partition_by=QuestionRecord.question_id,
+                order_by=QuestionRecord.answered_at.desc()
+            ).label("rn"),
+        )
+        .join(Question, Question.id == QuestionRecord.question_id)
+    )
+    if content_ids is not None:
+        inner_query = inner_query.where(Question.content_id.in_(content_ids))
+
+    inner_query = inner_query.subquery()
+
+    # 取每个 question 的最新记录，且 is_correct = false
+    base_query = (
+        select(Question, inner_query.c.user_answer, inner_query.c.answered_at)
+        .join(inner_query, Question.id == inner_query.c.question_id)
+        .where(inner_query.c.rn == 1, inner_query.c.is_correct == False)
+    )
+
+    # 统计总数
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total_res = await db.execute(count_query)
+    total = total_res.scalar() or 0
+
+    # 分页
+    offset = (page - 1) * page_size
+    result = await db.execute(
+        base_query.order_by(inner_query.c.answered_at.desc()).offset(offset).limit(page_size)
+    )
+    rows = result.all()
+
+    questions = []
+    for q, user_answer, answered_at in rows:
+        item = _question_to_dict(q)
+        item["user_answer"] = user_answer
+        item["answered_at"] = answered_at.isoformat() if answered_at else None
+        questions.append(item)
+
+    return {
+        "questions": questions,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.delete("/quiz/wrong/{question_id}")
+async def remove_wrong_mark(
+    question_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """移除某道题的错题标记（逻辑标记：添加一条 is_correct=True 的记录覆盖）"""
+    qid = UUID(question_id)
+    # 验证题目存在
+    result = await db.execute(select(Question).where(Question.id == qid))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    # 添加一条"已纠正"记录
+    record = QuestionRecord(
+        question_id=qid,
+        user_answer="(已纠正)",
+        is_correct=True,
+    )
+    db.add(record)
+    await db.commit()
+    return {"question_id": question_id, "removed": True}

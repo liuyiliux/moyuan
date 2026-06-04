@@ -6,7 +6,7 @@ import { Plus, Edit, Trash2, Loader2, FolderTree, ChevronRight, BookOpen } from 
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
 import { categoriesCopy, useCopy } from "../../lib/copywriting";
-import QuizModal from "../../components/QuizModal";
+import QuizGenerator from "../../components/QuizGenerator";
 
 interface CatNode extends Category {
   children?: CatNode[];
@@ -233,7 +233,7 @@ export default function CategoriesPage() {
       )}
 
       {quizCategory && (
-        <QuizModal
+        <QuizGenerator
           scopeType="category"
           scopeId={quizCategory.id}
           scopeName={quizCategory.name}

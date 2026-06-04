@@ -22,6 +22,7 @@ const CollectionsPage = lazy(() => import("./pages/collections"));
 const RecyclePage = lazy(() => import("./pages/recycle"));
 const BrainsPage = lazy(() => import("./pages/brains"));
 const LogsPage = lazy(() => import("./pages/logs"));
+const QuizPage = lazy(() => import("./pages/quiz"));
 
 function PageLoader() {
   return (
@@ -56,6 +57,7 @@ function Header() {
             {location.pathname === "/backup" && s.backup}
             {location.pathname === "/settings" && s.settings}
             {location.pathname === "/recycle" && s.recycle}
+            {location.pathname === "/quiz" && s.quiz}
           </span>
         </div>
       </div>
@@ -90,6 +92,7 @@ function Layout() {
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/brains" element={<BrainsPage />} />
                   <Route path="/logs" element={<LogsPage />} />
+                  <Route path="/quiz" element={<QuizPage />} />
                 </Routes>
               </PageTransition>
             </Suspense>

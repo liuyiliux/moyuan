@@ -792,6 +792,8 @@ export const sidebarCopy: CopyText<{
   favoritesTip: string;
   collections: string;
   collectionsTip: string;
+  quiz: string;
+  quizTip: string;
   brains: string;
   brainsTip: string;
   analytics: string;
@@ -818,6 +820,7 @@ export const sidebarCopy: CopyText<{
     categories: "坤舆", categoriesTip: "分类",
     favorites: "珍藏", favoritesTip: "收藏",
     collections: "藏经", collectionsTip: "合集",
+    quiz: "考校", quizTip: "出题测验",
     brains: "丹室", brainsTip: "工作区",
     analytics: "卦象", analyticsTip: "统计",
     logs: "玄鉴", logsTip: "日志",
@@ -838,6 +841,7 @@ export const sidebarCopy: CopyText<{
     categories: "分类", categoriesTip: "管理分类",
     favorites: "收藏", favoritesTip: "我的收藏",
     collections: "合集", collectionsTip: "合集管理",
+    quiz: "测验", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作区",
     analytics: "统计", analyticsTip: "数据分析",
     logs: "日志", logsTip: "系统日志",
@@ -858,6 +862,7 @@ export const sidebarCopy: CopyText<{
     categories: "分类分类~", categoriesTip: "分类",
     favorites: "我的珍藏", favoritesTip: "收藏夹",
     collections: "合集合集~", collectionsTip: "合集",
+    quiz: "来考试喵~", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作空间",
     analytics: "数据喵~", analyticsTip: "统计",
     logs: "日志喵", logsTip: "日志",
