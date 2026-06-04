@@ -764,10 +764,39 @@ export const recycleCopy: CopyText<{
 export const notesCopy: CopyText<{
   title: string;
   subtitle: string;
+  btnNew: string;
+  btnSave: string;
+  btnSaveVersion: string;
+  btnVersions: string;
+  saving: string;
 }> = {
-  daoist: { title: "墨宝", subtitle: "记录悟道心得，书写数字修行" },
-  normal: { title: "笔记", subtitle: "创建和管理你的笔记" },
-  anime: { title: "笔记笔记~", subtitle: "写下你的小灵感吧☆" },
+  daoist: {
+    title: "墨宝",
+    subtitle: "记录悟道心得，书写数字修行",
+    btnNew: "新墨宝",
+    btnSave: "铭刻",
+    btnSaveVersion: "新刻",
+    btnVersions: "版本录",
+    saving: "铭刻中...",
+  },
+  normal: {
+    title: "笔记",
+    subtitle: "创建和管理你的笔记",
+    btnNew: "新建笔记",
+    btnSave: "保存",
+    btnSaveVersion: "新增版本",
+    btnVersions: "历史版本",
+    saving: "保存中...",
+  },
+  anime: {
+    title: "笔记笔记~",
+    subtitle: "写下你的小灵感吧☆",
+    btnNew: "写新笔记~",
+    btnSave: "保存喵~",
+    btnSaveVersion: "留个新版本~",
+    btnVersions: "版本历史",
+    saving: "保存中喵...",
+  },
 };
 
 // ── contents（道藏 / 知识库 / 知识库知识库~）──
