@@ -1,0 +1,140 @@
+2026-06-03 21:51:59 - http - ERROR - [f7235e18-045d-420a-b09c-f369f9e56f45] 请求异常 - POST /api/ai/quiz - 耗时: 14997.36ms - 错误: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()
+Traceback (most recent call last):
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+    await self.app(scope, receive, send_with_headers)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
+    await route.handle(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 566, in generate_quiz
+    if source.get("embedding"):
+ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()
+2026-06-03 22:30:17 - http - ERROR - [bb314c45-d567-4896-a8eb-1d9051b130d5] 请求异常 - POST /api/ai/quiz - 耗时: 15238.42ms - 错误: local variable 'provider' referenced before assignment
+Traceback (most recent call last):
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+    await self.app(scope, receive, send_with_headers)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
+    await route.handle(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 587, in generate_quiz
+    logger.info(f"[quiz] prompt built, length={len(prompt)}, calling AI model={provider['model'] if provider else 'none'}")
+UnboundLocalError: local variable 'provider' referenced before assignment
+2026-06-03 23:04:05 - http - ERROR - [2095527f-386e-404a-ba43-5452862d19ad] 请求异常 - GET /api/ai/related/13fb58e1-51e8-488b-8e03-ade64a6dbabd?top_k=10 - 耗时: 60809.11ms - 错误: 
+Traceback (most recent call last):
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+    await self.app(scope, receive, send_with_headers)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
+    await route.handle(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+    return await dependant.call(**values)
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 188, in get_related
+    chunk_res = await db.execute(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
+    result = await greenlet_spawn(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
+    return self._execute_internal(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
+    result = conn.execute(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
+    return meth(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
+    return connection._execute_clauseelement(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
+    ret = self._execute_context(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 2358, in _handle_dbapi_exception
+    raise exc_info[1].with_traceback(exc_info[2])
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
+    cursor.execute(statement, parameters)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
+    self._adapt_connection.await_(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
+    self._handle_exception(error)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 782, in _handle_exception
+    raise error
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 534, in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\asyncpg\prepared_stmt.py", line 176, in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\asyncpg\prepared_stmt.py", line 267, in __bind_execute
+    data, status, _ = await self.__do_execute(
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\asyncpg\prepared_stmt.py", line 256, in __do_execute
+    return await executor(protocol)
+  File "asyncpg\\protocol\\protocol.pyx", line 206, in bind_execute
+asyncio.exceptions.TimeoutError

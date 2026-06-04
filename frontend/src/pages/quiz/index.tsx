@@ -45,7 +45,6 @@ export default function QuizPage() {
   }, []);
 
   const loadHistory = useCallback(async () => {
-    if (activeTab !== "answer") return;
     setLoadingHistory(true);
     setAnswers({});
     setAnswerStats(null);
@@ -61,10 +60,9 @@ export default function QuizPage() {
       setHistoryQuestions(data.questions || []);
     } catch { setHistoryQuestions([]); }
     finally { setLoadingHistory(false); }
-  }, [activeTab, scopeFilter]);
+  }, [scopeFilter]);
 
   const loadWrong = useCallback(async () => {
-    if (activeTab !== "wrong") return;
     setLoadingWrong(true);
     try {
       const params = new URLSearchParams();
@@ -75,10 +73,11 @@ export default function QuizPage() {
       params.set("page", "1"); params.set("page_size", "20");
       const res = await fetch(`/api/ai/quiz/wrong?${params}`);
       const data = await res.json();
+      console.log("[quiz] wrong response:", data);
       setWrongQuestions(data.questions || []);
     } catch { setWrongQuestions([]); }
     finally { setLoadingWrong(false); }
-  }, [activeTab, scopeFilter]);
+  }, [scopeFilter]);
 
   useEffect(() => {
     if (activeTab === "answer") loadHistory();
@@ -98,12 +97,18 @@ export default function QuizPage() {
   async function recordAnswer(q: HistoryQuestion, userAns: string, isCorrect: boolean) {
     if (!q.id) return;
     try {
-      await fetch("/api/ai/quiz/record", {
+      const res = await fetch("/api/ai/quiz/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question_id: q.id, user_answer: userAns, is_correct: isCorrect }),
       });
-    } catch {}
+      if (!res.ok) {
+        const err = await res.text();
+        console.error("[quiz] record answer failed:", res.status, err);
+      }
+    } catch (e) {
+      console.error("[quiz] record answer error:", e);
+    }
   }
 
   function handleSingle(q: HistoryQuestion, optionLetter: string) {

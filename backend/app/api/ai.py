@@ -385,7 +385,11 @@ async def _expand_scope(
 ) -> list[UUID]:
     """根据 scope_type 和 scope_id 展开出题范围为 content_id 列表"""
     if scope_type == "manual" or not scope_id:
-        return [UUID(cid) for cid in content_ids if cid]
+        if content_ids:
+            return [UUID(cid) for cid in content_ids if cid]
+        # 没传 content_ids 也没传 scope_id → 返回所有内容（"全部"范围）
+        result = await db.execute(select(Content.id).where(Content.is_deleted == False))
+        return [r[0] for r in result.all()]
 
     sid = UUID(scope_id)
     expanded: list[UUID] = []
@@ -930,25 +934,6 @@ async def get_quiz_history_scoped(
     }
 
 
-@router.get("/quiz/{content_id}")
-async def get_quiz_history(
-    content_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """查询该内容已有的历史题目"""
-    cid = UUID(content_id)
-    result = await db.execute(
-        select(Question)
-        .where(Question.content_id == cid)
-        .order_by(Question.created_at.desc())
-    )
-    questions = result.scalars().all()
-    return {
-        "questions": [_question_to_dict(q) for q in questions],
-        "content_id": content_id,
-    }
-
-
 # ── Prompt 模板辅助 ──
 
 async def _get_or_create_quiz_template(db: AsyncSession, brain_id: UUID | None) -> PromptTemplate | None:
@@ -1286,6 +1271,25 @@ async def remove_wrong_mark(
     db.add(record)
     await db.commit()
     return {"question_id": question_id, "removed": True}
+
+
+@router.get("/quiz/{content_id}")
+async def get_quiz_history(
+    content_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """查询该内容已有的历史题目（通配路由，必须放在所有具体 quiz 路由之后）"""
+    cid = UUID(content_id)
+    result = await db.execute(
+        select(Question)
+        .where(Question.content_id == cid)
+        .order_by(Question.created_at.desc())
+    )
+    questions = result.scalars().all()
+    return {
+        "questions": [_question_to_dict(q) for q in questions],
+        "content_id": content_id,
+    }
 
 
 # ── 简答题 AI 判断 ──
