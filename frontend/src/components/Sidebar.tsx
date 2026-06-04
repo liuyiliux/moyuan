@@ -144,9 +144,9 @@ export default function Sidebar() {
         </div>
 
         {/* 风格切换 */}
-        <button onClick={cycleStyle} className="dao-sidebar-link" title={`当前：${STYLE_LABELS[styleTheme]}风格 · 点击切换`}>
+        <button onClick={cycleStyle} className="dao-sidebar-link" title={s.styleHint.replace("{style}", STYLE_LABELS[styleTheme])}>
           <span className="dao-sidebar-link-icon text-xs font-bold">{STYLE_LABELS[styleTheme]}</span>
-          <span className="dao-sidebar-link-text">{STYLE_LABELS[styleTheme]}风格</span>
+          <span className="dao-sidebar-link-text">{STYLE_LABELS[styleTheme]}{s.styleHint.includes("风格") ? "风格" : "主题"}</span>
         </button>
 
         {/* 明暗切换 */}

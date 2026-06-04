@@ -5,6 +5,7 @@ import {
   Eye, Columns, Edit3,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import VersionHistoryPanel from "../../components/VersionHistoryPanel";
 import { Card, Button } from "../../components";
 import { notesCopy, useCopy } from "../../lib/copywriting";
@@ -174,7 +175,7 @@ export default function NotesPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
+    <div className="max-w-[90vw] mx-auto px-6 py-8">
       {!loading && notes.length === 0 && !noteId ? (
         <div className="flex items-center justify-center h-[80vh]">
           <Card className="p-10 text-center max-w-md">
@@ -203,7 +204,7 @@ export default function NotesPage() {
           </div>
 
           <div className="flex gap-6">
-            <div className="w-72 flex-shrink-0">
+            <div className="w-48 flex-shrink-0">
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-sm font-semibold text-text-primary">墨宝录</h2>
@@ -352,13 +353,13 @@ export default function NotesPage() {
                         value={content}
                         onChange={(e) => setContent(e.target.value)}
                         placeholder="落笔于此...支持 Markdown 格式"
-                        className="w-full min-h-[500px] bg-transparent text-text-primary placeholder:text-text-muted outline-none resize-y text-base leading-relaxed font-serif"
+                        className="w-full min-h-[calc(100vh-16rem)] bg-transparent text-text-primary placeholder:text-text-muted outline-none resize-y text-base leading-relaxed font-serif"
                       />
                     )}
                     {viewMode !== "edit" && (
-                      <div className="min-h-[500px] prose prose-sm dark:prose-invert max-w-none overflow-auto">
+                      <div className="min-h-[calc(100vh-16rem)] prose prose-sm dark:prose-invert max-w-none overflow-auto">
                         {content.trim() ? (
-                          <ReactMarkdown>{content}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkBreaks]}>{content}</ReactMarkdown>
                         ) : (
                           <p className="text-text-muted italic">暂无内容</p>
                         )}

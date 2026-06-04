@@ -42,28 +42,19 @@ class QuizRecordRequest(BaseModel):
     is_correct: bool
 
 
+class QuizJudgeRequest(BaseModel):
+    question: str
+    correct_answer: str
+    user_answer: str
+
+
 # ── 获取 AI provider ──
 
 async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | None:
-    """获取指定功能绑定的 AI 提供商"""
-    result = await db.execute(
-        select(ProviderConfig).where(ProviderConfig.is_active == True)
-    )
-    for p in result.scalars().all():
-        models = p.default_models or {}
-        if fn in models:
-            try:
-                api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
-            except Exception:
-                logger.warning(f"Failed to decrypt API key for provider {p.id} ({p.name}), skipping")
-                continue
-            return {
-                "provider_id": str(p.id),
-                "model": models[fn],
-                "api_key": api_key,
-                "base_url": p.base_url,
-            }
-
+    """获取指定功能绑定的 AI 提供商。
+    优先级：FunctionBindingConfig（设置页面显式绑定）> Provider.default_models > 无
+    """
+    # 1. 优先检查 FunctionBindingConfig（设置页面的功能绑定，优先级最高）
     binding_result = await db.execute(
         select(FunctionBindingConfig).where(FunctionBindingConfig.function == fn)
     )
@@ -82,9 +73,30 @@ async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | No
             except Exception:
                 logger.warning(f"Failed to decrypt API key for bound provider {p.id} ({p.name})")
                 return None
+            logger.info(f"[provider] using FunctionBinding: {fn} -> {binding.model} (provider={p.name})")
             return {
                 "provider_id": str(p.id),
                 "model": binding.model,
+                "api_key": api_key,
+                "base_url": p.base_url,
+            }
+
+    # 2. 回退到 Provider.default_models（编辑 Provider 时设置的功能模型）
+    result = await db.execute(
+        select(ProviderConfig).where(ProviderConfig.is_active == True)
+    )
+    for p in result.scalars().all():
+        models = p.default_models or {}
+        if fn in models:
+            try:
+                api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
+            except Exception:
+                logger.warning(f"Failed to decrypt API key for provider {p.id} ({p.name}), skipping")
+                continue
+            logger.info(f"[provider] using default_models: {fn} -> {models[fn]} (provider={p.name})")
+            return {
+                "provider_id": str(p.id),
+                "model": models[fn],
                 "api_key": api_key,
                 "base_url": p.base_url,
             }
@@ -1274,3 +1286,40 @@ async def remove_wrong_mark(
     db.add(record)
     await db.commit()
     return {"question_id": question_id, "removed": True}
+
+
+# ── 简答题 AI 判断 ──
+
+@router.post("/quiz/judge")
+async def judge_open_answer(body: QuizJudgeRequest, db: AsyncSession = Depends(get_db)):
+    """用 AI 判断简答题答案是否正确，返回 is_correct + explanation"""
+    provider = await _get_ai_provider(db, "judge")
+    if provider is None:
+        # Fallback: 模糊匹配
+        user = body.user_answer.strip().lower()
+        correct = body.correct_answer.strip().lower()
+        is_correct = user == correct or correct in user or user in correct
+        return {"is_correct": is_correct, "explanation": "（无 AI，使用模糊匹配判断）"}
+
+    try:
+        client = AsyncOpenAI(api_key=provider["api_key"] or "no-key", base_url=provider["base_url"])
+        response = await client.chat.completions.create(
+            model=provider.get("model", "deepseek-chat"),
+            messages=[{
+                "role": "system",
+                "content": "你是一位严格的阅卷老师。判断学生的简答题答案是否正确。只返回JSON：{\"is_correct\": true/false, \"explanation\": \"简短解释\"}。如果学生的答案与标准答案核心意思一致，即使措辞不同也应判定正确。"
+            }, {
+                "role": "user",
+                "content": f"题目：{body.question}\n\n标准答案：{body.correct_answer}\n\n学生答案：{body.user_answer}"
+            }],
+            response_format={"type": "json_object"},
+            max_tokens=200,
+        )
+        data = json.loads(response.choices[0].message.content or "{}")
+        return {"is_correct": data.get("is_correct", False), "explanation": data.get("explanation", "")}
+    except Exception as e:
+        logger.warning(f"[judge] AI judgement failed: {e}, falling back to fuzzy match")
+        user = body.user_answer.strip().lower()
+        correct = body.correct_answer.strip().lower()
+        is_correct = user == correct or correct in user or user in correct
+        return {"is_correct": is_correct, "explanation": f"（AI判断失败，使用模糊匹配）"}

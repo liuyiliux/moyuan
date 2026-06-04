@@ -450,12 +450,12 @@ export default function ContentsPage() {
       {categoryId && (
         <div className="mb-4 flex items-center gap-2">
           <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--warning-soft)] dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 font-medium">
-            分类：{categoryName || categoryId}
+            {ct.categoryFilterLabel}{categoryName || categoryId}
           </span>
           <button
             onClick={clearCategoryFilter}
             className="p-1 rounded-full text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors"
-            title="清除分类筛选"
+            title={ct.clearCategoryFilter}
           >
             <X className="w-3.5 h-3.5" />
           </button>

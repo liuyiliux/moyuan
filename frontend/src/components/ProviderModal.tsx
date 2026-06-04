@@ -12,13 +12,14 @@ import type {
 import { providerApi } from "../api/provider";
 import { Wifi } from "lucide-react";
 
-const FUNCTION_KEYS = ["summarize", "embedding", "chunking", "quiz"];
+const FUNCTION_KEYS = ["summarize", "embedding", "chunking", "quiz", "judge"];
 
 const FUNCTION_LABELS: Record<string, string> = {
   summarize: "摘要生成",
   embedding: "嵌入向量",
   chunking: "语义切片",
   quiz: "题库生成",
+  judge: "答题判断",
 };
 
 const PROVIDER_TYPES = [
