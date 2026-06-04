@@ -126,10 +126,13 @@ export default function NotesPage() {
   }
 
   async function handleNew() {
-    setEditing(null);
-    setTitle("");
-    setContent("");
-    navigate("/notes");
+    try {
+      const result = await noteApi.create("新笔记", "");
+      await loadList();
+      navigate(`/notes?id=${result.id}`);
+    } catch (e) {
+      alert("创建失败: " + (e as Error).message);
+    }
   }
 
   function handleVersionRestore(restoredTitle: string, restoredContent: string) {

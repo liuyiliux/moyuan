@@ -52,7 +52,11 @@ async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | No
     for p in result.scalars().all():
         models = p.default_models or {}
         if fn in models:
-            api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
+            try:
+                api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
+            except Exception:
+                logger.warning(f"Failed to decrypt API key for provider {p.id} ({p.name}), skipping")
+                continue
             return {
                 "provider_id": str(p.id),
                 "model": models[fn],
@@ -73,7 +77,11 @@ async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | No
         )
         p = provider_result.scalar_one_or_none()
         if p:
-            api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
+            try:
+                api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
+            except Exception:
+                logger.warning(f"Failed to decrypt API key for bound provider {p.id} ({p.name})")
+                return None
             return {
                 "provider_id": str(p.id),
                 "model": binding.model,
@@ -323,23 +331,17 @@ QUIZ_SYSTEM_PROMPT = """你是一位专业的出题老师。你的任务是基�
 1. 只能使用"原文知识点"中的内容出题，不得编造或使用课外知识
 2. 每道题必须标注来源 chunk_id 和 page_number（如果能确定）
 3. 干扰项必须来自"干扰项素材"中的相似知识点，不得自由编造
-4. 单选题：4 个选项（A/B/C/D），只有一个正确答案，干扰项从相似素材中提取同类概念
-5. 多选题：4 个选项，2-3 个正确答案，干扰项来自相似素材
-6. 判断题：判断陈述是否正确，错误的陈述修改细节必须来自相似素材
-7. 简答题：答案严格限定在原文内容，禁止课外拓展
-8. 对错比例要均衡，不要全对或全错
+4. 只能生成以下题型：{type_desc}，不要生成未列出的题型
+5. 对错比例要均衡，不要全对或全错
 
 输出格式为 JSON 数组，每道题格式如下：
 {
   "type": "single|multiple|truefalse|open",
   "question": "题目内容",
-  "options": ["选项A", "选项B", "选项C", "选项D"],  // 仅选择题需要
-  "answer": "正确答案（单选填选项字母如 A，多选填如 ABC，判断填对/错，简答填答案文本）",
+  "options": ["选项A", "选项B", "选项C", "选项D"],
+  "answer": "正确答案",
   "explanation": "解析说明（可选）",
-  "sources": [
-    {"chunk_id": "xxx", "page_number": N},
-    {"chunk_id": "yyy", "page_number": M}
-  ],
+  "sources": [{"chunk_id": "xxx", "page_number": N}],
   "difficulty": "easy|medium|hard"
 }"""
 
@@ -407,6 +409,10 @@ async def _expand_scope(
         )
         expanded = [r[0] for r in result.all()]
 
+    elif scope_type == "content":
+        # 单个内容直接返回其 content_id
+        expanded = [sid]
+
     logger.info(f"[quiz] scope expansion: type={scope_type}, scope_id={scope_id}, expanded to {len(expanded)} content_ids")
     return expanded
 
@@ -455,18 +461,18 @@ async def _topic_search_chunks(
     sql = text("""
         SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
                cc.embedding,
-               1 - (cc.embedding <=> :query_vec) AS score
+               1 - (cc.embedding <=> CAST(:query_vec AS vector)) AS score
         FROM content_chunks cc
-        WHERE cc.content_id IN :content_ids
+        WHERE cc.content_id = ANY(:content_ids)
           AND cc.chunk_type = 'text'
           AND cc.chunk_text IS NOT NULL
           AND cc.embedding IS NOT NULL
-        ORDER BY cc.embedding <=> :query_vec
+        ORDER BY cc.embedding <=> CAST(:query_vec AS vector)
         LIMIT :top_k
     """)
     result = await db.execute(sql, {
         "query_vec": vec_str,
-        "content_ids": tuple(str(cid) for cid in content_ids),
+        "content_ids": [str(cid) for cid in content_ids],
         "top_k": top_k,
     })
     rows = result.all()
@@ -495,19 +501,19 @@ async def _find_similar_chunks(
     vec_str = _vec_to_str(chunk_embedding)
     sql = text("""
         SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
-               1 - (cc.embedding <=> :query_vec) AS score
+               1 - (cc.embedding <=> CAST(:query_vec AS vector)) AS score
         FROM content_chunks cc
-        WHERE cc.content_id IN :content_ids
+        WHERE cc.content_id = ANY(:content_ids)
           AND cc.chunk_type = 'text'
           AND cc.chunk_text IS NOT NULL
           AND cc.embedding IS NOT NULL
           AND cc.id != :exclude_id
-        ORDER BY cc.embedding <=> :query_vec
+        ORDER BY cc.embedding <=> CAST(:query_vec AS vector)
         LIMIT :top_k
     """)
     result = await db.execute(sql, {
         "query_vec": vec_str,
-        "content_ids": tuple(str(cid) for cid in content_ids),
+        "content_ids": [str(cid) for cid in content_ids],
         "exclude_id": exclude_chunk_id,
         "top_k": top_k,
     })
@@ -582,12 +588,12 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
 
     干扰项从向量召回的相似 chunk 中提取，而非 AI 编造。
     """
-    if not body.content_ids:
-        raise HTTPException(status_code=400, detail="No content_ids provided")
-
-    # 展开出题范围
+    # 展开出题范围（scope_type/mode 会替换 content_ids）
     content_ids = await _expand_scope(db, body.content_ids, body.scope_type, body.scope_id)
     if not content_ids:
+        # 区分：scope 展开后为空 vs 根本没传任何范围
+        if not body.content_ids and (body.scope_type == "manual" or not body.scope_id):
+            raise HTTPException(status_code=400, detail="No content_ids provided")
         return {"questions": [], "note": "所选范围内没有可用的内容"}
 
     logger.info(f"[quiz] start quiz generation: content_ids={[str(c) for c in content_ids[:5]]}..., mode={body.mode}, topic={body.topic}, question_count={body.question_count}, scope={body.scope_type}")
@@ -675,6 +681,7 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
         "distractors": distractors_combined,
         "question_count": str(body.question_count),
         "question_types": type_desc,
+        "type_desc": type_desc,
         "mode_desc": mode_desc,
         "topic": body.topic or "",
     }
@@ -693,12 +700,12 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
 
     template = await _get_or_create_quiz_template(db, brain_id)
     if template:
-        system_prompt = template.system_prompt
+        system_prompt = _render_template(template.system_prompt, template_vars)
         user_prompt = _render_template(template.user_prompt_template, template_vars)
         logger.info(f"[quiz] using template: {template.name}, user_prompt length={len(user_prompt)}")
     else:
         # 回退到硬编码 Prompt
-        system_prompt = QUIZ_SYSTEM_PROMPT
+        system_prompt = QUIZ_SYSTEM_PROMPT.format(type_desc=type_desc)
         user_prompt = _build_quiz_prompt(
             source_chunks, distractor_chunks,
             body.question_count, question_types,
@@ -934,6 +941,11 @@ async def get_quiz_history(
 
 async def _get_or_create_quiz_template(db: AsyncSession, brain_id: UUID | None) -> PromptTemplate | None:
     """获取或创建当前 Brain 的 quiz 默认模板（兼容已有 Brain 无模板记录）"""
+    from app.api.brains import DEFAULT_PROMPT_TEMPLATES
+    quiz_default = DEFAULT_PROMPT_TEMPLATES.get("quiz")
+    if not quiz_default:
+        return None
+
     result = await db.execute(
         select(PromptTemplate).where(
             PromptTemplate.brain_id == brain_id,
@@ -943,24 +955,28 @@ async def _get_or_create_quiz_template(db: AsyncSession, brain_id: UUID | None) 
     )
     template = result.scalar_one_or_none()
     if template:
+        # 自动更新为最新的默认模板
+        if (template.system_prompt != quiz_default["system_prompt"] or
+                template.user_prompt_template != quiz_default["user_prompt_template"]):
+            template.system_prompt = quiz_default["system_prompt"]
+            template.user_prompt_template = quiz_default["user_prompt_template"]
+            await db.commit()
+            logger.info(f"[quiz] updated default quiz template to latest version for brain_id={brain_id}")
         return template
 
     # 不存在则创建默认模板
-    from app.api.brains import DEFAULT_PROMPT_TEMPLATES
-    quiz_default = DEFAULT_PROMPT_TEMPLATES.get("quiz")
-    if quiz_default:
-        template = PromptTemplate(
-            brain_id=brain_id,
-            template_type="quiz",
-            name="默认quiz模板",
-            system_prompt=quiz_default["system_prompt"],
-            user_prompt_template=quiz_default["user_prompt_template"],
-            is_default=True,
-        )
-        db.add(template)
-        await db.commit()
-        await db.refresh(template)
-        logger.info(f"[quiz] created default quiz template for brain_id={brain_id}")
+    template = PromptTemplate(
+        brain_id=brain_id,
+        template_type="quiz",
+        name="默认quiz模板",
+        system_prompt=quiz_default["system_prompt"],
+        user_prompt_template=quiz_default["user_prompt_template"],
+        is_default=True,
+    )
+    db.add(template)
+    await db.commit()
+    await db.refresh(template)
+    logger.info(f"[quiz] created default quiz template for brain_id={brain_id}")
     return template
 
 

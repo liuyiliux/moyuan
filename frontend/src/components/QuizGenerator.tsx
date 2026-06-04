@@ -82,18 +82,22 @@ export default function QuizGenerator({
     setError(null);
     setGenerating(true);
     try {
+      const body: Record<string, unknown> = {
+        content_ids: [],
+        question_count: quizCount,
+        mode: quizMode,
+        topic: quizMode === "topic" ? quizTopic.trim() : undefined,
+        question_types: selectedTypes,
+      };
+      // 传 scope 让后端展开内容范围
+      if (scopeId) {
+        body.scope_type = scopeType;
+        body.scope_id = scopeId;
+      }
       const res = await fetch("/api/ai/quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content_ids: scopeType === "content" ? [scopeId] : [],
-          question_count: quizCount,
-          mode: quizMode,
-          topic: quizMode === "topic" ? quizTopic.trim() : undefined,
-          question_types: selectedTypes,
-          scope_type: scopeType,
-          scope_id: scopeId,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       setRevealed(new Set());

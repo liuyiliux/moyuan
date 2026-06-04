@@ -1,13 +1,14 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { fileApi, contentApi, type FileListResponse } from "../../api/content";
+import { categoryApi } from "../../api/organization";
 import UploadArea, { type UploadResult } from "../../components/UploadArea";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import {
   UploadCloud, Search, Grid3x3, List,
   FileText, FileAudio, FileVideo, Image, FileSpreadsheet,
   File, Trash2, ExternalLink, RefreshCw, Loader2, Pin,
-  BookOpen, CheckSquare, Square,
+  BookOpen, CheckSquare, Square, X,
 } from "lucide-react";
 import { Card, Button } from "../../components";
 import { contentsCopy, useCopy } from "../../lib/copywriting";
@@ -61,6 +62,7 @@ export default function ContentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const categoryId = searchParams.get("category_id") || "";
+  const [categoryName, setCategoryName] = useState("");
   const [typeFilter, setTypeFilter] = useState(searchParams.get("type") || "");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -128,7 +130,21 @@ export default function ContentsPage() {
 
   useEffect(() => {
     load();
-  }, [typeFilter, page]);
+  }, [typeFilter, page, categoryId]);
+
+  // 加载分类名称
+  useEffect(() => {
+    if (!categoryId) { setCategoryName(""); return; }
+    categoryApi.listAll().then((cats) => {
+      const found = cats.find((c) => c.id === categoryId);
+      setCategoryName(found?.name || "");
+    }).catch(() => setCategoryName(""));
+  }, [categoryId]);
+
+  // 清除分类筛选
+  function clearCategoryFilter() {
+    navigate("/contents");
+  }
 
   // 切换单个选择
   function toggleSelect(id: string) {
@@ -429,6 +445,22 @@ export default function ContentsPage() {
           </button>
         </div>
       </div>
+
+      {/* 分类筛选指示器 */}
+      {categoryId && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--warning-soft)] dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 font-medium">
+            分类：{categoryName || categoryId}
+          </span>
+          <button
+            onClick={clearCategoryFilter}
+            className="p-1 rounded-full text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors"
+            title="清除分类筛选"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {loading && (
         <div className="flex items-center justify-center py-20">

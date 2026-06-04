@@ -271,7 +271,17 @@ export default function QuizPage() {
     { key: "wrong", icon: <AlertCircle className="w-4 h-4" />, label: "错题" },
   ];
 
+  const [openDropdown, setOpenDropdown] = useState<"category" | "collection" | null>(null);
+
   const clearScope = () => setScopeFilter(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!openDropdown) return;
+    const handler = () => setOpenDropdown(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [openDropdown]);
 
   return (
     <div className="min-h-screen">
@@ -303,11 +313,15 @@ export default function QuizPage() {
           </button>
 
           {/* Categories */}
-          <div className="relative group">
-            <button className="text-xs px-3 py-1.5 rounded-lg font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors flex items-center gap-1">
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpenDropdown(openDropdown === "category" ? null : "category"); }}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors flex items-center gap-1"
+            >
               分类 <ChevronRight className="w-3 h-3 rotate-90" />
             </button>
-            <div className="absolute left-0 top-full mt-1 w-48 max-h-60 overflow-auto bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-lg z-50 hidden group-hover:block">
+            {openDropdown === "category" && (
+            <div className="absolute left-0 top-full mt-1 w-48 max-h-60 overflow-auto bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-lg z-50">
               {categories.length === 0 && (
                 <p className="text-xs text-[var(--text-muted)] px-3 py-2">暂无分类</p>
               )}
@@ -323,14 +337,19 @@ export default function QuizPage() {
                 </button>
               ))}
             </div>
+            )}
           </div>
 
           {/* Collections */}
-          <div className="relative group">
-            <button className="text-xs px-3 py-1.5 rounded-lg font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors flex items-center gap-1">
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpenDropdown(openDropdown === "collection" ? null : "collection"); }}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors flex items-center gap-1"
+            >
               合集 <ChevronRight className="w-3 h-3 rotate-90" />
             </button>
-            <div className="absolute left-0 top-full mt-1 w-48 max-h-60 overflow-auto bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-lg z-50 hidden group-hover:block">
+            {openDropdown === "collection" && (
+            <div className="absolute left-0 top-full mt-1 w-48 max-h-60 overflow-auto bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-lg z-50">
               {collections.length === 0 && (
                 <p className="text-xs text-[var(--text-muted)] px-3 py-2">暂无合集</p>
               )}
@@ -346,6 +365,7 @@ export default function QuizPage() {
                 </button>
               ))}
             </div>
+            )}
           </div>
 
           {/* Current scope indicator */}
