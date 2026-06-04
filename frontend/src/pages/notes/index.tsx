@@ -307,7 +307,7 @@ export default function NotesPage() {
 
             {editing && (
               <VersionHistoryPanel
-                noteId={editing.id}
+                versions={editing.versions || []}
                 currentContent={content}
                 onClose={() => setShowVersions(false)}
                 onRestore={handleVersionRestore}
