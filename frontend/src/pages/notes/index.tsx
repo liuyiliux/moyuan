@@ -197,10 +197,12 @@ export default function NotesPage() {
               <h1 className="text-2xl font-serif font-semibold text-text-primary">{nt.title}</h1>
               <p className="text-sm text-text-muted mt-1.5">{nt.subtitle}</p>
             </div>
-            <Button onClick={handleNew}>
-              <Plus className="w-4 h-4" />
-              {nt.btnNew}
-            </Button>
+            {noteId && (
+              <Button onClick={handleNew}>
+                <Plus className="w-4 h-4" />
+                {nt.btnNew}
+              </Button>
+            )}
           </div>
 
           <div className="flex gap-6">
