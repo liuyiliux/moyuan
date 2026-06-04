@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { collectionApi } from "../../api/organization";
 import type { Collection, CollectionItem } from "../../api/organization";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import ContentPicker from "../../components/ContentPicker";
 import { collectionsCopy, useCopy } from "../../lib/copywriting";
 import {
   FolderOpen,
@@ -14,6 +15,7 @@ import {
   FileText,
   X,
   BookOpen,
+  Pencil,
 } from "lucide-react";
 import QuizModal from "../../components/QuizModal";
 
@@ -39,13 +41,19 @@ export default function CollectionsPage() {
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showContentPicker, setShowContentPicker] = useState(false);
   const [createForm, setCreateForm] = useState<CreateFormData>({ name: "", description: "" });
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [removingItem, setRemovingItem] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<Collection | null>(null);
   const [removeDialog, setRemoveDialog] = useState<CollectionItem | null>(null);
   const [quizCollection, setQuizCollection] = useState<{ id: string; name: string } | null>(null);
+  const [menuCollection, setMenuCollection] = useState<string | null>(null);
+  const [editCollection, setEditCollection] = useState<Collection | null>(null);
+  const [editForm, setEditForm] = useState<CreateFormData>({ name: "", description: "" });
+  const [updating, setUpdating] = useState(false);
 
   // ── Data Loading ──
 
@@ -63,12 +71,14 @@ export default function CollectionsPage() {
 
   const loadCollectionDetail = useCallback(async (colId: string) => {
     setItemsLoading(true);
+    setDetailError(null);
     try {
       const data = await collectionApi.get(colId);
       setSelectedCollection(data.collection);
       setCollectionItems(data.items);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load collection detail:", err);
+      setDetailError(err?.message || "加载合集详情失败");
     } finally {
       setItemsLoading(false);
     }
@@ -149,6 +159,25 @@ export default function CollectionsPage() {
     }
   };
 
+  const handleAddContent = async (contentId: string) => {
+    if (!selectedCollection) return;
+    try {
+      await collectionApi.addItem(selectedCollection.id, contentId);
+      await loadCollectionDetail(selectedCollection.id);
+      const col = collections.find((c) => c.id === selectedCollection.id);
+      if (col) {
+        setCollections((prev) =>
+          prev.map((c) =>
+            c.id === col.id ? { ...c, item_count: col.item_count + 1 } : c
+          )
+        );
+      }
+    } catch (err) {
+      console.error("Failed to add item:", err);
+    }
+    setShowContentPicker(false);
+  };
+
   const handleViewDetail = async (col: Collection) => {
     setViewMode("detail");
     await loadCollectionDetail(col.id);
@@ -158,6 +187,45 @@ export default function CollectionsPage() {
     setViewMode("list");
     setSelectedCollection(null);
     setCollectionItems([]);
+  };
+
+  // ── Close dropdown on outside click ──
+  useEffect(() => {
+    if (!menuCollection) return;
+    const handleClick = (e: MouseEvent) => setMenuCollection(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [menuCollection]);
+
+  // ── Edit Handlers ──
+  const handleOpenEdit = (col: Collection) => {
+    setEditCollection(col);
+    setEditForm({ name: col.name, description: col.description || "" });
+    setMenuCollection(null);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCollection || !editForm.name.trim()) return;
+    setUpdating(true);
+    try {
+      await collectionApi.update(editCollection.id, {
+        name: editForm.name.trim(),
+        description: editForm.description.trim() || undefined,
+      });
+      setEditCollection(null);
+      setEditForm({ name: "", description: "" });
+      await loadCollections();
+      // Also refresh detail if viewing this collection
+      if (selectedCollection?.id === editCollection.id) {
+        await loadCollectionDetail(editCollection.id);
+      }
+    } catch (err) {
+      console.error("Failed to update collection:", err);
+      alert("更新失败");
+    } finally {
+      setUpdating(false);
+    }
   };
 
   // ── Format Date ──
@@ -252,6 +320,81 @@ export default function CollectionsPage() {
     );
   };
 
+  // ── Render: Edit Modal ──
+
+  const renderEditModal = () => {
+    if (!editCollection) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-md p-6 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] shadow-xl">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)]">
+              {t.editTitle}
+            </h3>
+            <button
+              onClick={() => setEditCollection(null)}
+              className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-[var(--text-secondary)] dark:text-[var(--text-muted)] mb-1">
+                {t.editNameLabel} <span className="text-[var(--danger)]">*</span>
+              </label>
+              <input
+                type="text"
+                value={editForm.name}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                maxLength={100}
+                className="dao-input w-full"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-[var(--text-secondary)] dark:text-[var(--text-muted)] mb-1">
+                {t.editDescLabel}
+              </label>
+              <textarea
+                value={editForm.description}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
+                rows={3}
+                maxLength={500}
+                className="dao-input w-full resize-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditCollection(null)}
+                className="dao-btn dao-btn-ghost text-sm"
+              >
+                {t.btnCancel}
+              </button>
+              <button
+                type="submit"
+                disabled={updating || !editForm.name.trim()}
+                className="dao-btn dao-btn-primary text-sm flex items-center gap-2"
+              >
+                {updating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Pencil className="w-4 h-4" />
+                )}
+                {updating ? t.editSaving : t.editSave}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   // ── Render: List View ──
 
   const renderListView = () => {
@@ -289,7 +432,7 @@ export default function CollectionsPage() {
         {filteredCollections.map((col) => (
           <div
             key={col.id}
-            className="dao-card dao-glow-hover p-4 cursor-pointer"
+            className="dao-card dao-glow-hover p-4 cursor-pointer group"
             onClick={() => handleViewDetail(col)}
           >
             {/* Header */}
@@ -307,35 +450,6 @@ export default function CollectionsPage() {
                   </p>
                 </div>
               </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setQuizCollection({ id: col.id, name: col.name });
-                  }}
-                  className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-amber-600 hover:bg-[var(--warning-soft)] transition-colors"
-                  title={`对合集"${col.name}"出题`}
-                >
-                  <BookOpen className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteDialog(col);
-                  }}
-                  disabled={deleting === col.id}
-                  className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 transition-colors"
-                  title={t.confirmDeleteTitle}
-                >
-                  {deleting === col.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
             </div>
 
             {/* Description */}
@@ -350,7 +464,62 @@ export default function CollectionsPage() {
               <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
                 {formatDate(col.created_at)}
               </span>
-              <MoreHorizontal className="w-4 h-4 text-[var(--text-muted)] dark:text-[var(--text-secondary)]" />
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuCollection(menuCollection === col.id ? null : col.id);
+                  }}
+                  className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                  title="更多操作"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+
+                {/* Dropdown */}
+                {menuCollection === col.id && (
+                  <div
+                    className="absolute right-0 top-full mt-1 w-36 py-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-lg z-50"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => handleOpenEdit(col)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                    >
+                      <Pencil className="w-4 h-4 text-[var(--text-muted)]" />
+                      {t.editBtnTooltip}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQuizCollection({ id: col.id, name: col.name });
+                        setMenuCollection(null);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                    >
+                      <BookOpen className="w-4 h-4 text-amber-500" />
+                      {t.quizBtnTooltip}
+                    </button>
+                    <div className="border-t border-[var(--border-subtle)] my-1" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteDialog(col);
+                        setMenuCollection(null);
+                      }}
+                      disabled={deleting === col.id}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--danger)] hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 transition-colors"
+                    >
+                      {deleting === col.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                      {t.confirmDeleteTitle}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -389,6 +558,13 @@ export default function CollectionsPage() {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setQuizCollection({ id: selectedCollection.id, name: selectedCollection.name })}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
+            >
+              <BookOpen className="w-4 h-4" />
+              {t.quizDetailBtn}
+            </button>
+            <button
               onClick={() => setDeleteDialog(selectedCollection)}
               disabled={deleting === selectedCollection.id}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-[var(--danger)] hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 rounded-lg transition-colors"
@@ -410,14 +586,21 @@ export default function CollectionsPage() {
               <h3 className="text-sm font-semibold text-[var(--text-primary)] dark:text-[var(--text-primary)]">
                 {t.detailItems(collectionItems.length)}
               </h3>
-              <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-[var(--accent-text)] hover:bg-[var(--accent-soft)] dark:hover:bg-blue-900/20 rounded-lg transition-colors">
+              <button onClick={() => setShowContentPicker(true)} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-[var(--accent-text)] hover:bg-[var(--accent-soft)] dark:hover:bg-blue-900/20 rounded-lg transition-colors">
                 <Plus className="w-4 h-4" />
                 {t.detailAddBtn}
               </button>
             </div>
           </div>
 
-              {itemsLoading ? (
+              {detailError ? (
+            <div className="text-center py-12">
+              <p className="text-sm text-[var(--danger)]">{detailError}</p>
+              <button onClick={() => selectedCollection && loadCollectionDetail(selectedCollection.id)} className="mt-3 text-sm text-[var(--accent-text)] hover:underline">
+                重试
+              </button>
+            </div>
+          ) : itemsLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
             </div>
@@ -549,6 +732,9 @@ export default function CollectionsPage() {
       {/* Create Modal */}
       {renderCreateModal()}
 
+      {/* Edit Modal */}
+      {renderEditModal()}
+
       {/* Delete Confirmation */}
       <ConfirmDialog
         open={deleteDialog !== null}
@@ -578,6 +764,14 @@ export default function CollectionsPage() {
           scopeId={quizCollection.id}
           scopeName={quizCollection.name}
           onClose={() => setQuizCollection(null)}
+        />
+      )}
+
+      {/* Content Picker Modal */}
+      {showContentPicker && (
+        <ContentPicker
+          onSelect={handleAddContent}
+          onClose={() => setShowContentPicker(false)}
         />
       )}
     </div>

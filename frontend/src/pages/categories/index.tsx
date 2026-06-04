@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { categoryApi } from "../../api/organization";
 import type { Category } from "../../api/organization";
 import { Plus, Edit, Trash2, Loader2, FolderTree, ChevronRight, BookOpen } from "lucide-react";
@@ -13,6 +14,7 @@ interface CatNode extends Category {
 
 export default function CategoriesPage() {
   const t = useCopy(categoriesCopy);
+  const navigate = useNavigate();
   const [tree, setTree] = useState<CatNode[]>([]);
   const [flatList, setFlatList] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +100,10 @@ export default function CategoriesPage() {
         <li key={node.id}>
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] hover:border-[var(--border-default)] transition-colors group">
             {depth > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0" />}
-            <span className="text-sm text-[var(--text-primary)] flex-1">{node.name}</span>
+            <span
+              className="text-sm text-[var(--text-primary)] flex-1 cursor-pointer hover:text-[var(--accent-text)] transition-colors"
+              onClick={() => navigate(`/contents?category_id=${node.id}`)}
+            >{node.name}</span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={() => setQuizCategory({ id: node.id, name: node.name })}

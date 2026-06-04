@@ -133,25 +133,39 @@ class FileService:
         self,
         content_type: str | None = None,
         brain_id: uuid.UUID | None = None,
+        category_id: uuid.UUID | None = None,
         is_deleted: bool = False,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Content], int]:
         """列出文件/内容"""
+        from app.models.models import ContentCategory
         conditions = [Content.is_deleted == is_deleted]
         if content_type:
             conditions.append(Content.content_type == content_type)
         if brain_id is not None:
             conditions.append(Content.brain_id == brain_id)
 
+        # category 过滤：JOIN content_categories 表
+        base_query = select(Content)
+        if category_id is not None:
+            base_query = base_query.join(
+                ContentCategory, Content.id == ContentCategory.content_id
+            ).where(ContentCategory.category_id == category_id)
+
         # 总数
-        count_query = select(func.count(Content.id)).where(*conditions)
+        count_query = select(func.count(Content.id))
+        if category_id is not None:
+            count_query = count_query.join(
+                ContentCategory, Content.id == ContentCategory.content_id
+            ).where(ContentCategory.category_id == category_id)
+        count_query = count_query.where(*conditions)
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
 
         # 分页
         query = (
-            select(Content)
+            base_query
             .where(*conditions)
             .order_by(Content.created_at.desc())
             .offset((page - 1) * page_size)

@@ -133,7 +133,7 @@ async def get_collection(col_id: str, db: AsyncSession = Depends(get_db)):
             "title": content.title,
             "content_type": content.content_type,
             "sort_order": ci.sort_order,
-            "added_at": ci.created_at.isoformat() if ci.created_at else "",
+            "added_at": content.created_at.isoformat() if content.created_at else "",
         })
     return {"collection": _col_resp(col), "items": items}
 

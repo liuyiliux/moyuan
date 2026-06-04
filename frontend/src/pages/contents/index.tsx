@@ -60,6 +60,7 @@ export default function ContentsPage() {
   const [data, setData] = useState<FileListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const categoryId = searchParams.get("category_id") || "";
   const [typeFilter, setTypeFilter] = useState(searchParams.get("type") || "");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -93,6 +94,7 @@ export default function ContentsPage() {
     try {
       const res = await fileApi.list({
         content_type: typeFilter || undefined,
+        category_id: categoryId || undefined,
         page,
         page_size: PAGE_SIZE,
       });

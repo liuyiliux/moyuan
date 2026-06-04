@@ -255,6 +255,14 @@ export const collectionsCopy: CopyText<{
   confirmRemoveMsg: (title: string) => string;
   confirmRemoveBtn: string;
   formatDate: (d: string) => string;
+  editTitle: string;
+  editNameLabel: string;
+  editDescLabel: string;
+  editSave: string;
+  editSaving: string;
+  editBtnTooltip: string;
+  quizBtnTooltip: string;
+  quizDetailBtn: string;
 }> = {
   daoist: {
     title: "藏经",
@@ -282,6 +290,14 @@ export const collectionsCopy: CopyText<{
     confirmRemoveMsg: (title: string) => `确要将「${title}」移出此藏经？`,
     confirmRemoveBtn: "移出",
     formatDate: (d: string) => d,
+    editTitle: "修订藏经",
+    editNameLabel: "藏经之名",
+    editDescLabel: "藏经之述",
+    editSave: "保存修订",
+    editSaving: "修订中...",
+    editBtnTooltip: "修订藏经",
+    quizBtnTooltip: "考校此藏经",
+    quizDetailBtn: "考校此藏经",
   },
   normal: {
     title: "合集管理",
@@ -309,6 +325,14 @@ export const collectionsCopy: CopyText<{
     confirmRemoveMsg: (title: string) => `确定将「${title}」从合集中移除？`,
     confirmRemoveBtn: "移除",
     formatDate: (d: string) => d,
+    editTitle: "编辑合集",
+    editNameLabel: "合集名称",
+    editDescLabel: "合集描述",
+    editSave: "保存修改",
+    editSaving: "保存中...",
+    editBtnTooltip: "编辑合集",
+    quizBtnTooltip: "对合集出题",
+    quizDetailBtn: "对合集出题",
   },
   anime: {
     title: "合集合集~",
@@ -336,6 +360,14 @@ export const collectionsCopy: CopyText<{
     confirmRemoveMsg: (title: string) => `要把「${title}」从合集里移出去吗？`,
     confirmRemoveBtn: "移出去~",
     formatDate: (d: string) => d,
+    editTitle: "编辑合集喵~",
+    editNameLabel: "合集名字",
+    editDescLabel: "合集描述",
+    editSave: "保存修改喵~",
+    editSaving: "保存中喵...",
+    editBtnTooltip: "编辑合集",
+    quizBtnTooltip: "来出题吧！",
+    quizDetailBtn: "来出题吧☆",
   },
 };
 
