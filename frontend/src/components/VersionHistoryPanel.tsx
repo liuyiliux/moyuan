@@ -1,9 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
-import { Clock, RotateCcw, Loader2, X, ChevronRight } from "lucide-react";
-import { noteVersionApi, type NoteVersion } from "../api/notes";
+import { useState } from "react";
+import { Clock, RotateCcw, X, ChevronRight } from "lucide-react";
+
+interface NoteVersion {
+  id?: string;
+  title: string;
+  text_content: string;
+  updated_at: string;
+}
 
 interface Props {
-  noteId: string;
+  versions: NoteVersion[];
   currentContent: string;
   onClose: () => void;
   onRestore: (title: string, content: string) => void;
@@ -32,48 +38,25 @@ function formatTime(iso: string): string {
 }
 
 export default function VersionHistoryPanel({
-  noteId,
+  versions,
   currentContent,
   onClose,
   onRestore,
 }: Props) {
-  const [versions, setVersions] = useState<NoteVersion[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [restoring, setRestoring] = useState<string | null>(null);
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
 
-  const loadVersions = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await noteVersionApi.getVersions(noteId);
-      setVersions(data || []);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [noteId]);
-
-  useEffect(() => {
-    loadVersions();
-  }, [loadVersions]);
-
-  async function handleRestore(versionId: string) {
-    setRestoring(versionId);
-    try {
-      const result = await noteVersionApi.restoreVersion(noteId, versionId);
-      onRestore(result.title, result.content);
-      await loadVersions();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setRestoring(null);
-      setConfirmRestore(null);
-    }
+  function handleRestore(v: NoteVersion) {
+    onRestore(v.title, v.text_content);
+    setConfirmRestore(null);
+    onClose();
   }
+
+  // 给每个版本生成一个 ID（updated_at 作为唯一标识）
+  const indexedVersions = versions.map((v, i) => ({
+    ...v,
+    _id: v.updated_at + "_" + i,
+  }));
 
   return (
     <div className="w-80 border-l border-[var(--border-subtle)] dark:border-[var(--border-subtle)] bg-[var(--bg-card)] dark:bg-[var(--bg-card)] flex flex-col h-full">
@@ -95,32 +78,12 @@ export default function VersionHistoryPanel({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
-          </div>
-        )}
-
-        {error && (
-          <div className="p-4 text-center">
-            <p className="text-sm text-[var(--danger)]">{error}</p>
-            <button
-              onClick={loadVersions}
-              className="mt-2 text-xs text-[var(--accent-text)] hover:underline"
-            >
-              重试
-            </button>
-          </div>
-        )}
-
-        {!loading && !error && versions.length === 0 && (
+        {indexedVersions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-[var(--text-muted)]">
             <Clock className="w-8 h-8 mb-2 opacity-50" />
             <p className="text-sm">暂无历史版本</p>
           </div>
-        )}
-
-        {!loading && !error && versions.length > 0 && (
+        ) : (
           <div className="divide-y divide-[var(--border-subtle)]">
             {/* Current version */}
             <div className="px-4 py-3 bg-[var(--accent-soft)]/50 dark:bg-blue-900/10">
@@ -137,11 +100,11 @@ export default function VersionHistoryPanel({
             </div>
 
             {/* History versions */}
-            {versions.map((v) => (
-              <div key={v.id} className="group">
+            {indexedVersions.map((v) => (
+              <div key={v._id} className="group">
                 <button
                   onClick={() =>
-                    setPreviewId(previewId === v.id ? null : v.id)
+                    setPreviewId(previewId === v._id ? null : v._id)
                   }
                   className="w-full px-4 py-3 text-left hover:bg-[var(--bg-primary)] dark:hover:bg-[var(--bg-elevated)]/50 transition-colors"
                 >
@@ -151,7 +114,7 @@ export default function VersionHistoryPanel({
                     </span>
                     <ChevronRight
                       className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${
-                        previewId === v.id ? "rotate-90" : ""
+                        previewId === v._id ? "rotate-90" : ""
                       }`}
                     />
                   </div>
@@ -162,7 +125,7 @@ export default function VersionHistoryPanel({
                 </button>
 
                 {/* Preview */}
-                {previewId === v.id && (
+                {previewId === v._id && (
                   <div className="px-4 pb-3 border-t border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
                     <div className="mt-2 p-3 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] rounded-lg max-h-48 overflow-y-auto">
                       <p className="text-xs text-[var(--text-secondary)] dark:text-[var(--text-muted)] whitespace-pre-wrap">
@@ -170,30 +133,25 @@ export default function VersionHistoryPanel({
                       </p>
                     </div>
                     <div className="mt-2 flex gap-2">
-                      {confirmRestore === v.id ? (
+                      {confirmRestore === v._id ? (
                         <>
                           <button
-                            onClick={() => handleRestore(v.id)}
-                            disabled={restoring === v.id}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--text-inverse)] bg-[var(--accent)] hover:bg-[var(--accent)] rounded transition-colors disabled:opacity-50"
+                            onClick={() => handleRestore(v)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--text-inverse)] bg-[var(--accent)] hover:bg-[var(--accent)] rounded transition-colors"
                           >
-                            {restoring === v.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <RotateCcw className="w-3 h-3" />
-                            )}
+                            <RotateCcw className="w-3 h-3" />
                             确认恢复
                           </button>
-                    <button
-                          onClick={() => setConfirmRestore(null)}
-                          className="dao-btn dao-btn-ghost text-xs"
-                        >
+                          <button
+                            onClick={() => setConfirmRestore(null)}
+                            className="dao-btn dao-btn-ghost text-xs"
+                          >
                             取消
                           </button>
                         </>
                       ) : (
                         <button
-                          onClick={() => setConfirmRestore(v.id)}
+                          onClick={() => setConfirmRestore(v._id)}
                           className="dao-btn dao-btn-secondary text-xs flex items-center gap-1.5"
                         >
                           <RotateCcw className="w-3 h-3" />
@@ -207,6 +165,11 @@ export default function VersionHistoryPanel({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-2 border-t border-[var(--border-subtle)] dark:border-[var(--border-subtle)] text-xs text-[var(--text-muted)]">
+        共 {versions.length} 个历史版本
       </div>
     </div>
   );

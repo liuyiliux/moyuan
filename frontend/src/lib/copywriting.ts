@@ -255,6 +255,14 @@ export const collectionsCopy: CopyText<{
   confirmRemoveMsg: (title: string) => string;
   confirmRemoveBtn: string;
   formatDate: (d: string) => string;
+  editTitle: string;
+  editNameLabel: string;
+  editDescLabel: string;
+  editSave: string;
+  editSaving: string;
+  editBtnTooltip: string;
+  quizBtnTooltip: string;
+  quizDetailBtn: string;
 }> = {
   daoist: {
     title: "藏经",
@@ -282,6 +290,14 @@ export const collectionsCopy: CopyText<{
     confirmRemoveMsg: (title: string) => `确要将「${title}」移出此藏经？`,
     confirmRemoveBtn: "移出",
     formatDate: (d: string) => d,
+    editTitle: "修订藏经",
+    editNameLabel: "藏经之名",
+    editDescLabel: "藏经之述",
+    editSave: "保存修订",
+    editSaving: "修订中...",
+    editBtnTooltip: "修订藏经",
+    quizBtnTooltip: "考校此藏经",
+    quizDetailBtn: "考校此藏经",
   },
   normal: {
     title: "合集管理",
@@ -309,6 +325,14 @@ export const collectionsCopy: CopyText<{
     confirmRemoveMsg: (title: string) => `确定将「${title}」从合集中移除？`,
     confirmRemoveBtn: "移除",
     formatDate: (d: string) => d,
+    editTitle: "编辑合集",
+    editNameLabel: "合集名称",
+    editDescLabel: "合集描述",
+    editSave: "保存修改",
+    editSaving: "保存中...",
+    editBtnTooltip: "编辑合集",
+    quizBtnTooltip: "对合集出题",
+    quizDetailBtn: "对合集出题",
   },
   anime: {
     title: "合集合集~",
@@ -336,6 +360,14 @@ export const collectionsCopy: CopyText<{
     confirmRemoveMsg: (title: string) => `要把「${title}」从合集里移出去吗？`,
     confirmRemoveBtn: "移出去~",
     formatDate: (d: string) => d,
+    editTitle: "编辑合集喵~",
+    editNameLabel: "合集名字",
+    editDescLabel: "合集描述",
+    editSave: "保存修改喵~",
+    editSaving: "保存中喵...",
+    editBtnTooltip: "编辑合集",
+    quizBtnTooltip: "来出题吧！",
+    quizDetailBtn: "来出题吧☆",
   },
 };
 
@@ -732,10 +764,39 @@ export const recycleCopy: CopyText<{
 export const notesCopy: CopyText<{
   title: string;
   subtitle: string;
+  btnNew: string;
+  btnSave: string;
+  btnSaveVersion: string;
+  btnVersions: string;
+  saving: string;
 }> = {
-  daoist: { title: "墨宝", subtitle: "记录悟道心得，书写数字修行" },
-  normal: { title: "笔记", subtitle: "创建和管理你的笔记" },
-  anime: { title: "笔记笔记~", subtitle: "写下你的小灵感吧☆" },
+  daoist: {
+    title: "墨宝",
+    subtitle: "记录悟道心得，书写数字修行",
+    btnNew: "新墨宝",
+    btnSave: "铭刻",
+    btnSaveVersion: "新刻",
+    btnVersions: "版本录",
+    saving: "铭刻中...",
+  },
+  normal: {
+    title: "笔记",
+    subtitle: "创建和管理你的笔记",
+    btnNew: "新建笔记",
+    btnSave: "保存",
+    btnSaveVersion: "新增版本",
+    btnVersions: "历史版本",
+    saving: "保存中...",
+  },
+  anime: {
+    title: "笔记笔记~",
+    subtitle: "写下你的小灵感吧☆",
+    btnNew: "写新笔记~",
+    btnSave: "保存喵~",
+    btnSaveVersion: "留个新版本~",
+    btnVersions: "版本历史",
+    saving: "保存中喵...",
+  },
 };
 
 // ── contents（道藏 / 知识库 / 知识库知识库~）──
@@ -760,6 +821,8 @@ export const sidebarCopy: CopyText<{
   favoritesTip: string;
   collections: string;
   collectionsTip: string;
+  quiz: string;
+  quizTip: string;
   brains: string;
   brainsTip: string;
   analytics: string;
@@ -774,6 +837,10 @@ export const sidebarCopy: CopyText<{
   recycleTip: string;
   logoTitle: string;
   logoSubtitle: string;
+  styleLabelDaoist: string;
+  styleLabelNormal: string;
+  styleLabelAnime: string;
+  styleHint: string;
 }> = {
   daoist: {
     sectionDaoCang: "道藏",
@@ -786,6 +853,7 @@ export const sidebarCopy: CopyText<{
     categories: "坤舆", categoriesTip: "分类",
     favorites: "珍藏", favoritesTip: "收藏",
     collections: "藏经", collectionsTip: "合集",
+    quiz: "考校", quizTip: "出题测验",
     brains: "丹室", brainsTip: "工作区",
     analytics: "卦象", analyticsTip: "统计",
     logs: "玄鉴", logsTip: "日志",
@@ -794,6 +862,10 @@ export const sidebarCopy: CopyText<{
     recycle: "归墟", recycleTip: "回收站",
     logoTitle: "墨渊",
     logoSubtitle: "Moyuan",
+    styleLabelDaoist: "道",
+    styleLabelNormal: "常",
+    styleLabelAnime: "萌",
+    styleHint: "当前：{style}风格 · 点击切换",
   },
   normal: {
     sectionDaoCang: "内容",
@@ -806,6 +878,7 @@ export const sidebarCopy: CopyText<{
     categories: "分类", categoriesTip: "管理分类",
     favorites: "收藏", favoritesTip: "我的收藏",
     collections: "合集", collectionsTip: "合集管理",
+    quiz: "测验", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作区",
     analytics: "统计", analyticsTip: "数据分析",
     logs: "日志", logsTip: "系统日志",
@@ -814,6 +887,10 @@ export const sidebarCopy: CopyText<{
     recycle: "回收站", recycleTip: "回收站",
     logoTitle: "墨渊",
     logoSubtitle: "Moyuan",
+    styleLabelDaoist: "道",
+    styleLabelNormal: "常",
+    styleLabelAnime: "萌",
+    styleHint: "当前：{style}风格 · 点击切换",
   },
   anime: {
     sectionDaoCang: "📚 知识宝库",
@@ -826,6 +903,7 @@ export const sidebarCopy: CopyText<{
     categories: "分类分类~", categoriesTip: "分类",
     favorites: "我的珍藏", favoritesTip: "收藏夹",
     collections: "合集合集~", collectionsTip: "合集",
+    quiz: "来考试喵~", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作空间",
     analytics: "数据喵~", analyticsTip: "统计",
     logs: "日志喵", logsTip: "日志",
@@ -834,6 +912,10 @@ export const sidebarCopy: CopyText<{
     recycle: "回收站喵", recycleTip: "回收站",
     logoTitle: "墨渊",
     logoSubtitle: "Moyuan",
+    styleLabelDaoist: "道",
+    styleLabelNormal: "常",
+    styleLabelAnime: "萌",
+    styleHint: "{style}主题喵~ 点我切换",
   },
 };
 
@@ -866,6 +948,8 @@ export const contentsCopy: CopyText<{
   typeOther: string;
   allLoaded: string;
   loadMore: string;
+  categoryFilterLabel: string;
+  clearCategoryFilter: string;
 }> = {
   daoist: {
     title: "道藏",
@@ -896,6 +980,8 @@ export const contentsCopy: CopyText<{
     typeOther: "其他",
     allLoaded: "道藏已尽览",
     loadMore: "加载更多",
+    categoryFilterLabel: "分类：",
+    clearCategoryFilter: "清除分类筛选",
   },
   normal: {
     title: "知识库",
@@ -926,6 +1012,8 @@ export const contentsCopy: CopyText<{
     typeOther: "其他",
     allLoaded: "已加载全部内容",
     loadMore: "加载更多",
+    categoryFilterLabel: "分类：",
+    clearCategoryFilter: "清除分类筛选",
   },
   anime: {
     title: "知识库知识库~",
@@ -956,6 +1044,8 @@ export const contentsCopy: CopyText<{
     typeOther: "其他",
     allLoaded: "已经加载完啦~",
     loadMore: "加载更多",
+    categoryFilterLabel: "分类喵：",
+    clearCategoryFilter: "不要筛选了",
   },
 };
 
@@ -1054,6 +1144,146 @@ export const brainSwitcherCopy: CopyText<{
   daoist: { select: "选择丹室", empty: "丹室尚空", manage: "管理丹室", create: "新建丹室" },
   normal: { select: "选择工作区", empty: "暂无工作区", manage: "管理工作区", create: "新建工作区" },
   anime: { select: "选择工作区喵~", empty: "还没有工作区呢~", manage: "管理工作区", create: "新建工作区喵~" },
+};
+
+// ── quiz（考校 / 测验 / 考试喵~）──
+
+export const quizCopy: CopyText<{
+  title: string;
+  subtitle: string;
+  tabGenerate: string;
+  tabAnswer: string;
+  tabWrong: string;
+  scopeLabel: string;
+  scopeAll: string;
+  scopeCategory: string;
+  scopeCollection: string;
+  noCategory: string;
+  noCollection: string;
+  scopeFilterCategory: string;
+  scopeFilterCollection: string;
+  answerEmpty: string;
+  answerEmptyScoped: string;
+  goGenerate: string;
+  wrongEmpty: string;
+  wrongEmptyHint: string;
+  removeWrong: string;
+  confirmSubmit: string;
+  inputAnswer: string;
+  submitBtn: string;
+  correctLabel: string;
+  wrongLabel: string;
+  yourAnswer: string;
+  correctAnswer: string;
+  answerCorrect: string;
+  answerWrong: string;
+  typeSingle: string;
+  typeMultiple: string;
+  typeTrueFalse: string;
+  typeOpen: string;
+}> = {
+  daoist: {
+    title: "考校",
+    subtitle: "测悟道深浅，证修行所得",
+    tabGenerate: "出题",
+    tabAnswer: "答题",
+    tabWrong: "错题",
+    scopeLabel: "范围:",
+    scopeAll: "全部道藏",
+    scopeCategory: "分类",
+    scopeCollection: "合集",
+    noCategory: "暂无分类",
+    noCollection: "暂无合集",
+    scopeFilterCategory: "分类",
+    scopeFilterCollection: "合集",
+    answerEmpty: "尚无可答之题",
+    answerEmptyScoped: "此范围内尚无可答之题",
+    goGenerate: "前去出题 →",
+    wrongEmpty: "暂无错题",
+    wrongEmptyHint: "修行无碍，继续保持！",
+    removeWrong: "移出错题本",
+    confirmSubmit: "确认提交",
+    inputAnswer: "写下你的答案...",
+    submitBtn: "提交",
+    correctLabel: "正确",
+    wrongLabel: "错误",
+    yourAnswer: "你的答案",
+    correctAnswer: "正确答案",
+    answerCorrect: "回答正确！",
+    answerWrong: "回答有误",
+    typeSingle: "单选",
+    typeMultiple: "多选",
+    typeTrueFalse: "判断",
+    typeOpen: "简答",
+  },
+  normal: {
+    title: "测验",
+    subtitle: "智能出题测验，随机刷题 + 主题出题 + 错题本",
+    tabGenerate: "出题",
+    tabAnswer: "答题",
+    tabWrong: "错题",
+    scopeLabel: "范围:",
+    scopeAll: "全部知识库",
+    scopeCategory: "分类",
+    scopeCollection: "合集",
+    noCategory: "暂无分类",
+    noCollection: "暂无合集",
+    scopeFilterCategory: "分类",
+    scopeFilterCollection: "合集",
+    answerEmpty: "暂无历史题目",
+    answerEmptyScoped: "该范围内暂无历史题目",
+    goGenerate: "去出题 →",
+    wrongEmpty: "暂无错题",
+    wrongEmptyHint: "继续保持！",
+    removeWrong: "移出错题本",
+    confirmSubmit: "确认提交",
+    inputAnswer: "输入你的答案...",
+    submitBtn: "提交",
+    correctLabel: "正确",
+    wrongLabel: "错误",
+    yourAnswer: "你的答案",
+    correctAnswer: "正确答案",
+    answerCorrect: "回答正确！",
+    answerWrong: "回答错误",
+    typeSingle: "单选",
+    typeMultiple: "多选",
+    typeTrueFalse: "判断",
+    typeOpen: "简答",
+  },
+  anime: {
+    title: "考试喵~",
+    subtitle: "来看看你学会了多少吧☆",
+    tabGenerate: "出题喵~",
+    tabAnswer: "答题喵~",
+    tabWrong: "错题本",
+    scopeLabel: "范围:",
+    scopeAll: "全部内容",
+    scopeCategory: "分类",
+    scopeCollection: "合集",
+    noCategory: "还没有分类喵~",
+    noCollection: "还没有合集喵~",
+    scopeFilterCategory: "分类",
+    scopeFilterCollection: "合集",
+    answerEmpty: "还没有题目呢~",
+    answerEmptyScoped: "这里面还没有题目喵~",
+    goGenerate: "去出题喵！→",
+    wrongEmpty: "没有错题喵~",
+    wrongEmptyHint: "太厉害了全对！☆",
+    removeWrong: "学会了，移除喵~",
+    confirmSubmit: "确认提交",
+    inputAnswer: "写写你的答案喵...",
+    submitBtn: "提交",
+    correctLabel: "对",
+    wrongLabel: "错",
+    yourAnswer: "你的答案",
+    correctAnswer: "正确答案",
+    answerCorrect: "答对啦☆",
+    answerWrong: "答错了呢...",
+    typeSingle: "单选",
+    typeMultiple: "多选",
+    typeTrueFalse: "判断",
+    typeOpen: "简答",
+  },
 };
 
 // ── logs（日志页）──

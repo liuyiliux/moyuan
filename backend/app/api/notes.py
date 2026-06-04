@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func, JSON
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
 from app.models.models import Content
@@ -27,6 +28,7 @@ class NoteCreate(BaseModel):
 class NoteUpdate(BaseModel):
     title: str | None = None
     content: str | None = None
+    create_version: bool = True  # True=新增版本保存，False=直接覆盖不记版本
 
 
 class NoteVersion:
@@ -36,16 +38,16 @@ class NoteVersion:
     def record(content: Content) -> None:
         if not content.extra_meta:
             content.extra_meta = {}
-        versions = content.extra_meta.get("versions", [])
+        versions = list(content.extra_meta.get("versions", []))  # copy to trigger change detection
         versions.append({
             "title": content.title,
             "text_content": content.text_content,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
-        # 最多保留 20 个版本
         if len(versions) > 20:
             versions = versions[-20:]
         content.extra_meta["versions"] = versions
+        flag_modified(content, "extra_meta")  # 确保 SQLAlchemy 检测到 JSONB 变化
 
 
 # ── Routes ──
@@ -152,8 +154,9 @@ async def update_note(note_id: str, body: NoteUpdate, db: AsyncSession = Depends
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    # 记录版本
-    NoteVersion.record(note)
+    # create_version=True 时总是记录版本快照，False 时直接覆盖
+    if body.create_version:
+        NoteVersion.record(note)
 
     if body.title is not None:
         note.title = body.title
@@ -167,6 +170,7 @@ async def update_note(note_id: str, body: NoteUpdate, db: AsyncSession = Depends
         "id": str(note.id),
         "title": note.title,
         "content": note.text_content,
+        "versions": (note.extra_meta or {}).get("versions", []),
         "version_count": len((note.extra_meta or {}).get("versions", [])),
         "updated_at": note.updated_at.isoformat() if note.updated_at else None,
     }

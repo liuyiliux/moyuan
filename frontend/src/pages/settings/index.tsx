@@ -13,6 +13,7 @@ const FUNCTION_LABELS: Record<string, string> = {
   embedding: "嵌入向量",
   chunking: "智能分块",
   quiz: "题库生成",
+  judge: "答题判断",
   ocr: "图文识别",
   transcribe: "语音转写",
 };

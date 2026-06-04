@@ -179,6 +179,7 @@ async def get_queue_status():
 async def list_files(
     content_type: str | None = Query(None),
     brain_id: str | None = Query(None),
+    category_id: str | None = Query(None),
     is_deleted: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -189,6 +190,7 @@ async def list_files(
     items, total = await service.list_files(
         content_type=content_type,
         brain_id=uuid.UUID(brain_id) if brain_id else None,
+        category_id=uuid.UUID(category_id) if category_id else None,
         is_deleted=is_deleted,
         page=page,
         page_size=page_size,

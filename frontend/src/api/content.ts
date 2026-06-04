@@ -115,6 +115,7 @@ export const fileApi = {
   list: (params?: {
     content_type?: string;
     brain_id?: string;
+    category_id?: string;
     is_deleted?: boolean;
     page?: number;
     page_size?: number;
@@ -122,6 +123,7 @@ export const fileApi = {
     const searchParams = new URLSearchParams();
     if (params?.content_type) searchParams.set("content_type", params.content_type);
     if (params?.brain_id) searchParams.set("brain_id", params.brain_id);
+    if (params?.category_id) searchParams.set("category_id", params.category_id);
     if (params?.is_deleted) searchParams.set("is_deleted", "true");
     if (params?.page) searchParams.set("page", String(params.page));
     if (params?.page_size) searchParams.set("page_size", String(params.page_size));

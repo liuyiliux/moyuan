@@ -28,6 +28,7 @@ DEFAULT_FUNCTION_BINDINGS: dict[str, FunctionBinding] = {
     "embedding": FunctionBinding(function="embedding"),
     "chunking": FunctionBinding(function="chunking"),
     "quiz": FunctionBinding(function="quiz"),
+    "judge": FunctionBinding(function="judge"),
     "ocr": FunctionBinding(function="ocr"),
     "transcribe": FunctionBinding(function="transcribe"),
 }

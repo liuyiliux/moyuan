@@ -15,6 +15,7 @@ import {
   Sun,
   Moon,
   ScrollText,
+  GraduationCap,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { useStyleTheme, type StyleTheme } from "../lib/style-theme";
@@ -121,6 +122,7 @@ export default function Sidebar() {
           <SidebarLink to="/categories" icon={<FolderTree className="w-4 h-4" />} label={s.categories} tooltip={s.categoriesTip} />
           <SidebarLink to="/favorites" icon={<Bookmark className="w-4 h-4" />} label={s.favorites} tooltip={s.favoritesTip} />
           <SidebarLink to="/collections" icon={<FolderOpen className="w-4 h-4" />} label={s.collections} tooltip={s.collectionsTip} />
+          <SidebarLink to="/quiz" icon={<GraduationCap className="w-4 h-4" />} label={s.quiz} tooltip={s.quizTip} />
         </div>
 
         {/* 丹室模块 - 坤位 */}
@@ -142,9 +144,9 @@ export default function Sidebar() {
         </div>
 
         {/* 风格切换 */}
-        <button onClick={cycleStyle} className="dao-sidebar-link" title={`当前：${STYLE_LABELS[styleTheme]}风格 · 点击切换`}>
+        <button onClick={cycleStyle} className="dao-sidebar-link" title={s.styleHint.replace("{style}", STYLE_LABELS[styleTheme])}>
           <span className="dao-sidebar-link-icon text-xs font-bold">{STYLE_LABELS[styleTheme]}</span>
-          <span className="dao-sidebar-link-text">{STYLE_LABELS[styleTheme]}风格</span>
+          <span className="dao-sidebar-link-text">{STYLE_LABELS[styleTheme]}{s.styleHint.includes("风格") ? "风格" : "主题"}</span>
         </button>
 
         {/* 明暗切换 */}

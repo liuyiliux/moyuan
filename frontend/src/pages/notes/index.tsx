@@ -2,7 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Plus, Save, Trash2, Star, Pin, FileText, Loader2, Clock,
+  Eye, Columns, Edit3,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import VersionHistoryPanel from "../../components/VersionHistoryPanel";
 import { Card, Button } from "../../components";
 import { notesCopy, useCopy } from "../../lib/copywriting";
@@ -29,7 +32,7 @@ const noteApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, content }),
     }).then((r) => r.json()),
-  update: (id: string, data: { title?: string; content?: string }) =>
+  update: (id: string, data: { title?: string; content?: string; create_version?: boolean }) =>
     fetch(`/api/notes/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -51,6 +54,7 @@ export default function NotesPage() {
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [viewMode, setViewMode] = useState<"edit" | "split" | "preview">("edit");
   const [starOnly, setStarOnly] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
@@ -94,20 +98,39 @@ export default function NotesPage() {
     }
   }, [title, content, editing]);
 
-  async function handleSave() {
+  async function handleSave(createVersion = false) {
     if (!title.trim()) return;
     setSaving(true);
     try {
       let result;
       if (editing) {
-        result = await noteApi.update(editing.id, { title, content });
+        result = await noteApi.update(editing.id, { title, content, create_version: createVersion });
       } else {
         result = await noteApi.create(title, content);
       }
       setEditing(result);
       setLastSaved(new Date().toLocaleTimeString("zh-CN"));
       await loadList();
-      navigate(`/notes?id=${result.id}`);
+      if (!editing) navigate(`/notes?id=${result.id}`);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveVersion() {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      // 先保存当前内容（不记版本），确保编辑器内容落库
+      const r1 = await noteApi.update(editing!.id, { title, content, create_version: false });
+      setEditing(r1);
+      // 再新增版本（create_version=true 会快照刚才保存的内容）
+      const r2 = await noteApi.update(editing!.id, { title, content, create_version: true });
+      setEditing(r2);
+      setLastSaved(new Date().toLocaleTimeString("zh-CN"));
+      await loadList();
     } catch (e) {
       alert((e as Error).message);
     } finally {
@@ -126,10 +149,13 @@ export default function NotesPage() {
   }
 
   async function handleNew() {
-    setEditing(null);
-    setTitle("");
-    setContent("");
-    navigate("/notes");
+    try {
+      const result = await noteApi.create("新笔记", "");
+      await loadList();
+      navigate(`/notes?id=${result.id}`);
+    } catch (e) {
+      alert("创建失败: " + (e as Error).message);
+    }
   }
 
   function handleVersionRestore(restoredTitle: string, restoredContent: string) {
@@ -149,7 +175,7 @@ export default function NotesPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
+    <div className="max-w-[90vw] mx-auto px-6 py-8">
       {!loading && notes.length === 0 && !noteId ? (
         <div className="flex items-center justify-center h-[80vh]">
           <Card className="p-10 text-center max-w-md">
@@ -173,12 +199,12 @@ export default function NotesPage() {
             </div>
             <Button onClick={handleNew}>
               <Plus className="w-4 h-4" />
-              新墨宝
+              {nt.btnNew}
             </Button>
           </div>
 
           <div className="flex gap-6">
-            <div className="w-72 flex-shrink-0">
+            <div className="w-48 flex-shrink-0">
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-sm font-semibold text-text-primary">墨宝录</h2>
@@ -275,11 +301,15 @@ export default function NotesPage() {
                         }`}
                       >
                         <Clock className="w-4 h-4" />
-                        版本录
+                        {nt.btnVersions}
                       </button>
-                      <Button onClick={handleSave} disabled={saving}>
+                      <Button onClick={() => handleSave(false)} disabled={saving} variant="secondary">
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        铭刻
+                        {saving ? nt.saving : nt.btnSave}
+                      </Button>
+                      <Button onClick={handleSaveVersion} disabled={saving}>
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {saving ? nt.saving : nt.btnSaveVersion}
                       </Button>
                       <button
                         onClick={() => handleDelete(editing?.id || "")}
@@ -291,20 +321,59 @@ export default function NotesPage() {
                     </div>
                   </div>
 
-                  <textarea
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    placeholder="落笔于此..."
-                    className="w-full min-h-[500px] bg-transparent text-text-primary placeholder:text-text-muted outline-none resize-y text-base leading-relaxed font-serif"
-                  />
+                  {/* 编辑模式切换 */}
+                  <div className="flex items-center gap-1 mb-2 p-0.5 bg-bg-secondary rounded-lg w-fit">
+                    <button
+                      onClick={() => setViewMode("edit")}
+                      title="编辑"
+                      className={`p-1.5 rounded-md transition-colors ${viewMode === "edit" ? "bg-white dark:bg-zinc-700 text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"}`}
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode("split")}
+                      title="分屏"
+                      className={`p-1.5 rounded-md transition-colors ${viewMode === "split" ? "bg-white dark:bg-zinc-700 text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"}`}
+                    >
+                      <Columns className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode("preview")}
+                      title="预览"
+                      className={`p-1.5 rounded-md transition-colors ${viewMode === "preview" ? "bg-white dark:bg-zinc-700 text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"}`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* 编辑器 / 预览 */}
+                  <div className={`${viewMode === "split" ? "grid grid-cols-2 gap-4" : ""}`}>
+                    {viewMode !== "preview" && (
+                      <textarea
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        placeholder="落笔于此...支持 Markdown 格式"
+                        className="w-full min-h-[calc(100vh-16rem)] bg-transparent text-text-primary placeholder:text-text-muted outline-none resize-y text-base leading-relaxed font-serif"
+                      />
+                    )}
+                    {viewMode !== "edit" && (
+                      <div className="min-h-[calc(100vh-16rem)] prose prose-sm dark:prose-invert max-w-none overflow-auto">
+                        {content.trim() ? (
+                          <ReactMarkdown remarkPlugins={[remarkBreaks]}>{content}</ReactMarkdown>
+                        ) : (
+                          <p className="text-text-muted italic">暂无内容</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                 </Card>
               )}
             </div>
 
-            {editing && (
+            {editing && showVersions && (
               <VersionHistoryPanel
-                noteId={editing.id}
+                versions={editing.versions || []}
                 currentContent={content}
                 onClose={() => setShowVersions(false)}
                 onRestore={handleVersionRestore}
