@@ -87,8 +87,8 @@ export default function QuizPage() {
 
   function normalizeTrueFalse(val: string): string {
     const v = val.trim().toLowerCase();
-    if (v === "true" || v === "对" || v === "√" || v === "✓") return "true";
-    if (v === "false" || v === "错" || v === "×" || v === "✗" || v === "false") return "false";
+    if (v === "true" || v === "对" || v === "√" || v === "✓" || v === "正确" || v === "正确" || v === "是" || v === "yes") return "true";
+    if (v === "false" || v === "错" || v === "×" || v === "✗" || v === "错误" || v === "否" || v === "no") return "false";
     return v;
   }
   function checkAnswer(q: HistoryQuestion, userAns: string | string[]): boolean {
@@ -473,7 +473,7 @@ function AnswerQuestionCard({
       </div>
       <p className="text-sm font-medium text-[var(--text-primary)] mb-2">{index + 1}. {q.question}</p>
 
-      {q.options?.length && (
+      {q.options?.length && q.type !== "truefalse" && (
         <div className="space-y-1.5">
           {q.options.map((opt, j) => {
             const letter = OPTION_LETTERS[j];

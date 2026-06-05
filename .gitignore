@@ -45,3 +45,5 @@ Thumbs.db
 # Trae
 .trae/
 backend/backend.log
+data/logs/
+data/logs/moyuan.log.2026-06-04
