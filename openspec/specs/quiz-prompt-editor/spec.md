@@ -1,76 +1,42 @@
+## MODIFIED Requirements
+
+### Requirement: 默认 Prompt 模板格式
+系统默认的 `DEFAULT_PROMPT_TEMPLATES["quiz"]["system_prompt"]` SHALL 改为三段固定格式：
+
+**第一段 - 出题质量规范**: 优先依据原文生成概念、定义、原理、方法类考题，规避细碎边角无效考题；严格匹配用户指定难度等级
+
+**第二段 - 素材强制约束**:
+1. 题干与正确答案 100% 取自原文知识点区块内容，禁止 AI 凭空编造知识点
+2. 单选/多选错误选项仅能从干扰项素材提取内容
+3. 每题标注来源 chunk_id、页码，可溯源至原 PDF 文档
+4. 严格遵循指定题型：单选/填空/判断/简答
+
+**第三段 - 输出格式约束**: 只返回标准 JSON，严格遵循约定 Schema，禁止多余说明、markdown、注释文本
+
+#### Scenario: 新建工作区使用新格式
+- **WHEN** 新工作区无 quiz 模板记录
+- **THEN** 系统 SHALL 创建默认模板时使用三段格式的 system_prompt
+
+#### Scenario: 旧模板自动升级
+- **WHEN** 已有工作区的默认 quiz 模板名称仍为"默认quiz模板"且内容为旧格式
+- **THEN** 系统 SHALL 在 `_get_or_create_quiz_template` 中自动将内容更新为新三段格式（仅对 is_default=true 且 name="默认quiz模板" 的模板执行）
+
+#### Scenario: 用户自定义模板不自动升级
+- **WHEN** 用户自行修改了 quiz 模板内容或名称
+- **THEN** 系统 SHALL NOT 覆盖用户自定义模板，仅更新系统默认模板
+
+### Requirement: user_prompt 溯源标注
+`user_prompt_template` SHALL 增加统一的源块标注格式：`[chunk_id:xxx｜page:xx｜diff:3｜content_id:xxx]`，使 LLM 能精确识别每段素材的来源和上下文。
+
+#### Scenario: 素材来源标注
+- **WHEN** 拼接 user_prompt 中的原文知识点和干扰项素材
+- **THEN** 系统 SHALL 为每段素材标注 chunk_id、page_number、difficulty、content_id
+
 ## ADDED Requirements
 
-### Requirement: Prompt 模板存储
-系统 SHALL 在数据库中存储可编辑的通用 Prompt 模板，通过 `template_type` 区分用途（如 `"quiz"`），支持 system prompt 和 user prompt 两部分。
+### Requirement: 出题范围感知
+user_prompt SHALL 根据出题范围类型（category/collection/content）增加范围说明，帮助 LLM 理解出题上下文。
 
-#### Scenario: 模板表结构
-- **WHEN** 系统初始化数据库
-- **THEN** 系统 MUST 创建 prompt_templates 表，包含字段：id, brain_id, template_type, name, description, system_prompt, user_prompt_template, is_default, created_at, updated_at
-
-#### Scenario: 默认模板
-- **WHEN** 创建新工作区（Brain）
-- **THEN** 系统 SHALL 自动为该工作区创建各 template_type 的默认 Prompt 模板记录（quiz、summarize 等）
-
-#### Scenario: 多模板支持
-- **WHEN** 用户在同一工作区创建自定义模板
-- **THEN** 系统 SHALL 允许一个工作区拥有多条模板记录，其中只有一个为默认模板
-
-### Requirement: Prompt 模板变量替换
-系统 SHALL 在生成出题 Prompt 时，将模板中的变量替换为实际数据。
-
-#### Scenario: 变量替换
-- **WHEN** 系统从模板构建出题 Prompt
-- **THEN** 系统 SHALL 替换以下变量：`{{sources}}` → 知识点原文, `{{distractors}}` → 干扰项素材, `{{question_count}}` → 题目数量, `{{question_types}}` → 题型描述, `{{mode_desc}}` → 出题模式描述, `{{topic}}` → 主题关键词
-
-#### Scenario: 变量缺失时填充空值
-- **WHEN** 模板中的变量没有对应数据（如 topic 为空）
-- **THEN** 系统 SHALL 将该变量替换为空字符串，不报错
-
-### Requirement: Prompt 模板 API
-系统 SHALL 提供 Prompt 模板的 CRUD API。
-
-#### Scenario: 获取当前模板
-- **WHEN** 前端调用 `GET /api/ai/quiz-template`
-- **THEN** 系统 SHALL 返回当前工作区的默认模板内容
-
-#### Scenario: 更新模板
-- **WHEN** 前端调用 `PUT /api/ai/quiz-template` 提交新的模板内容
-- **THEN** 系统 SHALL 更新当前工作区的默认模板并返回更新后的模板
-
-#### Scenario: 恢复默认模板
-- **WHEN** 前端调用 `POST /api/ai/quiz-template/reset`
-- **THEN** 系统 SHALL 将当前工作区的模板恢复为系统默认模板
-
-#### Scenario: 列出所有模板
-- **WHEN** 前端调用 `GET /api/ai/quiz-templates`
-- **THEN** 系统 SHALL 返回当前工作区所有模板列表
-
-### Requirement: 出题接口使用模板
-系统 SHALL 在出题时使用数据库中的 Prompt 模板，而非硬编码的 Prompt。
-
-#### Scenario: 使用自定义模板出题
-- **WHEN** 用户使用自定义模板出题
-- **THEN** 系统 SHALL 读取当前工作区默认模板，替换变量后作为 AI Prompt
-
-#### Scenario: 模板为空时回退
-- **WHEN** 工作区没有模板记录
-- **THEN** 系统 SHALL 使用系统内置的默认 Prompt（等同于当前硬编码版本）
-
-### Requirement: 前端 Prompt 编辑界面
-前端 SHALL 提供 Prompt 模板编辑界面，允许用户自定义 system prompt 和 user prompt template。
-
-#### Scenario: 编辑模板入口
-- **WHEN** 用户在工作区设置页面或 AI 面板出题区域
-- **THEN** 界面 MUST 提供"编辑出题 Prompt"入口
-
-#### Scenario: 编辑模板
-- **WHEN** 用户打开模板编辑器
-- **THEN** 界面 MUST 显示 system prompt 和 user prompt template 两个文本编辑区，并提供可用变量提示
-
-#### Scenario: 保存模板
-- **WHEN** 用户编辑模板后点击保存
-- **THEN** 系统 SHALL 调用 `PUT /api/ai/quiz-template` 保存模板
-
-#### Scenario: 恢复默认
-- **WHEN** 用户点击"恢复默认"
-- **THEN** 系统 SHALL 调用 `POST /api/ai/quiz-template/reset` 恢复默认模板并刷新编辑区
+#### Scenario: 按分类出题的范围提示
+- **WHEN** scope_type="category"
+- **THEN** user_prompt SHALL 包含 "出题范围：分类「{分类名}」" 的说明
