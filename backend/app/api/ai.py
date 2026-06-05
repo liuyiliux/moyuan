@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 
 from app.core.database import get_db
-from app.models.models import Content, ContentRelation, ContentChunk, FunctionBindingConfig, ProviderConfig, Question, QuestionRecord, PromptTemplate
+from app.models.models import Content, ContentRelation, ContentChunk, FunctionBindingConfig, ProviderConfig, Question, QuestionRecord, PromptTemplate, Collection
 from app.core.crypto import crypto_service
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,16 @@ class QuizRequest(BaseModel):
     question_types: list[str] = ["single", "multiple", "truefalse", "open"]  # 题型列表
     scope_type: str = "manual"  # "manual" | "category" | "collection"
     scope_id: str | None = None  # category_id 或 collection_id
+    min_difficulty: int | None = None  # 最低难度 1-5
+    max_difficulty: int | None = None  # 最高难度 1-5
+
+
+class WrongQuizRequest(BaseModel):
+    wrong_question_texts: list[str]
+    question_count: int = 5
+    scope_type: str = "manual"  # "category" | "collection" | "content"
+    scope_id: str | None = None
+    question_types: list[str] = ["single", "multiple", "truefalse", "open"]
 
 
 class QuizRecordRequest(BaseModel):
@@ -335,18 +345,29 @@ async def get_related(
 
 # ── 题库生成 ──
 
+# ── 常量 ──
+
+SIM_THRESHOLD = 0.75  # 干扰项相似度阈值（余弦相似度 ≥ 0.75）
+QUESTION_DEDUP_THRESHOLD = 0.9  # 题目查重阈值（余弦相似度 > 0.9 判定重复）
+MAX_SOURCE_CHUNKS = 10  # 源块硬上限
+MAX_TOTAL_CHUNKS = 40  # 总切块硬上限（源块 + 干扰块）
+
 # ── Prompt 模板 ──
 
 QUIZ_SYSTEM_PROMPT = """你是一位专业的出题老师。你的任务是基于给定的原文知识点和干扰项素材，生成高质量的题目。
 
-规则：
-1. 只能使用"原文知识点"中的内容出题，不得编造或使用课外知识
-2. 每道题必须标注来源 chunk_id 和 page_number（如果能确定）
-3. 干扰项必须来自"干扰项素材"中的相似知识点，不得自由编造
-4. 只能生成以下题型：{type_desc}，不要生成未列出的题型
-5. 对错比例要均衡，不要全对或全错
+【一、出题质量规范】
+优先依据原文生成概念、定义、原理、方法类考题，规避细碎边角无效考题；严格匹配用户指定难度等级。
 
-输出格式为 JSON 数组，每道题格式如下：
+【二、素材强制约束】
+1. 题干与正确答案100%取自【原文知识点】区块内容，禁止AI凭空编造知识点；
+2. 单选/多选错误选项仅能从【干扰项素材】提取内容；
+3. 每题标注来源chunk_id、页码，可溯源至原PDF文档；
+4. 严格遵循指定题型：{type_desc}。
+5. 对错比例要均衡，不要全对或全错。
+
+【三、输出格式约束】
+只返回标准JSON，严格遵循约定Schema，禁止多余说明、markdown、注释文本。
 {
   "type": "single|multiple|truefalse|open",
   "question": "题目内容",
@@ -372,10 +393,19 @@ def _build_question_types_desc(question_types: list[str]) -> str:
 
 def _vec_to_str(vec) -> str:
     """将 pgvector 向量转为字符串格式 [x, y, z]"""
+    if vec is None:
+        return "[]"
+    # 原始 SQL 返回的向量已经是字符串（如 '[0.01,0.02,...]'），直接使用
+    if isinstance(vec, str):
+        return vec
+    # ORM 返回的是 Vector/list 对象，需要拼接
     return "[" + ",".join(map(str, vec)) + "]"
 
 
 # ── Scope 展开 ──
+
+from app.core.scope_cache import load_scope_from_cache, save_scope_to_cache, invalidate_scope_cache
+
 
 async def _expand_scope(
     db: AsyncSession,
@@ -395,7 +425,13 @@ async def _expand_scope(
     expanded: list[UUID] = []
 
     if scope_type == "category":
-        # 递归查询分类及子分类下的所有 content
+        cache_key = f"quiz:scope:category:{sid}"
+        cached = await load_scope_from_cache(cache_key)
+        if cached is not None:
+            logger.info(f"[quiz] scope cache HIT: category={sid}, {len(cached)} content_ids")
+            return [UUID(cid) for cid in cached]
+
+        from app.models.models import Category, ContentCategory
         async def _get_child_category_ids(cat_id: UUID) -> list[UUID]:
             result = await db.execute(
                 select(Category.id).where(Category.parent_id == cat_id)
@@ -405,7 +441,6 @@ async def _expand_scope(
                 children.extend(await _get_child_category_ids(child_id))
             return children
 
-        from app.models.models import Category
         cat_ids = [sid] + await _get_child_category_ids(sid)
         result = await db.execute(
             select(ContentCategory.content_id)
@@ -414,8 +449,24 @@ async def _expand_scope(
             .where(Content.is_deleted == False)
         )
         expanded = [r[0] for r in result.all()]
+        await save_scope_to_cache(cache_key, expanded)
 
     elif scope_type == "collection":
+        # 检查合集是否启用
+        coll_result = await db.execute(select(Collection).where(Collection.id == sid))
+        coll = coll_result.scalar_one_or_none()
+        if coll is None:
+            return []
+        if not getattr(coll, 'enable', True):
+            logger.info(f"[quiz] collection {sid} is disabled, returning empty scope")
+            return []
+
+        cache_key = f"quiz:scope:collection:{sid}"
+        cached = await load_scope_from_cache(cache_key)
+        if cached is not None:
+            logger.info(f"[quiz] scope cache HIT: collection={sid}, {len(cached)} content_ids")
+            return [UUID(cid) for cid in cached]
+
         from app.models.models import CollectionItem
         result = await db.execute(
             select(CollectionItem.content_id)
@@ -424,9 +475,9 @@ async def _expand_scope(
             .where(Content.is_deleted == False)
         )
         expanded = [r[0] for r in result.all()]
+        await save_scope_to_cache(cache_key, expanded)
 
     elif scope_type == "content":
-        # 单个内容直接返回其 content_id
         expanded = [sid]
 
     logger.info(f"[quiz] scope expansion: type={scope_type}, scope_id={scope_id}, expanded to {len(expanded)} content_ids")
@@ -435,20 +486,44 @@ async def _expand_scope(
 
 # ── RAG 检索辅助函数 ──
 
+def _build_chunk_filter_clauses(content_ids: list[UUID], min_difficulty: int | None = None, max_difficulty: int | None = None):
+    """构建切块通用过滤条件的 SQL WHERE 片段和参数字典"""
+    clauses = [
+        "cc.content_id = ANY(:content_ids)",
+        "cc.chunk_type = 'text'",
+        "cc.chunk_text IS NOT NULL",
+        "cc.embedding IS NOT NULL",
+        "cc.disable_quiz = false",
+    ]
+    params: dict = {"content_ids": [str(cid) for cid in content_ids]}
+    if min_difficulty is not None:
+        clauses.append("cc.difficulty >= :min_diff")
+        params["min_diff"] = min_difficulty
+    if max_difficulty is not None:
+        clauses.append("cc.difficulty <= :max_diff")
+        params["max_diff"] = max_difficulty
+    return " AND ".join(clauses), params
+
+
 async def _get_text_chunks_for_contents(
-    db: AsyncSession, content_ids: list[UUID]
+    db: AsyncSession, content_ids: list[UUID],
+    min_difficulty: int | None = None, max_difficulty: int | None = None,
 ) -> list:
-    """获取多个内容的全部有嵌入的 text chunk"""
+    """获取多个内容的有嵌入的 text chunk（应用禁出和难度过滤）"""
     if not content_ids:
         return []
-    result = await db.execute(
-        select(ContentChunk).where(
-            ContentChunk.content_id.in_(content_ids),
-            ContentChunk.chunk_type == "text",
-            ContentChunk.chunk_text.is_not(None),
-            ContentChunk.embedding.is_not(None),
-        ).order_by(ContentChunk.chunk_index)
+    query = select(ContentChunk).where(
+        ContentChunk.content_id.in_(content_ids),
+        ContentChunk.chunk_type == "text",
+        ContentChunk.chunk_text.is_not(None),
+        ContentChunk.embedding.is_not(None),
+        ContentChunk.disable_quiz == False,
     )
+    if min_difficulty is not None:
+        query = query.where(ContentChunk.difficulty >= min_difficulty)
+    if max_difficulty is not None:
+        query = query.where(ContentChunk.difficulty <= max_difficulty)
+    result = await db.execute(query.order_by(ContentChunk.chunk_index))
     return list(result.scalars().all())
 
 
@@ -460,37 +535,35 @@ async def _get_text_chunks_for_content(
 
 
 async def _random_pick_chunks(
-    db: AsyncSession, content_ids: list[UUID], count: int
+    db: AsyncSession, content_ids: list[UUID], count: int,
+    min_difficulty: int | None = None, max_difficulty: int | None = None,
 ) -> list:
-    """随机抽取 N 个有嵌入的 text chunk（跨内容）"""
-    chunks = await _get_text_chunks_for_contents(db, content_ids)
+    """随机抽取 N 个有嵌入的 text chunk（跨内容，应用过滤）"""
+    chunks = await _get_text_chunks_for_contents(db, content_ids, min_difficulty, max_difficulty)
     if len(chunks) <= count:
         return chunks
     return random.sample(chunks, count)
 
 
 async def _topic_search_chunks(
-    db: AsyncSession, content_ids: list[UUID], topic_vec: list[float], top_k: int
+    db: AsyncSession, content_ids: list[UUID], topic_vec: list[float], top_k: int,
+    min_difficulty: int | None = None, max_difficulty: int | None = None,
 ) -> list:
-    """向量检索与 topic 最相关的 text chunk（跨内容）"""
+    """向量检索与 topic 最相关的 text chunk（跨内容，应用过滤）"""
     vec_str = _vec_to_str(topic_vec)
-    sql = text("""
+    filter_clause, params = _build_chunk_filter_clauses(content_ids, min_difficulty, max_difficulty)
+    sql = text(f"""
         SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
-               cc.embedding,
+               cc.embedding, cc.difficulty,
                1 - (cc.embedding <=> CAST(:query_vec AS vector)) AS score
         FROM content_chunks cc
-        WHERE cc.content_id = ANY(:content_ids)
-          AND cc.chunk_type = 'text'
-          AND cc.chunk_text IS NOT NULL
-          AND cc.embedding IS NOT NULL
+        WHERE {filter_clause}
         ORDER BY cc.embedding <=> CAST(:query_vec AS vector)
         LIMIT :top_k
     """)
-    result = await db.execute(sql, {
-        "query_vec": vec_str,
-        "content_ids": [str(cid) for cid in content_ids],
-        "top_k": top_k,
-    })
+    params["query_vec"] = vec_str
+    params["top_k"] = top_k
+    result = await db.execute(sql, params)
     rows = result.all()
     return [
         {
@@ -500,6 +573,7 @@ async def _topic_search_chunks(
             "chunk_index": r.chunk_index,
             "page_number": r.page_number,
             "embedding": r.embedding,
+            "difficulty": r.difficulty,
             "score": float(r.score),
         }
         for r in rows
@@ -512,9 +586,11 @@ async def _find_similar_chunks(
     chunk_embedding,
     exclude_chunk_id: UUID,
     top_k: int,
+    min_similar: float = SIM_THRESHOLD,
 ) -> list[dict]:
-    """为指定 chunk 找相似 chunk 作为干扰项素材（跨内容）"""
+    """为指定 chunk 找相似 chunk 作为干扰项素材（跨内容），应用相似度阈值"""
     vec_str = _vec_to_str(chunk_embedding)
+    min_dist = 1.0 - min_similar  # 余弦距离 ≤ (1-0.75) = 0.25
     sql = text("""
         SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
                1 - (cc.embedding <=> CAST(:query_vec AS vector)) AS score
@@ -523,7 +599,9 @@ async def _find_similar_chunks(
           AND cc.chunk_type = 'text'
           AND cc.chunk_text IS NOT NULL
           AND cc.embedding IS NOT NULL
+          AND cc.disable_quiz = false
           AND cc.id != :exclude_id
+          AND (cc.embedding <=> CAST(:query_vec AS vector)) <= :min_dist
         ORDER BY cc.embedding <=> CAST(:query_vec AS vector)
         LIMIT :top_k
     """)
@@ -532,6 +610,7 @@ async def _find_similar_chunks(
         "content_ids": [str(cid) for cid in content_ids],
         "exclude_id": exclude_chunk_id,
         "top_k": top_k,
+        "min_dist": min_dist,
     })
     rows = result.all()
     return [
@@ -558,12 +637,14 @@ def _build_quiz_prompt(
     """组装出题 Prompt"""
     type_desc = _build_question_types_desc(question_types)
 
-    # 知识点原文
+    # 知识点原文（增强溯源标注格式）
     sources_text = []
     for i, chunk in enumerate(source_chunks):
-        page_info = f"，第{chunk['page_number']}页" if chunk.get("page_number") else ""
+        page_info = f"第{chunk['page_number']}页｜" if chunk.get("page_number") else ""
+        diff = chunk.get("difficulty", "?")
+        content_id_short = str(chunk.get("content_id", "?"))[:8]
         sources_text.append(
-            f"[chunk_id: {chunk['id']}{page_info}]\n{chunk['chunk_text']}"
+            f"[chunk_id:{chunk['id'][:8]}｜{page_info}diff:{diff}｜content_id:{content_id_short}]\n{chunk['chunk_text']}"
         )
     sources_combined = "\n\n---\n\n".join(sources_text)
 
@@ -571,9 +652,9 @@ def _build_quiz_prompt(
     distractors_text = []
     if distractor_chunks:
         for i, dc in enumerate(distractor_chunks):
-            page_info = f"，第{dc['page_number']}页" if dc.get("page_number") else ""
+            page_info = f"第{dc['page_number']}页｜" if dc.get("page_number") else ""
             distractors_text.append(
-                f"[干扰素材 {i+1} - chunk_id: {dc['id']}{page_info}]\n{dc['chunk_text']}"
+                f"[干扰素材 {i+1} - chunk_id:{dc['id'][:8]}｜{page_info}content_id:{str(dc.get('content_id', '?'))[:8]}]\n{dc['chunk_text']}"
             )
     distractors_combined = "\n\n".join(distractors_text) if distractors_text else "（无额外干扰素材，可从原文自身不同角度出题）"
 
@@ -585,38 +666,71 @@ def _build_quiz_prompt(
 题型要求：{type_desc}
 请均匀分配各题型。
 
-── 原文知识点 ──
+── 原文知识点（正确答案出处）──
 {sources_combined}
 
-── 干扰项素材（选择题/判断题的干扰项和错误陈述 MUST 从此素材中提取）──
+── 干扰项素材（仅用于生成错误选项，不可作为正确答案）──
 {distractors_combined}
 
 请严格遵循系统指令中的规则，输出 JSON 数组格式的题目。"""
 
 
+async def _call_llm_with_retry(
+    provider: dict, system_prompt: str, user_prompt: str, max_retries: int = 1
+) -> dict | None:
+    """调用 LLM 并解析 JSON，支持一次重试"""
+    client = AsyncOpenAI(
+        api_key=provider["api_key"] or "no-key",
+        base_url=provider["base_url"],
+    )
+    for attempt in range(max_retries + 1):
+        try:
+            logger.info(f"[quiz] calling AI API (attempt {attempt + 1}/{max_retries + 1})...")
+            response = await client.chat.completions.create(
+                model=provider["model"],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt[:12000]},
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=4096,
+            )
+            logger.info(f"[quiz] AI response received, tokens={response.usage}")
+            raw = response.choices[0].message.content or "{}"
+            logger.info(f"[quiz] AI raw response (first 500 chars): {raw[:500]}")
+            data = json.loads(raw)
+            return data
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f"[quiz] LLM call failed (attempt {attempt + 1}): {e}")
+            if attempt >= max_retries:
+                logger.error(f"[quiz] LLM call failed after {max_retries + 1} attempts")
+                return None
+    return None
+
+
 @router.post("/quiz")
 async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
-    """AI 题库生成（RAG 检索出题）
+    """AI 题库生成（RAG 检索出题）v2
 
-    支持两种模式 + 三种范围：
+    支持两种模式 + 三种范围 + 难度过滤：
     - mode: random / topic
     - scope: manual(单书/多书) / category(按分类) / collection(按合集)
-
-    干扰项从向量召回的相似 chunk 中提取，而非 AI 编造。
+    - 干扰项增加相似度阈值 0.75，题目入库前向量查重
     """
-    # 展开出题范围（scope_type/mode 会替换 content_ids）
+    # 展开出题范围
     content_ids = await _expand_scope(db, body.content_ids, body.scope_type, body.scope_id)
     if not content_ids:
-        # 区分：scope 展开后为空 vs 根本没传任何范围
         if not body.content_ids and (body.scope_type == "manual" or not body.scope_id):
             raise HTTPException(status_code=400, detail="No content_ids provided")
         return {"questions": [], "note": "所选范围内没有可用的内容"}
 
     logger.info(f"[quiz] start quiz generation: content_ids={[str(c) for c in content_ids[:5]]}..., mode={body.mode}, topic={body.topic}, question_count={body.question_count}, scope={body.scope_type}")
 
-    # 检查是否有 text chunk
-    text_chunks = await _get_text_chunks_for_contents(db, content_ids)
-    logger.info(f"[quiz] text_chunks count={len(text_chunks)}")
+    # 检查可用 text chunk（应用过滤）
+    min_diff = getattr(body, 'min_difficulty', None)
+    max_diff = getattr(body, 'max_difficulty', None)
+    text_chunks = await _get_text_chunks_for_contents(db, content_ids, min_diff, max_diff)
+    logger.info(f"[quiz] text_chunks count={len(text_chunks)} (filters: min_diff={min_diff}, max_diff={max_diff})")
     if not text_chunks:
         return {
             "questions": [],
@@ -624,8 +738,9 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
         }
 
     # 根据模式检索出题 chunk
-    source_count = min(body.question_count, 10)
+    source_count = min(body.question_count, MAX_SOURCE_CHUNKS)
     logger.info(f"[quiz] retrieving source chunks, mode={body.mode}, source_count={source_count}")
+
     if body.mode == "topic" and body.topic:
         from app.services.embedding import embed_texts
         topic_vecs = await embed_texts(db, [body.topic])
@@ -633,18 +748,33 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
         if topic_vec is None:
             return {"questions": [], "error": "无法为关键词生成嵌入向量，请检查 embedding 配置"}
 
-        search_results = await _topic_search_chunks(db, content_ids, topic_vec, max(source_count, 10))
-        source_chunks = search_results[:source_count]
+        # 冗余召回 top_k = max(source_count * 2, 12)
+        top_k = max(source_count * 2, 12)
+        search_results = await _topic_search_chunks(db, content_ids, topic_vec, top_k, min_diff, max_diff)
+
+        if not search_results:
+            # 降级：向量检索无结果 → 随机抽取
+            logger.info("[quiz] topic search returned no results, falling back to random pick")
+            picked = await _random_pick_chunks(db, content_ids, source_count, min_diff, max_diff)
+            source_chunks = [
+                {
+                    "id": str(c.id), "content_id": str(c.content_id),
+                    "chunk_text": c.chunk_text, "chunk_index": c.chunk_index,
+                    "page_number": c.page_number, "embedding": c.embedding,
+                    "difficulty": c.difficulty,
+                }
+                for c in picked
+            ]
+        else:
+            source_chunks = search_results[:source_count]
     else:
-        picked = await _random_pick_chunks(db, content_ids, source_count)
+        picked = await _random_pick_chunks(db, content_ids, source_count, min_diff, max_diff)
         source_chunks = [
             {
-                "id": str(c.id),
-                "content_id": str(c.content_id),
-                "chunk_text": c.chunk_text,
-                "chunk_index": c.chunk_index,
-                "page_number": c.page_number,
-                "embedding": c.embedding,
+                "id": str(c.id), "content_id": str(c.content_id),
+                "chunk_text": c.chunk_text, "chunk_index": c.chunk_index,
+                "page_number": c.page_number, "embedding": c.embedding,
+                "difficulty": c.difficulty,
             }
             for c in picked
         ]
@@ -653,42 +783,63 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
         logger.info("[quiz] no source_chunks found")
         return {"questions": [], "note": "暂无符合条件的文本分块可供出题"}
 
-    # 对每个出题 chunk 找相似 chunk 作为干扰项素材
-    logger.info(f"[quiz] source_chunks count={len(source_chunks)}, fetching distractors...")
+    # 对每个出题 chunk 找相似 chunk 作为干扰项素材（含相似度阈值）
+    logger.info(f"[quiz] source_chunks count={len(source_chunks)}, fetching distractors (threshold={SIM_THRESHOLD})...")
     distractor_chunks: list[dict] = []
     for source in source_chunks:
         if source.get("embedding") is not None:
             similars = await _find_similar_chunks(
-                db, content_ids, source["embedding"], UUID(source["id"]), top_k=3
+                db, content_ids, source["embedding"], UUID(source["id"]), top_k=3, min_similar=SIM_THRESHOLD
             )
             for s in similars:
                 if s["id"] not in {d["id"] for d in distractor_chunks}:
                     distractor_chunks.append(s)
-    logger.info(f"[quiz] distractor_chunks count={len(distractor_chunks)}")
+        else:
+            logger.info(f"[quiz] source chunk {source.get('id', '?')[:8]} has no embedding, skipping distractor search")
 
-    # 组装 Prompt 并调用 AI
+    # Token 总量控制：总切块 ≤ 40
+    total_chunks = len(source_chunks) + len(distractor_chunks)
+    if total_chunks > MAX_TOTAL_CHUNKS:
+        logger.info(f"[quiz] total chunks {total_chunks} exceeds limit {MAX_TOTAL_CHUNKS}, trimming distractors...")
+        # 按源块均匀削减干扰块
+        max_dist_per_source = max(0, (MAX_TOTAL_CHUNKS - len(source_chunks)) // len(source_chunks))
+        trimmed = []
+        for source in source_chunks:
+            src_id = str(source.get("id", ""))
+            src_distractors = [d for d in distractor_chunks if src_id in str(d.get("id", "")) or True]
+            trimmed.extend(src_distractors[:max_dist_per_source])
+        # 去重
+        seen = set()
+        distractor_chunks = []
+        for d in trimmed:
+            if d["id"] not in seen:
+                seen.add(d["id"])
+                distractor_chunks.append(d)
+        total_chunks = len(source_chunks) + len(distractor_chunks)
+    logger.info(f"[quiz] distractor_chunks count={len(distractor_chunks)}, total_chunks={total_chunks}, est_tokens~{total_chunks * 325}")
+
+    # 组装 Prompt
     question_types = body.question_types or ["single", "multiple", "truefalse", "open"]
-
-    # 构建模板变量
     type_desc = _build_question_types_desc(question_types)
     mode_desc = f"按主题「{body.topic}」出题" if body.mode == "topic" and body.topic else "随机出题"
 
-    # 知识点原文
+    # 用户 Prompt 构建（增强溯源标注）
     sources_text = []
     for i, chunk in enumerate(source_chunks):
-        page_info = f"，第{chunk['page_number']}页" if chunk.get("page_number") else ""
+        diff = chunk.get("difficulty", "?")
+        page_info = f"第{chunk['page_number']}页｜" if chunk.get('page_number') else ""
+        content_id_short = str(chunk.get("content_id", "?"))[:8]
         sources_text.append(
-            f"[chunk_id: {chunk['id']}{page_info}]\n{chunk['chunk_text']}"
+            f"[chunk_id:{chunk['id'][:8]}｜{page_info}diff:{diff}｜content_id:{content_id_short}]\n{chunk['chunk_text']}"
         )
     sources_combined = "\n\n---\n\n".join(sources_text)
 
-    # 干扰项素材
     distractors_text = []
     if distractor_chunks:
         for i, dc in enumerate(distractor_chunks):
-            page_info = f"，第{dc['page_number']}页" if dc.get("page_number") else ""
+            page_info = f"第{dc['page_number']}页｜" if dc.get("page_number") else ""
             distractors_text.append(
-                f"[干扰素材 {i+1} - chunk_id: {dc['id']}{page_info}]\n{dc['chunk_text']}"
+                f"[干扰素材 {i+1} - chunk_id:{dc['id'][:8]}｜{page_info}content_id:{str(dc.get('content_id', '?'))[:8]}]\n{dc['chunk_text']}"
             )
     distractors_combined = "\n\n".join(distractors_text) if distractors_text else "（无额外干扰素材，可从原文自身不同角度出题）"
 
@@ -702,11 +853,10 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
         "topic": body.topic or "",
     }
 
-    # 尝试加载模板；失败则使用硬编码 Prompt（向后兼容）
+    # 加载模板
     provider = await _get_ai_provider(db, "quiz")
     logger.info(f"[quiz] AI provider={'found (' + provider['model'] + ')' if provider else 'not found (fallback)'}")
 
-    # 确定 content 的 brain_id（从第一个 content 获取）
     brain_id = None
     first_cid = content_ids[0]
     content_res = await db.execute(select(Content).where(Content.id == first_cid))
@@ -720,7 +870,6 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
         user_prompt = _render_template(template.user_prompt_template, template_vars)
         logger.info(f"[quiz] using template: {template.name}, user_prompt length={len(user_prompt)}")
     else:
-        # 回退到硬编码 Prompt
         system_prompt = QUIZ_SYSTEM_PROMPT.format(type_desc=type_desc)
         user_prompt = _build_quiz_prompt(
             source_chunks, distractor_chunks,
@@ -734,109 +883,149 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
             "questions": [
                 {
                     "type": "open",
-                    "question": f"请基于以下知识点回答问题",
+                    "question": "请基于以下知识点回答问题",
                     "answer": source_chunks[0]["chunk_text"][:200] if source_chunks else "",
                     "sources": [
-                        {"chunk_id": source_chunks[0]["id"], "page_number": source_chunks[0].get("page_number")}
+                        {"chunk_id": source_chunks[0]["id"][:8], "page_number": source_chunks[0].get("page_number")}
                     ] if source_chunks else [],
                 }
             ],
             "note": "fallback mode (no AI provider configured for quiz)",
         }
 
-    try:
-        client = AsyncOpenAI(
-            api_key=provider["api_key"] or "no-key",
-            base_url=provider["base_url"],
-        )
-        logger.info("[quiz] calling AI API...")
-        response = await client.chat.completions.create(
-            model=provider["model"],
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt[:12000]},
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=4096,
-        )
-        logger.info(f"[quiz] AI response received, tokens={response.usage}")
+    # 调用 LLM + 重试
+    data = await _call_llm_with_retry(provider, system_prompt, user_prompt, max_retries=1)
+    if data is None:
+        return {"questions": [], "error": "AI 返回格式异常，已重试失败"}
 
-        raw = response.choices[0].message.content or "{}"
-        logger.info(f"[quiz] AI raw response (first 500 chars): {raw[:500]}")
-        data = json.loads(raw)
-        # 兼容 AI 可能返回的中文键名
-        questions = None
-        if isinstance(data, dict):
-            for key in ("questions", "考试题目", "题目", "quiz"):
-                if key in data:
-                    questions = data[key]
-                    break
-            if questions is None:
-                # 如果 dict 里没有已知键，尝试取第一个数组值
-                for v in data.values():
-                    if isinstance(v, list):
-                        questions = v
-                        break
+    # 解析题目
+    questions = None
+    if isinstance(data, dict):
+        for key in ("questions", "考试题目", "题目", "quiz"):
+            if key in data:
+                questions = data[key]
+                break
         if questions is None:
-            questions = data if isinstance(data, list) else []
-        logger.info(f"[quiz] parsed {len(questions)} questions from AI response, data type={type(data)}, keys={list(data.keys()) if isinstance(data, dict) else 'list'}")
+            for v in data.values():
+                if isinstance(v, list):
+                    questions = v
+                    break
+    if questions is None:
+        questions = data if isinstance(data, list) else []
 
-        # 2.7: 解析 AI 返回，提取 sources
-        parsed_questions = []
-        for q in questions:
-            parsed_questions.append({
-                "type": q.get("type", "open"),
-                "question": q.get("question", ""),
-                "options": q.get("options"),
-                "answer": q.get("answer", ""),
-                "explanation": q.get("explanation"),
-                "sources": q.get("sources", []),
-                "difficulty": q.get("difficulty", "medium"),
-            })
+    logger.info(f"[quiz] parsed {len(questions)} questions")
 
-        # 2.8: 题目落库
-        if parsed_questions:
-            default_content_id = content_ids[0]
-            logger.info(f"[quiz] saving {len(parsed_questions)} questions to DB...")
-            await _save_questions(db, default_content_id, source_chunks, parsed_questions)
-            logger.info("[quiz] questions saved")
+    parsed_questions = []
+    for q in questions:
+        parsed_questions.append({
+            "type": q.get("type", "open"),
+            "question": q.get("question", ""),
+            "options": q.get("options"),
+            "answer": q.get("answer", ""),
+            "explanation": q.get("explanation"),
+            "sources": q.get("sources", []),
+            "difficulty": q.get("difficulty", "medium"),
+        })
 
-        logger.info(f"[quiz] done, returning {len(parsed_questions)} questions")
-        return {
-            "questions": parsed_questions,
-            "model": provider["model"],
-            "mode": body.mode,
-        }
-    except Exception as e:
-        logger.exception("RAG quiz generation failed")
-        return {"questions": [], "error": str(e)}
+    # 题目落库（含向量查重）
+    if parsed_questions:
+        default_content_id = content_ids[0]
+        logger.info(f"[quiz] saving {len(parsed_questions)} questions to DB (with dedup)...")
+        await _save_questions(db, default_content_id, source_chunks, parsed_questions)
+
+    logger.info(f"[quiz] done, returning {len(parsed_questions)} questions")
+    return {
+        "questions": parsed_questions,
+        "model": provider["model"],
+        "mode": body.mode,
+    }
 
 
 async def _save_questions(
     db: AsyncSession, default_content_id: UUID, source_chunks: list[dict], questions: list[dict]
 ):
-    """将生成的题目写入 questions 表"""
-    # 构建 chunk_id → content_id 映射（用于跨内容出题场景）
+    """将生成的题目写入 questions 表，含向量查重和多来源追踪"""
+    from app.services.embedding import embed_texts
+
+    # 收集需要查重的内容范围
+    source_content_ids: set[str] = {str(default_content_id)}
+    for sc in source_chunks:
+        if sc.get("content_id"):
+            source_content_ids.add(str(sc["content_id"]))
+
+    # 构建 chunk_id → content_id 映射
     chunk_content_map: dict[str, UUID] = {}
     for sc in source_chunks:
         if sc.get("id"):
             chunk_content_map[sc["id"]] = UUID(sc.get("content_id", str(default_content_id)))
 
-    for q in questions:
+    # 批量生成题目向量用于查重
+    question_texts = [q.get("question", "") for q in questions if q.get("question")]
+    question_embeddings: list = [None] * len(questions)
+    if question_texts:
+        try:
+            question_embeddings = await embed_texts(db, question_texts)
+        except Exception as e:
+            logger.warning(f"[quiz] failed to generate question embeddings for dedup: {e}")
+            question_embeddings = [None] * len(questions)
+
+    saved_count = 0
+    dup_count = 0
+    for i, q in enumerate(questions):
+        # ── 向量查重 ──
+        q_emb = question_embeddings[i] if i < len(question_embeddings) else None
+        if q_emb is not None:
+            vec_str = _vec_to_str(q_emb)
+            dedup_sql = text("""
+                SELECT id FROM questions
+                WHERE content_id = ANY(:content_ids)
+                  AND embedding IS NOT NULL
+                  AND (embedding <=> CAST(:query_vec AS vector)) < :min_dist
+                LIMIT 1
+            """)
+            dedup_result = await db.execute(dedup_sql, {
+                "content_ids": [cid for cid in source_content_ids],
+                "query_vec": vec_str,
+                "min_dist": 1.0 - QUESTION_DEDUP_THRESHOLD,
+            })
+            if dedup_result.scalar_one_or_none():
+                logger.info(f"[quiz] duplicate question detected (similarity > {QUESTION_DEDUP_THRESHOLD}), skipping: {q.get('question', '')[:60]}...")
+                dup_count += 1
+                continue
+
+        # ── 来源解析 ──
         source_chunk_id = None
         page_number = None
         content_id = default_content_id
+        chunk_ids_list: list[str] = []
+        content_ids_list: list[str] = []
+
         if q.get("sources"):
-            first_source = q["sources"][0] if isinstance(q["sources"], list) else q["sources"]
-            if isinstance(first_source, dict) and first_source.get("chunk_id"):
-                try:
-                    source_chunk_id = UUID(first_source["chunk_id"])
-                    # 使用 source chunk 对应的 content_id
-                    if str(source_chunk_id) in chunk_content_map:
-                        content_id = chunk_content_map[str(source_chunk_id)]
-                except (ValueError, TypeError):
-                    pass
-                page_number = first_source.get("page_number")
+            sources = q["sources"] if isinstance(q["sources"], list) else [q["sources"]]
+            for j, src in enumerate(sources):
+                if isinstance(src, dict) and src.get("chunk_id"):
+                    chunk_ids_list.append(str(src["chunk_id"]))
+                    try:
+                        cid = UUID(src["chunk_id"])
+                        # 使用 chunk_content_map 获取真实 content_id
+                        mapped_cid = chunk_content_map.get(str(cid))
+                        if mapped_cid:
+                            content_ids_list.append(str(mapped_cid))
+                        if j == 0:
+                            source_chunk_id = cid
+                            if mapped_cid:
+                                content_id = mapped_cid
+                            page_number = src.get("page_number")
+                    except (ValueError, TypeError):
+                        pass
+
+        if not chunk_ids_list:
+            # 无来源时回退到第一个源块
+            if source_chunks:
+                sc0 = source_chunks[0]
+                source_chunk_id = UUID(sc0["id"]) if sc0.get("id") else None
+                content_id = chunk_content_map.get(sc0.get("id", ""), default_content_id)
+                page_number = sc0.get("page_number")
 
         question = Question(
             content_id=content_id,
@@ -848,30 +1037,45 @@ async def _save_questions(
             source_chunk_id=source_chunk_id,
             page_number=page_number,
             difficulty=q.get("difficulty", "medium"),
+            embedding=q_emb,
+            source_chunk_ids=chunk_ids_list if chunk_ids_list else None,
+            source_content_ids=content_ids_list if content_ids_list else None,
         )
         db.add(question)
+        saved_count += 1
+
     await db.commit()
+    logger.info(f"[quiz] saved {saved_count} questions + skipped {dup_count} duplicates")
 
 
-# 2.9: 查询历史题目
 def _question_to_dict(q: Question) -> dict:
-    return {
+    result = {
         "id": str(q.id),
         "type": q.q_type,
         "question": q.question,
         "options": q.options,
         "answer": q.answer,
         "explanation": q.explanation,
-        "sources": [
-            {
-                "chunk_id": str(q.source_chunk_id) if q.source_chunk_id else None,
-                "page_number": q.page_number,
-            }
-        ],
         "difficulty": q.difficulty,
         "content_id": str(q.content_id) if q.content_id else None,
         "created_at": q.created_at.isoformat() if q.created_at else None,
     }
+    # 溯源信息：优先使用新的多来源字段，回退到旧单来源字段
+    if q.source_chunk_ids:
+        result["sources"] = [
+            {"chunk_id": cid, "page_number": q.page_number if i == 0 else None}
+            for i, cid in enumerate(q.source_chunk_ids)
+        ]
+    else:
+        result["sources"] = [
+            {
+                "chunk_id": str(q.source_chunk_id) if q.source_chunk_id else None,
+                "page_number": q.page_number,
+            }
+        ]
+    if q.source_content_ids:
+        result["source_content_ids"] = q.source_content_ids
+    return result
 
 
 @router.get("/quiz/history")
@@ -952,8 +1156,9 @@ async def _get_or_create_quiz_template(db: AsyncSession, brain_id: UUID | None) 
     )
     template = result.scalar_one_or_none()
     if template:
-        # 自动更新为最新的默认模板
-        if (template.system_prompt != quiz_default["system_prompt"] or
+        # 仅对"默认quiz模板"自动更新（用户改过名的跳过，保护自定义修改）
+        if template.name == "默认quiz模板" and (
+                template.system_prompt != quiz_default["system_prompt"] or
                 template.user_prompt_template != quiz_default["user_prompt_template"]):
             template.system_prompt = quiz_default["system_prompt"]
             template.user_prompt_template = quiz_default["user_prompt_template"]
@@ -1327,3 +1532,209 @@ async def judge_open_answer(body: QuizJudgeRequest, db: AsyncSession = Depends(g
         correct = body.correct_answer.strip().lower()
         is_correct = user == correct or correct in user or user in correct
         return {"is_correct": is_correct, "explanation": f"（AI判断失败，使用模糊匹配）"}
+
+
+# ── 错题专项出题 ──
+
+@router.post("/wrong_quiz")
+async def generate_wrong_quiz(body: WrongQuizRequest, db: AsyncSession = Depends(get_db)):
+    """弱知识点定向补强出题：基于错题文本向量检索相似切块，重新生成针对性题目。
+
+    入参：
+    - wrong_question_texts: 错题文本列表
+    - question_count: 出题数量
+    - scope_type / scope_id: 出题范围
+    - question_types: 题型列表
+    """
+    if not body.wrong_question_texts:
+        return {"questions": [], "error": "至少需要一条错题文本"}
+
+    # 展开出题范围
+    content_ids = await _expand_scope(db, [], body.scope_type, body.scope_id)
+    if not content_ids:
+        return {"questions": [], "note": "所选范围内没有可用的内容"}
+
+    logger.info(f"[wrong_quiz] start: wrong_texts={len(body.wrong_question_texts)}, count={body.question_count}, scope={body.scope_type}")
+
+    # 对每条错题文本做向量化
+    from app.services.embedding import embed_texts
+    wrong_texts = [t for t in body.wrong_question_texts if t.strip()]
+    if not wrong_texts:
+        return {"questions": [], "error": "错题文本为空"}
+
+    wrong_vecs = await embed_texts(db, wrong_texts)
+    if not wrong_vecs:
+        return {"questions": [], "error": "无法为错题文本生成嵌入向量，请检查 embedding 配置"}
+
+    # 每条错题向量检索相似切块（合并去重）
+    all_search_results: list[dict] = []
+    for wv in wrong_vecs:
+        top_k = max(5, body.question_count)
+        results = await _topic_search_chunks(db, content_ids, wv, top_k)
+        all_search_results.extend(results)
+        if not results:
+            logger.info("[wrong_quiz] one wrong text vector returned no results")
+
+    # 合并去重
+    seen_ids = set()
+    merged_chunks: list[dict] = []
+    for r in all_search_results:
+        if r["id"] not in seen_ids:
+            seen_ids.add(r["id"])
+            merged_chunks.append(r)
+
+    if not merged_chunks:
+        # 降级：随机抽取
+        logger.info("[wrong_quiz] vector search returned no results, falling back to random pick")
+        source_count = min(body.question_count, MAX_SOURCE_CHUNKS)
+        picked = await _random_pick_chunks(db, content_ids, source_count)
+        source_chunks = [
+            {
+                "id": str(c.id), "content_id": str(c.content_id),
+                "chunk_text": c.chunk_text, "chunk_index": c.chunk_index,
+                "page_number": c.page_number, "embedding": c.embedding,
+                "difficulty": c.difficulty,
+            }
+            for c in picked
+        ]
+    else:
+        source_count = min(body.question_count, MAX_SOURCE_CHUNKS)
+        # 按相似度排序取前 source_count 个
+        merged_chunks.sort(key=lambda x: x.get("score", 0), reverse=True)
+        source_chunks = merged_chunks[:source_count]
+
+    if not source_chunks:
+        return {"questions": [], "note": "该范围暂无匹配的文本分块可供出题"}
+
+    # 复用干扰项检索（含 0.75 阈值）
+    distractor_chunks: list[dict] = []
+    for source in source_chunks:
+        if source.get("embedding") is not None:
+            similars = await _find_similar_chunks(
+                db, content_ids, source["embedding"], UUID(source["id"]),
+                top_k=3, min_similar=SIM_THRESHOLD,
+            )
+            for s in similars:
+                if s["id"] not in {d["id"] for d in distractor_chunks}:
+                    distractor_chunks.append(s)
+
+    # Token 控制
+    total_chunks = len(source_chunks) + len(distractor_chunks)
+    if total_chunks > MAX_TOTAL_CHUNKS:
+        max_dist_per_source = max(0, (MAX_TOTAL_CHUNKS - len(source_chunks)) // len(source_chunks))
+        trimmed = []
+        for source in source_chunks:
+            src_id = str(source.get("id", ""))
+            src_distractors = [d for d in distractor_chunks]
+            trimmed.extend(src_distractors[:max_dist_per_source])
+        seen = set()
+        distractor_chunks = []
+        for d in trimmed:
+            if d["id"] not in seen:
+                seen.add(d["id"])
+                distractor_chunks.append(d)
+
+    logger.info(f"[wrong_quiz] source={len(source_chunks)}, distractors={len(distractor_chunks)}, total={len(source_chunks)+len(distractor_chunks)}")
+
+    # 组装 Prompt
+    question_types = body.question_types or ["single", "multiple", "truefalse", "open"]
+    type_desc = _build_question_types_desc(question_types)
+    mode_desc = "错题专项补强出题"
+
+    sources_text = []
+    for chunk in source_chunks:
+        diff = chunk.get("difficulty", "?")
+        page_info = f"第{chunk['page_number']}页｜" if chunk.get('page_number') else ""
+        content_id_short = str(chunk.get("content_id", "?"))[:8]
+        sources_text.append(
+            f"[chunk_id:{chunk['id'][:8]}｜{page_info}diff:{diff}｜content_id:{content_id_short}]\n{chunk['chunk_text']}"
+        )
+    sources_combined = "\n\n---\n\n".join(sources_text)
+
+    distractors_text = []
+    if distractor_chunks:
+        for i, dc in enumerate(distractor_chunks):
+            page_info = f"第{dc['page_number']}页｜" if dc.get("page_number") else ""
+            distractors_text.append(
+                f"[干扰素材 {i+1} - chunk_id:{dc['id'][:8]}｜{page_info}content_id:{str(dc.get('content_id', '?'))[:8]}]\n{dc['chunk_text']}"
+            )
+    distractors_combined = "\n\n".join(distractors_text) if distractors_text else "（无额外干扰素材，可从原文自身不同角度出题）"
+
+    template_vars = {
+        "sources": sources_combined,
+        "distractors": distractors_combined,
+        "question_count": str(body.question_count),
+        "question_types": type_desc,
+        "type_desc": type_desc,
+        "mode_desc": mode_desc,
+        "topic": "错题补强",
+    }
+
+    # 获取 provider
+    provider = await _get_ai_provider(db, "quiz")
+    if provider is None:
+        return {"questions": [], "error": "未配置 quiz AI 提供商"}
+
+    # 加载模板
+    brain_id = None
+    if content_ids:
+        first_cid = content_ids[0]
+        content_res = await db.execute(select(Content).where(Content.id == first_cid))
+        content = content_res.scalar_one_or_none()
+        if content and content.brain_id:
+            brain_id = content.brain_id
+
+    template = await _get_or_create_quiz_template(db, brain_id)
+    if template:
+        system_prompt = _render_template(template.system_prompt, template_vars)
+        user_prompt = _render_template(template.user_prompt_template, template_vars)
+    else:
+        system_prompt = QUIZ_SYSTEM_PROMPT.format(type_desc=type_desc)
+        user_prompt = _build_quiz_prompt(
+            source_chunks, distractor_chunks,
+            body.question_count, question_types, "topic", "错题补强",
+        )
+
+    # 调用 LLM + 重试
+    data = await _call_llm_with_retry(provider, system_prompt, user_prompt, max_retries=1)
+    if data is None:
+        return {"questions": [], "error": "AI 返回格式异常，已重试失败"}
+
+    # 解析题目
+    questions = None
+    if isinstance(data, dict):
+        for key in ("questions", "考试题目", "题目", "quiz"):
+            if key in data:
+                questions = data[key]
+                break
+        if questions is None:
+            for v in data.values():
+                if isinstance(v, list):
+                    questions = v
+                    break
+    if questions is None:
+        questions = data if isinstance(data, list) else []
+
+    parsed_questions = []
+    for q in questions:
+        parsed_questions.append({
+            "type": q.get("type", "open"),
+            "question": q.get("question", ""),
+            "options": q.get("options"),
+            "answer": q.get("answer", ""),
+            "explanation": q.get("explanation"),
+            "sources": q.get("sources", []),
+            "difficulty": q.get("difficulty", "medium"),
+        })
+
+    # 题目落库（含查重）
+    if parsed_questions:
+        default_content_id = content_ids[0]
+        await _save_questions(db, default_content_id, source_chunks, parsed_questions)
+
+    logger.info(f"[wrong_quiz] done, returning {len(parsed_questions)} questions")
+    return {
+        "questions": parsed_questions,
+        "model": provider["model"],
+        "mode": "wrong_quiz",
+    }

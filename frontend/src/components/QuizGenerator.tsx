@@ -28,6 +28,8 @@ export interface QuizGeneratorProps {
   embedded?: boolean;
   /** 弹窗关闭回调（embedded=false 时必传） */
   onClose?: () => void;
+  /** 出题成功后的回调（用于自动跳转答题） */
+  onGenerated?: () => void;
 }
 
 const QUESTION_KEYS = ["single", "multiple", "truefalse", "open"] as const;
@@ -57,6 +59,7 @@ export default function QuizGenerator({
   scopeName,
   embedded = false,
   onClose,
+  onGenerated,
 }: QuizGeneratorProps) {
   const qt = useCopy(quizCopy);
   const [questions, setQuestions] = useState<Question[] | null>(null);
@@ -66,6 +69,8 @@ export default function QuizGenerator({
   const [quizMode, setQuizMode] = useState<"random" | "topic">("random");
   const [quizTopic, setQuizTopic] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>(["single", "multiple", "truefalse", "open"]);
+  const [minDifficulty, setMinDifficulty] = useState<number | undefined>(undefined);
+  const [maxDifficulty, setMaxDifficulty] = useState<number | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   const toggleType = (key: string) => {
@@ -96,6 +101,8 @@ export default function QuizGenerator({
         topic: quizMode === "topic" ? quizTopic.trim() : undefined,
         question_types: selectedTypes,
       };
+      if (minDifficulty != null) body.min_difficulty = minDifficulty;
+      if (maxDifficulty != null) body.max_difficulty = maxDifficulty;
       if (scopeId) {
         body.scope_type = scopeType;
         body.scope_id = scopeId;
@@ -108,12 +115,15 @@ export default function QuizGenerator({
       const data = await res.json();
       setRevealed(new Set());
       setQuestions(data.questions || []);
+      if (data.questions?.length > 0) {
+        onGenerated?.();
+      }
     } catch (e) {
       setQuestions([{ type: "open", question: "生成失败: " + (e as Error).message }]);
     } finally {
       setGenerating(false);
     }
-  }, [quizCount, quizMode, quizTopic, selectedTypes, scopeType, scopeId]);
+  }, [quizCount, quizMode, quizTopic, selectedTypes, minDifficulty, maxDifficulty, scopeType, scopeId]);
 
   const body = (
     <div className="flex flex-col h-full">
@@ -202,6 +212,32 @@ export default function QuizGenerator({
 
         <div className="flex-1" />
 
+        {/* Difficulty filter */}
+        <span className="text-xs text-[var(--text-muted)] ml-1">难度</span>
+        <select
+          value={minDifficulty ?? ""}
+          onChange={(e) => setMinDifficulty(e.target.value ? Number(e.target.value) : undefined)}
+          className="text-xs border border-[var(--border-subtle)] rounded px-1.5 py-0.5 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+        >
+          <option value="">不限</option>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+        <span className="text-xs text-[var(--text-muted)]">-</span>
+        <select
+          value={maxDifficulty ?? ""}
+          onChange={(e) => setMaxDifficulty(e.target.value ? Number(e.target.value) : undefined)}
+          className="text-xs border border-[var(--border-subtle)] rounded px-1.5 py-0.5 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+        >
+          <option value="">不限</option>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+
+        <div className="flex-1" />
+
         <button
           onClick={handleGenerate}
           disabled={generating}
@@ -247,10 +283,17 @@ export default function QuizGenerator({
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getTypeColor(q.type)}`}>
                   {getTypeLabel(qt, q.type)}
                 </span>
-                {q.sources?.[0]?.page_number && (
-                  <span className="text-[10px] text-[var(--accent-text)] bg-[var(--accent-soft)] dark:bg-indigo-900/20 px-1.5 py-0.5 rounded">
-                    第{q.sources[0].page_number}页
+                {q.difficulty && (
+                  <span className="text-[10px] text-[var(--text-muted)] bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded">
+                    难度:{q.difficulty}
                   </span>
+                )}
+                {q.sources?.map((src, si) =>
+                  src.page_number ? (
+                    <span key={si} className="text-[10px] text-[var(--accent-text)] bg-[var(--accent-soft)] dark:bg-indigo-900/20 px-1.5 py-0.5 rounded">
+                      第{src.page_number}页{si > 0 ? ` (来源${si + 1})` : ""}
+                    </span>
+                  ) : null
                 )}
               </div>
               <p className="text-sm font-medium text-[var(--text-primary)] mb-1">

@@ -1,7 +1,17 @@
 from logging.config import fileConfig
 from alembic import context
 
+# 加载 .env 中的 DATABASE_URL_SYNC
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 config = context.config
+# 用环境变量覆盖 alembic.ini 中的占位链接，保护凭据不泄露到 git
+db_url = os.getenv("DATABASE_URL_SYNC")
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
+
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
@@ -24,9 +34,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    # 在线模式需要数据库连接，首次部署用离线模式即可
-    # 后续使用: alembic upgrade head（需先配置好数据库连接）
-    pass
+    """在线模式：通过 create_engine（无需 psycopg2，用默认驱动）连接并执行迁移"""
+    from sqlalchemy import create_engine
+    connectable = create_engine(config.get_main_option("sqlalchemy.url"))
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 if context.is_offline_mode():

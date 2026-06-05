@@ -34,6 +34,7 @@ export default function QuizPage() {
   const [wrongQuestions, setWrongQuestions] = useState<HistoryQuestion[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingWrong, setLoadingWrong] = useState(false);
+  const [generatingWrong, setGeneratingWrong] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<"category" | "collection" | null>(null);
 
   const [answers, setAnswers] = useState<AnswerState>({});
@@ -84,12 +85,35 @@ export default function QuizPage() {
     if (activeTab === "wrong") loadWrong();
   }, [activeTab, scopeFilter, loadHistory, loadWrong]);
 
+  function normalizeTrueFalse(val: string): string {
+    const v = val.trim().toLowerCase();
+    if (v === "true" || v === "对" || v === "√" || v === "✓") return "true";
+    if (v === "false" || v === "错" || v === "×" || v === "✗" || v === "false") return "false";
+    return v;
+  }
   function checkAnswer(q: HistoryQuestion, userAns: string | string[]): boolean {
     if (!q.answer) return false;
     if (q.type === "multiple") {
-      const userSorted = [...(Array.isArray(userAns) ? userAns : [userAns])].sort().join("");
-      const correctSorted = [...q.answer.replace(/,/g, "").split("")].sort().join("");
-      return userSorted === correctSorted;
+      // 将用户选的字母（A/B/C/D）映射为实际选项文本
+      const userLetters = Array.isArray(userAns) ? userAns : [userAns];
+      const userTexts = userLetters
+        .map(letter => {
+          const idx = letter.charCodeAt(0) - 65; // A=0, B=1, ...
+          return q.options?.[idx] || letter;
+        })
+        .map(t => t.trim());
+      // 将 AI 返回的答案（中文逗号分隔）拆分为数组
+      const correctTexts = q.answer
+        .split(/[,，]/)
+        .map(t => t.trim())
+        .filter(Boolean);
+      // 集合比较
+      const userSet = new Set(userTexts);
+      if (correctTexts.length !== userTexts.length) return false;
+      return correctTexts.every(t => userSet.has(t));
+    }
+    if (q.type === "truefalse") {
+      return normalizeTrueFalse(String(userAns)) === normalizeTrueFalse(q.answer);
     }
     return String(userAns).trim().toUpperCase() === q.answer.trim().toUpperCase();
   }
@@ -273,6 +297,7 @@ export default function QuizPage() {
             scopeId={scopeFilter ? scopeFilter.id : ""}
             scopeName={scopeFilter ? scopeFilter.name : qt.scopeAll}
             embedded
+            onGenerated={() => setActiveTab("answer")}
           />
         )}
 
@@ -327,6 +352,40 @@ export default function QuizPage() {
               </div>
             ) : (
               <div className="space-y-2">
+                {/* 错题补强按钮 */}
+                {wrongQuestions.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      setGeneratingWrong(true);
+                      const wrongTexts = wrongQuestions.map(wq => wq.question).filter(Boolean);
+                      try {
+                        const body: Record<string, unknown> = {
+                          wrong_question_texts: wrongTexts,
+                          question_count: 5,
+                        };
+                        if (scopeFilter) {
+                          body.scope_type = scopeFilter.type;
+                          body.scope_id = scopeFilter.id;
+                        }
+                        const res = await fetch("/api/ai/wrong_quiz", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(body),
+                        });
+                        const data = await res.json();
+                        if (data.questions?.length) {
+                          setActiveTab("generate");
+                        }
+                      } catch {}
+                      finally { setGeneratingWrong(false); }
+                    }}
+                    disabled={generatingWrong}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50 transition-colors"
+                  >
+                    {generatingWrong ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertCircle className="w-3 h-3" />}
+                    {generatingWrong ? "生成中..." : "错题补强出题"}
+                  </button>
+                )}
                 {wrongQuestions.map((q, i) => (
                   <div key={q.id || i} className="rounded-lg p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30">
                     <div className="flex items-center gap-1.5 mb-1 flex-wrap">

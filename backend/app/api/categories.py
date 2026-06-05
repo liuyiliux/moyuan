@@ -88,6 +88,10 @@ async def create_category(body: CategoryCreate, db: AsyncSession = Depends(get_d
     db.add(cat)
     await db.flush()
     await db.refresh(cat)
+    # 新增分类后失效父分类的缓存
+    if parent_uuid:
+        from app.core.scope_cache import invalidate_scope_cache
+        await invalidate_scope_cache(f"quiz:scope:category:{parent_uuid}")
     return _cat_resp(cat)
 
 
@@ -139,6 +143,14 @@ async def update_category(
             cat.parent_id = pid
     await db.flush()
     await db.refresh(cat)
+    # 分类变更（含父分类变更）后失效相关缓存
+    from app.core.scope_cache import invalidate_scope_cache
+    await invalidate_scope_cache(f"quiz:scope:category:{cid}")
+    if body.parent_id is not None and body.parent_id != "" and body.parent_id.lower() != "null":
+        try:
+            await invalidate_scope_cache(f"quiz:scope:category:{UUID(body.parent_id)}")
+        except Exception:
+            pass
     return _cat_resp(cat)
 
 
@@ -154,6 +166,11 @@ async def delete_category(cat_id: str, db: AsyncSession = Depends(get_db)):
     cat = res.scalar_one_or_none()
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
+    # 失效缓存（含自身和父分类）
+    from app.core.scope_cache import invalidate_scope_cache
+    await invalidate_scope_cache(f"quiz:scope:category:{cid}")
+    if cat.parent_id:
+        await invalidate_scope_cache(f"quiz:scope:category:{cat.parent_id}")
     # 清除关联
     await db.execute(delete(ContentCategory).where(ContentCategory.category_id == cid))
     # 子分类提升（可选：这里简单删除，子分类也删）

@@ -160,6 +160,9 @@ async def update_collection(
         col.description = body.description
     await db.flush()
     await db.refresh(col)
+    # 合集变更后失效缓存
+    from app.core.scope_cache import invalidate_scope_cache
+    await invalidate_scope_cache(f"quiz:scope:collection:{cid}")
     return _col_resp(col)
 
 
@@ -175,6 +178,9 @@ async def delete_collection(col_id: str, db: AsyncSession = Depends(get_db)):
     col = res.scalar_one_or_none()
     if not col:
         raise HTTPException(status_code=404, detail="Collection not found")
+    # 失效缓存
+    from app.core.scope_cache import invalidate_scope_cache
+    await invalidate_scope_cache(f"quiz:scope:collection:{cid}")
     await db.execute(delete(CollectionItem).where(CollectionItem.collection_id == cid))
     await db.delete(col)
     await db.flush()
@@ -223,6 +229,9 @@ async def add_to_collection(
     item = CollectionItem(collection_id=cid, content_id=cuid, sort_order=next_order)
     db.add(item)
     await db.flush()
+    # 合集内容变更后失效缓存
+    from app.core.scope_cache import invalidate_scope_cache
+    await invalidate_scope_cache(f"quiz:scope:collection:{cid}")
     return {"ok": True}
 
 
@@ -246,6 +255,9 @@ async def remove_from_collection(
         )
     )
     await db.flush()
+    # 合集内容变更后失效缓存
+    from app.core.scope_cache import invalidate_scope_cache
+    await invalidate_scope_cache(f"quiz:scope:collection:{cid}")
     return {"ok": True}
 
 

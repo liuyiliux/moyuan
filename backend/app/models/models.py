@@ -88,6 +88,7 @@ class Collection(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enable: Mapped[bool] = mapped_column(Boolean, default=True)
     brain_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -211,6 +212,10 @@ class ContentChunk(Base):
     embedding = mapped_column(Vector(4096), nullable=True)
     embedding_type: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'text' 或 'image'
 
+    # Quiz filtering controls
+    disable_quiz: Mapped[bool] = mapped_column(Boolean, default=False)  # true = 禁止参与出题
+    difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 难度 1-5
+
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     start_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
     end_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -240,6 +245,12 @@ class Question(Base):
     source_chunk_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("content_chunks.id", ondelete="SET NULL"), nullable=True)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     difficulty: Mapped[str | None] = mapped_column(String(10), nullable=True)  # easy / medium / hard
+
+    # Quiz optimization: question-level embedding for dedup, multi-source tracking
+    embedding = mapped_column(Vector(4096), nullable=True)  # 题目文本向量，用于入库前查重
+    source_chunk_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # 关联来源切块 ID 列表
+    source_content_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # 关联原 PDF 知识库 ID 列表
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
