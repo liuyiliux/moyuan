@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import QuizGenerator from "../../components/QuizGenerator";
+import PromptEditor from "../../components/PromptEditor";
 import {
   BookOpen, Edit3, AlertCircle, Search, Loader2,
-  CheckCircle, XCircle, ChevronRight, Send,
+  CheckCircle, XCircle, ChevronRight, Send, Settings,
 } from "lucide-react";
 import { categoryApi, collectionApi } from "../../api/organization";
 import type { Category, Collection } from "../../api/organization";
@@ -36,6 +37,7 @@ export default function QuizPage() {
   const [loadingWrong, setLoadingWrong] = useState(false);
   const [generatingWrong, setGeneratingWrong] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<"category" | "collection" | null>(null);
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
 
   const [answers, setAnswers] = useState<AnswerState>({});
   const [answerStats, setAnswerStats] = useState<{ correct: number; total: number } | null>(null);
@@ -223,13 +225,21 @@ export default function QuizPage() {
   const clearScope = () => setScopeFilter(null);
 
   return (
-    <div className="min-h-screen">
+    <>
+      <div className="min-h-screen">
       <div className="max-w-4xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-[var(--text-primary)]">{qt.title}</h1>
             <p className="text-sm text-[var(--text-muted)] mt-1">{qt.subtitle}</p>
           </div>
+          <button
+            onClick={() => setShowPromptEditor(true)}
+            className="text-[var(--text-muted)] hover:text-jade p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+            title="编辑出题 Prompt"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Scope Filter */}
@@ -414,6 +424,9 @@ export default function QuizPage() {
         )}
       </div>
     </div>
+
+    {showPromptEditor && <PromptEditor onClose={() => setShowPromptEditor(false)} />}
+    </>
   );
 }
 

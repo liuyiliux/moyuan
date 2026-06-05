@@ -16,6 +16,7 @@ const FUNCTION_LABELS: Record<string, string> = {
   judge: "答题判断",
   ocr: "图文识别",
   transcribe: "语音转写",
+  qa: "知识问答",
 };
 
 export default function SettingsPage() {

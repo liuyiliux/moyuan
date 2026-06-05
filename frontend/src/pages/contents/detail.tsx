@@ -20,8 +20,8 @@ import {
   ArrowLeft, Save, RefreshCw, Trash2, FileText,
   FileAudio, FileVideo, Image, FileSpreadsheet, File, Globe,
   Star, Bookmark, Tag as TagIcon,
-  Sparkles, Brain, BookOpen, Loader2,
-  MessageSquare, ChevronDown, ChevronUp,
+  Sparkles, Brain, BookOpen, Loader2, MessageCircle,
+  MessageSquare, ChevronDown, ChevronUp, Settings2,
   ArrowUp, ArrowDown, ZoomIn, X, RefreshCw as RefreshIcon
 } from "lucide-react";
 
@@ -80,6 +80,12 @@ export default function ContentsDetail() {
   const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number; matched_chunk?: { chunk_id: string; chunk_index: number; page_number: number | null; image_path: string | null } }[] | null>(null);
   const [loadingRelated, setLoadingRelated] = useState(false);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [showQaPromptEditor, setShowQaPromptEditor] = useState(false);
+  const [qaQuestion, setQaQuestion] = useState("");
+  const [qaAsking, setQaAsking] = useState(false);
+  const [qaAnswer, setQaAnswer] = useState<string | null>(null);
+  const [qaSources, setQaSources] = useState<Array<{ chunk_id: string; content_id: string; content_title: string; page_number: number | null; chunk_text: string }>>([]);
+  const [qaSavingNote, setQaSavingNote] = useState(false);
 
 
   const [contentTab, setContentTab] = useState<"text" | "chunks">("text");
@@ -274,6 +280,49 @@ export default function ContentsDetail() {
       setToast({ type: "error", message: "删除失败: " + (err as Error).message });
     }
   }
+
+  const handleAskQuick = useCallback(async () => {
+    if (!id || !qaQuestion.trim()) return;
+    setQaAsking(true);
+    setQaAnswer(null);
+    setQaSources([]);
+    try {
+      const res = await fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: qaQuestion.trim(),
+          top_k: 5,
+          scope_type: "content",
+          scope_id: id,
+        }),
+      });
+      const data = await res.json();
+      setQaAnswer(data.answer || null);
+      setQaSources(data.sources || []);
+    } catch { /* ignore */ }
+    finally { setQaAsking(false); }
+  }, [id, qaQuestion]);
+
+  const handleSaveQaToNote = useCallback(async () => {
+    if (!qaAnswer || !qaQuestion) return;
+    setQaSavingNote(true);
+    try {
+      const sourcesMd = qaSources.length > 0
+        ? "\n\n---\n**引用来源：**\n" + qaSources.map((s, i) =>
+            `${i + 1}. 《${s.content_title}》${s.page_number ? ` 第${s.page_number}页` : ""}`
+          ).join("\n")
+        : "";
+      const content = `${qaAnswer}${sourcesMd}`;
+      await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: qaQuestion, content }),
+      });
+      alert("已保存到笔记");
+    } catch { alert("保存失败"); }
+    finally { setQaSavingNote(false); }
+  }, [qaAnswer, qaQuestion, qaSources]);
 
   const handleSummarize = useCallback(async (force = false) => {
     if (!id) return;
@@ -1085,6 +1134,59 @@ export default function ContentsDetail() {
               )}
             </div>
 
+            {/* 问本篇 */}
+            <div className="bg-[var(--bg-secondary)] dark:bg-[var(--bg-elevated)] rounded-lg p-3">
+              <h3 className="text-xs font-medium text-[var(--text-primary)] mb-2 flex items-center gap-1.5">
+                <MessageCircle className="w-3.5 h-3.5 text-jade" />
+                <div className="flex items-center justify-between w-full">
+                  <span>问本篇</span>
+                  <button
+                    onClick={() => setShowQaPromptEditor(true)}
+                    className="text-[var(--text-muted)] hover:text-jade p-0.5 rounded transition-colors"
+                    title="编辑问答 Prompt"
+                  >
+                    <Settings2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </h3>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={qaQuestion}
+                  onChange={(e) => setQaQuestion(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAskQuick(); }}
+                  placeholder="针对本篇内容提问..."
+                  className="flex-1 px-2.5 py-1.5 text-xs border border-[var(--border-subtle)] rounded-lg bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-jade"
+                />
+                <button
+                  onClick={handleAskQuick}
+                  disabled={qaAsking || !qaQuestion.trim()}
+                  className="px-3 py-1.5 bg-jade/20 text-jade rounded-lg text-xs font-medium hover:bg-jade/30 disabled:opacity-50 transition-colors"
+                >
+                  {qaAsking ? <Loader2 className="w-3 h-3 animate-spin" /> : "提问"}
+                </button>
+              </div>
+              {qaAnswer && (
+                <div className="mt-3 p-2 rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)]">
+                  <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">{qaAnswer}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      onClick={handleSaveQaToNote}
+                      disabled={qaSavingNote}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-[var(--bg-secondary)] text-[var(--text-secondary)] rounded text-[10px] font-medium hover:bg-[var(--accent-soft)] hover:text-[var(--accent-text)] transition-colors disabled:opacity-50"
+                    >
+                      {qaSavingNote ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                      {qaSavingNote ? "保存中..." : "添加到笔记"}
+                    </button>
+                  {qaSources.length > 0 && (
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                      引用 {qaSources.length} 个来源
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div>
               <QuizGenerator
                 scopeType="content"
@@ -1102,6 +1204,7 @@ export default function ContentsDetail() {
                 </button>
               </div>
               {showPromptEditor && <PromptEditor onClose={() => setShowPromptEditor(false)} />}
+              {showQaPromptEditor && <PromptEditor templateType="qa" onClose={() => setShowQaPromptEditor(false)} />}
             </div>
           </div>
         </div>

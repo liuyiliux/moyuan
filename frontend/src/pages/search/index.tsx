@@ -1,13 +1,15 @@
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { searchApi, type SearchResultItem, type ChunkInfo } from "../../api/search";
 import {
   Search, FileText, FileAudio, FileVideo, Image, FileSpreadsheet,
   File, Globe, Loader2, Clock, Trash2, SlidersHorizontal, X,
-  Sparkles, ChevronDown, ChevronUp, MapPin, Play,
+  Sparkles, ChevronDown, ChevronUp, MapPin, Play, MessageCircle,
+  BookOpen, Settings,
 } from "lucide-react";
 import { Button, Card } from "../../components";
+import PromptEditor from "../../components/PromptEditor";
 import { searchCopy, useCopy } from "../../lib/copywriting";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -82,6 +84,7 @@ function buildContentUrl(r: SearchResultItem): string {
 
 export default function SearchPage() {
   const st = useCopy(searchCopy);
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [activeQuery, setActiveQuery] = useState("");
@@ -96,6 +99,34 @@ export default function SearchPage() {
   const [history, setHistory] = useState<{ id: string; query: string; result_count: number; created_at: string }[]>([]);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // QA 模式
+  const [mode, setMode] = useState<"search" | "qa">("search");
+  const [qaAnswer, setQaAnswer] = useState<string | null>(null);
+  const [qaSources, setQaSources] = useState<Array<{ chunk_id: string; content_id: string; content_title: string; content_type: string; page_number: number | null; chunk_text: string }>>([]);
+  const [savingNote, setSavingNote] = useState(false);
+  const [showQaPromptEditor, setShowQaPromptEditor] = useState(false);
+
+  async function handleSaveToNote() {
+    if (!qaAnswer || !activeQuery) return;
+    setSavingNote(true);
+    try {
+      const sourcesMd = qaSources.length > 0
+        ? "\n\n---\n**引用来源：**\n" + qaSources.map((s, i) =>
+            `${i + 1}. 《${s.content_title}》${s.page_number ? ` 第${s.page_number}页` : ""}`
+          ).join("\n")
+        : "";
+      const content = `${qaAnswer}${sourcesMd}`;
+      const res = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: activeQuery, content }),
+      });
+      const note = await res.json();
+      alert("已保存到笔记");
+    } catch { alert("保存失败"); }
+    finally { setSavingNote(false); }
+  }
 
   async function doSearch(q: string) {
     if (!q.trim()) return;
@@ -119,9 +150,34 @@ export default function SearchPage() {
     }
   }
 
+  async function handleAsk(q: string) {
+    if (!q.trim()) return;
+    setLoading(true);
+    setError(null);
+    setActiveQuery(q);
+    setResults([]);
+    setQaAnswer(null);
+    setQaSources([]);
+    try {
+      const res = await fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q, top_k: 5 }),
+      });
+      const data = await res.json();
+      setQaAnswer(data.answer || null);
+      setQaSources(data.sources || []);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    doSearch(query);
+    if (mode === "qa") handleAsk(query);
+    else doSearch(query);
   }
 
   function toggleExpand(contentId: string) {
@@ -147,10 +203,41 @@ export default function SearchPage() {
   }, [searchParams]);
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
+    <>
+      <div className="max-w-4xl mx-auto px-6 py-8">
       <div className="text-center mb-8">
         <h1 className="text-2xl font-serif font-semibold text-text-primary mb-2">{st.title}</h1>
         <p className="text-sm text-text-muted">{st.subtitle}</p>
+
+        {mode === "qa" && (
+          <button
+            onClick={() => setShowQaPromptEditor(true)}
+            className="mt-2 text-xs text-[var(--text-muted)] hover:text-jade flex items-center gap-1 mx-auto transition-colors"
+          >
+            <Settings className="w-3 h-3" />
+            编辑问答 Prompt 模板
+          </button>
+        )}
+
+        {/* 模式切换 */}
+        <div className="flex items-center justify-center gap-1 mt-4 p-0.5 bg-[var(--bg-secondary)] dark:bg-[var(--bg-elevated)] rounded-lg w-fit mx-auto">
+          <button
+            onClick={() => { setMode("search"); setQaAnswer(null); setQaSources([]); }}
+            className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              mode === "search" ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+            }`}>
+            <Search className="w-3.5 h-3.5" />
+            搜索
+          </button>
+          <button
+            onClick={() => { setMode("qa"); setResults([]); }}
+            className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              mode === "qa" ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+            }`}>
+            <MessageCircle className="w-3.5 h-3.5" />
+            问答
+          </button>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="mb-8">
@@ -162,7 +249,7 @@ export default function SearchPage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={st.placeholder}
+              placeholder={mode === "qa" ? "输入问题，AI 基于知识库回答..." : st.placeholder}
               className="dao-input pl-11 pr-12 py-3 text-base"
               autoFocus
             />
@@ -241,13 +328,82 @@ export default function SearchPage() {
         </div>
       )}
 
-      {activeQuery && !loading && (
+      {activeQuery && !loading && mode === "search" && (
         <p className="text-sm text-text-muted mb-4">
           {st.resultCount(results.length)}
         </p>
       )}
 
-      <div className="space-y-3">
+      {/* QA 模式：AnswerCard */}
+      {mode === "qa" && qaAnswer && !loading && (
+        <Card className="p-6 mb-4 border-jade/30">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="shrink-0 p-2 rounded-lg bg-jade/10">
+              <MessageCircle className="w-5 h-5 text-jade" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-text-primary">AI 回答</p>
+                <button
+                  onClick={() => setShowQaPromptEditor(true)}
+                  className="text-[var(--text-muted)] hover:text-jade p-1 rounded transition-colors"
+                  title="编辑问答 Prompt"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none text-text-secondary leading-relaxed whitespace-pre-wrap">
+                {qaAnswer}
+              </div>
+              <button
+                onClick={handleSaveToNote}
+                disabled={savingNote}
+                className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-secondary)] text-[var(--text-secondary)] rounded-lg text-xs font-medium hover:bg-[var(--accent-soft)] hover:text-[var(--accent-text)] transition-colors disabled:opacity-50"
+              >
+                {savingNote ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                {savingNote ? "保存中..." : "添加到笔记"}
+              </button>
+            </div>
+          </div>
+
+          {qaSources.length > 0 && (
+            <div className="border-t border-border-subtle pt-4 mt-2">
+              <p className="text-xs font-medium text-text-muted mb-2 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5" />
+                引用来源（{qaSources.length} 条）
+              </p>
+              <div className="space-y-2">
+                {qaSources.map((s, i) => (
+                  <div key={s.chunk_id || i} className="flex items-start gap-2 p-2 rounded-lg bg-bg-secondary hover:bg-accent-soft transition-colors cursor-pointer"
+                    onClick={() => navigate(`/contents/${s.content_id}${s.page_number ? `?page=${s.page_number}` : ""}`)}>
+                    <span className="shrink-0 w-5 h-5 rounded-full bg-jade/10 text-jade text-xs flex items-center justify-center font-medium">
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-text-primary truncate">
+                        {s.content_title}
+                        {s.page_number && <span className="text-text-muted ml-1">第{s.page_number}页</span>}
+                      </p>
+                      <p className="text-xs text-text-muted line-clamp-2 mt-0.5">{s.chunk_text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* QA 模式空结果 */}
+      {mode === "qa" && activeQuery && !qaAnswer && !loading && (
+        <div className="text-center py-8">
+          <p className="text-sm text-text-muted">暂无相关信息</p>
+        </div>
+      )}
+
+      {/* 搜索模式结果 */}
+      {mode === "search" && (
+        <div className="space-y-3">
         {results.map((r) => {
           const isExpanded = expandedDocs.has(r.content_id);
           const hasMultipleChunks = r.match_count > 1;
@@ -309,6 +465,7 @@ export default function SearchPage() {
           );
         })}
       </div>
+      )}
 
       {!activeQuery && !loading && !showHistory && (
         <div className="text-center py-16">
@@ -320,5 +477,8 @@ export default function SearchPage() {
         </div>
       )}
     </div>
+
+    {showQaPromptEditor && <PromptEditor templateType="qa" onClose={() => setShowQaPromptEditor(false)} />}
+    </>
   );
 }

@@ -58,6 +58,13 @@ class QuizJudgeRequest(BaseModel):
     user_answer: str
 
 
+class AskRequest(BaseModel):
+    question: str
+    top_k: int = 5
+    scope_type: str | None = None  # "category" | "collection" | "content"
+    scope_id: str | None = None
+
+
 # ── 获取 AI provider ──
 
 async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | None:
@@ -1182,6 +1189,46 @@ async def _get_or_create_quiz_template(db: AsyncSession, brain_id: UUID | None) 
     return template
 
 
+async def _get_or_create_qa_template(db: AsyncSession, brain_id: UUID | None) -> PromptTemplate | None:
+    """获取或创建当前 Brain 的 qa 默认模板"""
+    from app.api.brains import DEFAULT_PROMPT_TEMPLATES
+    qa_default = DEFAULT_PROMPT_TEMPLATES.get("qa")
+    if not qa_default:
+        return None
+
+    result = await db.execute(
+        select(PromptTemplate).where(
+            PromptTemplate.brain_id == brain_id,
+            PromptTemplate.template_type == "qa",
+            PromptTemplate.is_default == True,
+        )
+    )
+    template = result.scalar_one_or_none()
+    if template:
+        if template.name == "默认qa模板" and (
+                template.system_prompt != qa_default["system_prompt"] or
+                template.user_prompt_template != qa_default["user_prompt_template"]):
+            template.system_prompt = qa_default["system_prompt"]
+            template.user_prompt_template = qa_default["user_prompt_template"]
+            await db.commit()
+            logger.info(f"[qa] updated default qa template for brain_id={brain_id}")
+        return template
+
+    template = PromptTemplate(
+        brain_id=brain_id,
+        template_type="qa",
+        name="默认qa模板",
+        system_prompt=qa_default["system_prompt"],
+        user_prompt_template=qa_default["user_prompt_template"],
+        is_default=True,
+    )
+    db.add(template)
+    await db.commit()
+    await db.refresh(template)
+    logger.info(f"[qa] created default qa template for brain_id={brain_id}")
+    return template
+
+
 def _render_template(template_str: str, variables: dict[str, str]) -> str:
     """渲染模板变量：将 {{variable}} 替换为对应值"""
     result = template_str
@@ -1321,6 +1368,113 @@ async def reset_quiz_template(db: AsyncSession = Depends(get_db)):
         )
         db.add(template)
 
+    await db.commit()
+    await db.refresh(template)
+    return {
+        "template": {
+            "id": str(template.id),
+            "system_prompt": template.system_prompt,
+            "user_prompt_template": template.user_prompt_template,
+        },
+        "message": "Template reset to default",
+    }
+
+
+# ── QA 模板管理（与 quiz 模板对称）──
+
+@router.get("/qa-template")
+async def get_qa_template(db: AsyncSession = Depends(get_db)):
+    """获取当前工作区的默认 qa 模板"""
+    result = await db.execute(
+        select(PromptTemplate).where(
+            PromptTemplate.template_type == "qa",
+            PromptTemplate.is_default == True,
+        ).order_by(PromptTemplate.brain_id.nulls_first())
+    )
+    template_row = result.first()
+    if template_row is None:
+        from app.api.brains import DEFAULT_PROMPT_TEMPLATES
+        qa_default = DEFAULT_PROMPT_TEMPLATES.get("qa", {})
+        return {
+            "template": {
+                "system_prompt": qa_default.get("system_prompt", ""),
+                "user_prompt_template": qa_default.get("user_prompt_template", ""),
+            },
+            "note": "using system default (no template in DB)",
+        }
+    t = template_row[0]
+    return {
+        "template": {
+            "id": str(t.id),
+            "brain_id": str(t.brain_id) if t.brain_id else None,
+            "name": t.name,
+            "description": t.description,
+            "system_prompt": t.system_prompt,
+            "user_prompt_template": t.user_prompt_template,
+        }
+    }
+
+
+@router.put("/qa-template")
+async def update_qa_template(body: TemplateUpdateRequest, db: AsyncSession = Depends(get_db)):
+    """更新默认 qa 模板"""
+    result = await db.execute(
+        select(PromptTemplate).where(
+            PromptTemplate.template_type == "qa",
+            PromptTemplate.is_default == True,
+        )
+    )
+    template = result.scalar_one_or_none()
+    if template is None:
+        template = PromptTemplate(
+            brain_id=None,
+            template_type="qa",
+            name="默认qa模板",
+            system_prompt=body.system_prompt,
+            user_prompt_template=body.user_prompt_template,
+            is_default=True,
+        )
+        db.add(template)
+    else:
+        template.system_prompt = body.system_prompt
+        template.user_prompt_template = body.user_prompt_template
+    await db.commit()
+    await db.refresh(template)
+    return {
+        "template": {
+            "id": str(template.id),
+            "system_prompt": template.system_prompt,
+            "user_prompt_template": template.user_prompt_template,
+        },
+        "message": "Template saved",
+    }
+
+
+@router.post("/qa-template/reset")
+async def reset_qa_template(db: AsyncSession = Depends(get_db)):
+    """恢复为系统默认 qa 模板"""
+    from app.api.brains import DEFAULT_PROMPT_TEMPLATES
+    qa_default = DEFAULT_PROMPT_TEMPLATES.get("qa", {})
+    result = await db.execute(
+        select(PromptTemplate).where(
+            PromptTemplate.template_type == "qa",
+            PromptTemplate.is_default == True,
+        )
+    )
+    template = result.scalar_one_or_none()
+    if template:
+        template.system_prompt = qa_default.get("system_prompt", "")
+        template.user_prompt_template = qa_default.get("user_prompt_template", "")
+    else:
+        template = PromptTemplate(
+            brain_id=None,
+            template_type="qa",
+            name="默认qa模板",
+            system_prompt=qa_default.get("system_prompt", ""),
+            user_prompt_template=qa_default.get("user_prompt_template", ""),
+            is_default=True,
+        )
+        db.add(template)
     await db.commit()
     await db.refresh(template)
     return {
@@ -1737,4 +1891,169 @@ async def generate_wrong_quiz(body: WrongQuizRequest, db: AsyncSession = Depends
         "questions": parsed_questions,
         "model": provider["model"],
         "mode": "wrong_quiz",
+    }
+
+
+# ── RAG 知识库问答 ──
+
+@router.post("/ask")
+async def rag_ask(body: AskRequest, db: AsyncSession = Depends(get_db)):
+    """RAG 知识库问答：向量检索 + LLM 生成答案
+
+    1. 将问题向量化
+    2. pgvector 检索 Top-K 相关 chunk
+    3. 加载 qa Prompt 模板
+    4. 调用 LLM 生成答案
+    5. 返回答案 + 引用来源
+    """
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="问题不能为空")
+
+    # 确定检索范围
+    content_ids = await _expand_scope(db, [], body.scope_type, body.scope_id)
+    if content_ids:
+        if not content_ids:
+            return {"answer": "所选范围内没有可用的内容", "sources": []}
+    else:
+        # 全部范围：获取所有未删除的 content_id
+        result = await db.execute(select(Content.id).where(Content.is_deleted == False))
+        content_ids = [r[0] for r in result.all()]
+
+    logger.info(f"[qa] question='{question[:60]}...', top_k={body.top_k}, scope={body.scope_type}, content_count={len(content_ids)}")
+
+    # 1. 问题向量化
+    from app.services.embedding import embed_texts
+    try:
+        vecs = await embed_texts(db, [question])
+    except Exception as e:
+        logger.warning(f"[qa] embedding failed: {e}")
+        return {"answer": "无法生成问题嵌入向量，请检查 embedding 配置", "sources": []}
+
+    query_vec = vecs[0] if vecs else None
+    if query_vec is None:
+        return {"answer": "嵌入向量生成失败，请检查 AI 提供商配置", "sources": []}
+
+    # 2. pgvector 检索
+    vec_str = f"[{','.join(str(v) for v in query_vec)}]"
+    if content_ids:
+        filter_clause = "cc.content_id = ANY(:content_ids) AND cc.chunk_type = 'text' AND cc.chunk_text IS NOT NULL AND cc.embedding IS NOT NULL AND c.is_deleted = false"
+        stmt = text(f"""
+            SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
+                   c.title AS content_title, c.content_type,
+                   1 - (cc.embedding <=> CAST(:query_vec AS vector)) AS score
+            FROM content_chunks cc
+            JOIN contents c ON cc.content_id = c.id
+            WHERE {filter_clause}
+            ORDER BY cc.embedding <=> CAST(:query_vec AS vector)
+            LIMIT :top_k
+        """)
+    else:
+        stmt = text("""
+            SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
+                   c.title AS content_title, c.content_type,
+                   1 - (cc.embedding <=> CAST(:query_vec AS vector)) AS score
+            FROM content_chunks cc
+            JOIN contents c ON cc.content_id = c.id
+            WHERE cc.chunk_type = 'text' AND cc.chunk_text IS NOT NULL
+              AND cc.embedding IS NOT NULL AND c.is_deleted = false
+            ORDER BY cc.embedding <=> CAST(:query_vec AS vector)
+            LIMIT :top_k
+        """)
+
+    params = {"query_vec": vec_str, "top_k": body.top_k}
+    if content_ids:
+        params["content_ids"] = [str(cid) for cid in content_ids]
+
+    try:
+        result = await db.execute(stmt, params)
+        rows = result.all()
+    except Exception as e:
+        logger.error(f"[qa] vector search failed: {e}")
+        return {"answer": "检索失败，请稍后重试", "sources": []}
+
+    if not rows:
+        return {"answer": "知识库中暂无相关信息，建议补充相关资料后重试", "sources": []}
+
+    # 3. 构建来源信息
+    sources = []
+    context_parts = []
+    for i, row in enumerate(rows):
+        chunk_id = str(row.id)
+        content_title = row.content_title or "无题内容"
+        page_info = f"，第{row.page_number}页" if row.page_number else ""
+        chunk_text = row.chunk_text or ""
+
+        sources.append({
+            "chunk_id": chunk_id,
+            "content_id": str(row.content_id),
+            "content_title": content_title,
+            "content_type": row.content_type or "",
+            "page_number": row.page_number,
+            "chunk_text": chunk_text[:300],  # 截断作为预览
+        })
+        context_parts.append(
+            f"[{i + 1}] 《{content_title}》{page_info}\n{chunk_text}"
+        )
+
+    context_combined = "\n\n---\n\n".join(context_parts)
+    logger.info(f"[qa] retrieved {len(rows)} chunks, context length={len(context_combined)}")
+
+    # 4. 获取 AI provider
+    provider = await _get_ai_provider(db, "qa")
+    if provider is None:
+        provider = await _get_ai_provider(db, "summarize")  # fallback to summarize provider
+    if provider is None:
+        return {"answer": "未配置 AI 提供商，请在设置中配置 LLM 服务", "sources": sources}
+
+    # 5. 加载 Prompt 模板
+    brain_id = None
+    if content_ids:
+        content_res = await db.execute(select(Content).where(Content.id == content_ids[0]))
+        content = content_res.scalar_one_or_none()
+        if content and content.brain_id:
+            brain_id = content.brain_id
+
+    template = await _get_or_create_qa_template(db, brain_id)
+    if template:
+        system_prompt = _render_template(template.system_prompt, {
+            "top_k": str(body.top_k),
+            "context": context_combined,
+            "question": question,
+        })
+        user_prompt = _render_template(template.user_prompt_template, {
+            "top_k": str(body.top_k),
+            "context": context_combined,
+            "question": question,
+        })
+        logger.info(f"[qa] using template: {template.name}")
+    else:
+        # 回退硬编码 Prompt
+        from app.api.brains import DEFAULT_PROMPT_TEMPLATES
+        qa_default = DEFAULT_PROMPT_TEMPLATES.get("qa", {})
+        system_prompt = qa_default.get("system_prompt", "你是一个知识库助手，基于检索内容回答用户问题。")
+        user_prompt = f"""=====检索到的相关内容（共 {body.top_k} 条）=====\n\n{context_combined}\n\n=====用户问题=====\n{question}\n\n请基于以上检索内容回答用户问题。"""
+
+    # 6. 调用 LLM
+    try:
+        client = AsyncOpenAI(api_key=provider["api_key"] or "no-key", base_url=provider["base_url"])
+        response = await client.chat.completions.create(
+            model=provider.get("model", "deepseek-chat"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=1000,
+            temperature=0.3,
+        )
+        answer = response.choices[0].message.content or "AI 未返回有效答案"
+    except Exception as e:
+        logger.error(f"[qa] LLM call failed: {e}")
+        return {"answer": f"AI 服务调用失败：{str(e)[:200]}", "sources": sources}
+
+    logger.info(f"[qa] answer generated, length={len(answer)}, sources={len(sources)}")
+    return {
+        "answer": answer,
+        "sources": sources,
+        "model": provider.get("model", "unknown"),
     }

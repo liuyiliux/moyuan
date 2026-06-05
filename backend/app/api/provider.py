@@ -31,6 +31,7 @@ DEFAULT_FUNCTION_BINDINGS: dict[str, FunctionBinding] = {
     "judge": FunctionBinding(function="judge"),
     "ocr": FunctionBinding(function="ocr"),
     "transcribe": FunctionBinding(function="transcribe"),
+    "qa": FunctionBinding(function="qa"),
 }
 
 

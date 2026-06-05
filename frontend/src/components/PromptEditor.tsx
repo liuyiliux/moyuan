@@ -9,25 +9,37 @@ interface TemplateData {
 
 interface Props {
   onClose: () => void;
+  templateType?: "quiz" | "qa";
 }
 
-const VARIABLES = [
+const QUIZ_VARIABLES = [
   { key: "sources", desc: "知识点原文" },
   { key: "distractors", desc: "干扰项素材" },
   { key: "question_count", desc: "题目数量" },
-  { key: "question_types", desc: "题型描述（如'单选题、多选题'）" },
-  { key: "mode_desc", desc: "出题模式描述（如'按主题「摄影」出题'）" },
+  { key: "question_types", desc: "题型描述" },
+  { key: "mode_desc", desc: "出题模式描述" },
   { key: "topic", desc: "主题关键词" },
 ];
 
-export default function PromptEditor({ onClose }: Props) {
+const QA_VARIABLES = [
+  { key: "question", desc: "用户问题" },
+  { key: "context", desc: "检索到的知识库内容" },
+  { key: "top_k", desc: "检索结果数量" },
+];
+
+export default function PromptEditor({ onClose, templateType = "quiz" }: Props) {
+  const type = templateType; // alias for readability
+  const VARIABLES = type === "qa" ? QA_VARIABLES : QUIZ_VARIABLES;
+  const apiPrefix = type === "qa" ? "qa" : "quiz";
+  const title = type === "qa" ? "编辑问答 Prompt" : "编辑出题 Prompt";
+
   const [template, setTemplate] = useState<TemplateData>({ system_prompt: "", user_prompt_template: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    fetch("/api/ai/quiz-template")
+    fetch(`/api/ai/${apiPrefix}-template`)
       .then(r => r.json())
       .then(data => {
         setTemplate(data.template || { system_prompt: "", user_prompt_template: "" });
@@ -40,7 +52,7 @@ export default function PromptEditor({ onClose }: Props) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/ai/quiz-template", {
+      const res = await fetch(`/api/ai/${apiPrefix}-template`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -60,7 +72,7 @@ export default function PromptEditor({ onClose }: Props) {
   const handleReset = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/ai/quiz-template/reset", { method: "POST" });
+      const res = await fetch(`/api/ai/${apiPrefix}-template/reset`, { method: "POST" });
       const data = await res.json();
       setTemplate(data.template || { system_prompt: "", user_prompt_template: "" });
       setMessage(data.message || "已恢复默认");
@@ -88,7 +100,7 @@ export default function PromptEditor({ onClose }: Props) {
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">编辑出题 Prompt</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h3>
           <button
             onClick={onClose}
             className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-lg leading-none"
@@ -119,7 +131,7 @@ export default function PromptEditor({ onClose }: Props) {
           <textarea
             value={template.system_prompt}
             onChange={e => setTemplate(prev => ({ ...prev, system_prompt: e.target.value }))}
-            rows={10}
+            rows={14}
             className="w-full text-xs border border-[var(--border-subtle)] dark:border-zinc-600 rounded-lg px-3 py-2 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)] font-mono resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
         </div>
@@ -130,7 +142,7 @@ export default function PromptEditor({ onClose }: Props) {
           <textarea
             value={template.user_prompt_template}
             onChange={e => setTemplate(prev => ({ ...prev, user_prompt_template: e.target.value }))}
-            rows={8}
+            rows={10}
             className="w-full text-xs border border-[var(--border-subtle)] dark:border-zinc-600 rounded-lg px-3 py-2 bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)] font-mono resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
         </div>
