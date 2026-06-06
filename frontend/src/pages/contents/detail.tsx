@@ -1184,6 +1184,7 @@ export default function ContentsDetail() {
                     </p>
                   )}
                 </div>
+              </div>
               )}
             </div>
 
