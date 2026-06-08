@@ -18,6 +18,14 @@ export default function BrainSwitcher() {
   }, []);
 
   useEffect(() => {
+    const handleBrainsUpdated = () => {
+      void loadBrains();
+    };
+    window.addEventListener("brains-updated", handleBrainsUpdated);
+    return () => window.removeEventListener("brains-updated", handleBrainsUpdated);
+  }, []);
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);

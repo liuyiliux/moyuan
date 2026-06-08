@@ -13,7 +13,13 @@ import {
   RotateCcw,
   Sparkles,
 } from "lucide-react";
-import { contentApi, fileApi, type ProcessingCenterItem, type ProcessingCenterResponse } from "../../api/content";
+import {
+  contentApi,
+  fileApi,
+  type ProcessingCenterAction,
+  type ProcessingCenterItem,
+  type ProcessingCenterResponse,
+} from "../../api/content";
 import { useBrain } from "../../lib/brain-context";
 
 type ProcessingGroup = "active" | "needs_action" | "failed" | "done" | "all";
@@ -140,6 +146,9 @@ export default function ProcessingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [bulkAction, setBulkAction] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -162,6 +171,14 @@ export default function ProcessingPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const timer = window.setInterval(() => {
+      void load();
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, load]);
 
   useEffect(() => {
     setPage(1);
@@ -196,6 +213,29 @@ export default function ProcessingPage() {
     }
   };
 
+  const handleBulkAction = async (action: ProcessingCenterAction) => {
+    setBulkAction(action);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await contentApi.runProcessingCenterAction(action, currentBrainId);
+      if (action === "reset_stuck_embeddings") {
+        setNotice(`已重置 ${result.reset} 个卡住的嵌入任务`);
+      } else if (action === "cancel_queued") {
+        setNotice(`已取消 ${result.cancelled} 个排队任务`);
+      } else if (action === "clear_finished_tasks") {
+        setNotice(`已清理 ${result.cleared} 条历史任务`);
+      } else {
+        setNotice(`已入队 ${result.queued} 个内容`);
+      }
+      await load();
+    } catch (e) {
+      setError((e as Error).message || "批量操作失败");
+    } finally {
+      setBulkAction(null);
+    }
+  };
+
   return (
     <div className="min-h-screen">
       <div className="max-w-6xl mx-auto px-6 py-8">
@@ -209,14 +249,25 @@ export default function ProcessingPage() {
             </div>
             <p className="mt-2 text-sm text-[var(--text-muted)]">查看解析、切块、嵌入和失败重试状态</p>
           </div>
-          <button
-            onClick={() => void load()}
-            disabled={loading}
-            className="dao-btn dao-btn-secondary text-sm inline-flex items-center gap-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-            刷新
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => void load()}
+              disabled={loading}
+              className="dao-btn dao-btn-secondary text-sm inline-flex items-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              刷新
+            </button>
+            <button
+              onClick={() => setAutoRefresh((value) => !value)}
+              className={`dao-btn text-sm inline-flex items-center gap-2 ${
+                autoRefresh ? "dao-btn-primary" : "dao-btn-secondary"
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              {autoRefresh ? "自动刷新中" : "自动刷新"}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
@@ -247,6 +298,53 @@ export default function ProcessingPage() {
             <div className="text-xs text-[var(--text-muted)]">
               任务：排队 {data?.tasks.queued ?? 0} / 处理中 {data?.tasks.processing ?? 0} / 失败 {data?.tasks.failed ?? 0}
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]/40">
+            <button
+              onClick={() => void handleBulkAction("retry_failed")}
+              disabled={!!bulkAction || (data?.summary.failed ?? 0) === 0}
+              className="dao-btn dao-btn-secondary text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {bulkAction === "retry_failed" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+              重试失败
+            </button>
+            <button
+              onClick={() => void handleBulkAction("embed_ready")}
+              disabled={!!bulkAction || ((data?.summary.by_status.chunked ?? 0) + (data?.summary.by_status.partial ?? 0)) === 0}
+              className="dao-btn dao-btn-secondary text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {bulkAction === "embed_ready" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              嵌入待处理
+            </button>
+            <button
+              onClick={() => void handleBulkAction("reset_stuck_embeddings")}
+              disabled={!!bulkAction || (data?.summary.by_status.embedding ?? 0) === 0}
+              className="dao-btn dao-btn-ghost text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {bulkAction === "reset_stuck_embeddings" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+              重置卡住
+            </button>
+            <button
+              onClick={() => void handleBulkAction("cancel_queued")}
+              disabled={!!bulkAction || (data?.tasks.queued ?? 0) === 0}
+              className="dao-btn dao-btn-ghost text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {bulkAction === "cancel_queued" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+              取消排队
+            </button>
+            <button
+              onClick={() => void handleBulkAction("clear_finished_tasks")}
+              disabled={
+                !!bulkAction ||
+                ((data?.tasks.completed ?? 0) + (data?.tasks.failed ?? 0) + (data?.tasks.cancelled ?? 0)) === 0
+              }
+              className="dao-btn dao-btn-ghost text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {bulkAction === "clear_finished_tasks" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              清理历史
+            </button>
+            {notice && <span className="text-xs text-emerald-600 dark:text-emerald-300">{notice}</span>}
           </div>
 
           {error && (
@@ -289,6 +387,22 @@ export default function ProcessingPage() {
                         <div className="mt-2 flex items-start gap-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300">
                           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                           <span className="break-words">{shortError(item.processing_error || item.latest_task?.error_message || "")}</span>
+                        </div>
+                      )}
+                      {item.recent_tasks.length > 0 && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-[var(--text-muted)]">任务时间线</span>
+                          {item.recent_tasks.map((task) => (
+                            <span
+                              key={task.id}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${statusClass(task.status)}`}
+                              title={formatDate(task.created_at)}
+                            >
+                              {task.task_type}
+                              <span>{statusLabels[task.status] || task.status}</span>
+                              {task.progress > 0 && task.progress < 100 && <span>{task.progress}%</span>}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>

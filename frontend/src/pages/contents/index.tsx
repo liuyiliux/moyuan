@@ -35,6 +35,8 @@ const STUDY_FILTERS = [
   { value: "completed", label: "已学完" },
 ] as const;
 
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+
 type StudyFilter = typeof STUDY_FILTERS[number]["value"];
 type StudyStatusValue = Exclude<StudyFilter, "">;
 type ToastState = { type: "success" | "error" | "info"; message: string };
@@ -86,12 +88,14 @@ export default function ContentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const categoryId = searchParams.get("category_id") || "";
+  const importBatchId = searchParams.get("import_batch_id") || "";
   const [categoryName, setCategoryName] = useState("");
   const [typeFilter, setTypeFilter] = useState(() => normalizeTypeFilter(searchParams.get("type")));
   const [studyFilter, setStudyFilter] = useState<StudyFilter>(() => normalizeStudyFilter(searchParams.get("study_status")));
   const [retryOnly, setRetryOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
   const [refreshKey, setRefreshKey] = useState(0);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [showUpload, setShowUpload] = useState(false);
@@ -123,10 +127,16 @@ export default function ContentsPage() {
   const [batchStudyUpdating, setBatchStudyUpdating] = useState<StudyStatusValue | null>(null);
   const [studyMenuOpen, setStudyMenuOpen] = useState(false);
 
-  const PAGE_SIZE = 20;
-
   function showToast(type: ToastState["type"], message: string) {
     setToast({ type, message });
+  }
+
+  function updatePageSize(value: number) {
+    const nextPageSize = PAGE_SIZE_OPTIONS.includes(value as (typeof PAGE_SIZE_OPTIONS)[number])
+      ? (value as (typeof PAGE_SIZE_OPTIONS)[number])
+      : 20;
+    setPageSize(nextPageSize);
+    setPage(1);
   }
 
   function updateStudyFilter(value: StudyFilter) {
@@ -163,6 +173,7 @@ export default function ContentsPage() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("type");
     nextParams.delete("study_status");
+    nextParams.delete("import_batch_id");
     setSearchParams(nextParams, { replace: true });
   }
 
@@ -174,10 +185,11 @@ export default function ContentsPage() {
         content_type: typeFilter || undefined,
         brain_id: currentBrainId || undefined,
         category_id: categoryId || undefined,
+        import_batch_id: importBatchId || undefined,
         processing_status: retryOnly ? "failed" : undefined,
         study_status: studyFilter || undefined,
         page,
-        page_size: PAGE_SIZE,
+        page_size: pageSize,
       });
       const sorted = [...(res.items || [])].sort((a, b) => {
         if (a.is_pinned && !b.is_pinned) return -1;
@@ -203,7 +215,7 @@ export default function ContentsPage() {
 
   useEffect(() => {
     load();
-  }, [typeFilter, studyFilter, retryOnly, page, categoryId, currentBrainId, refreshKey]);
+  }, [typeFilter, studyFilter, retryOnly, page, pageSize, categoryId, importBatchId, currentBrainId, refreshKey]);
 
   useEffect(() => {
     const nextTypeFilter = normalizeTypeFilter(searchParams.get("type"));
@@ -240,6 +252,13 @@ export default function ContentsPage() {
   function clearCategoryFilter() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("category_id");
+    const qs = nextParams.toString();
+    navigate(`/contents${qs ? `?${qs}` : ""}`);
+  }
+
+  function clearImportBatchFilter() {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("import_batch_id");
     const qs = nextParams.toString();
     navigate(`/contents${qs ? `?${qs}` : ""}`);
   }
@@ -495,7 +514,7 @@ export default function ContentsPage() {
     }
   }
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+  const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
   const selectedItems = data?.items.filter(item => selectedIds.includes(item.id)) || [];
   const chunkableIds = selectedItems
     .filter(item => {
@@ -780,6 +799,21 @@ export default function ContentsPage() {
             onClick={clearCategoryFilter}
             className="p-1 rounded-full text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors"
             title={ct.clearCategoryFilter}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {importBatchId && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--accent-soft)] text-[var(--accent-text)] font-medium">
+            导入批次：{importBatchId}
+          </span>
+          <button
+            onClick={clearImportBatchFilter}
+            className="p-1 rounded-full text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors"
+            title="清除批次筛选"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -1158,25 +1192,42 @@ export default function ContentsPage() {
         </div>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-8">
-          <Button 
-            variant="secondary"
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page <= 1}
-          >
-            上卷
-          </Button>
-          <span className="text-sm text-text-secondary px-2 tabular-nums">
-            第 {page} / {totalPages} 卷
+      {data && data.total > 0 && (
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              上卷
+            </Button>
+            <span className="text-sm text-text-secondary px-2 tabular-nums">
+              第 {page} / {Math.max(1, totalPages)} 卷
+            </span>
+            <Button
+              variant="secondary"
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              下卷
+            </Button>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-text-secondary">
+            每卷
+            <select
+              value={pageSize}
+              onChange={(event) => updatePageSize(Number(event.target.value))}
+              className="dao-input h-9 w-24 text-sm"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size} 条</option>
+              ))}
+            </select>
+          </label>
+          <span className="text-xs text-text-muted tabular-nums">
+            共 {data.total} 条
           </span>
-          <Button 
-            variant="secondary"
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-          >
-            下卷
-          </Button>
         </div>
       )}
 

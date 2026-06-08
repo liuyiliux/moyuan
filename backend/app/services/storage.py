@@ -216,3 +216,89 @@ class StorageService:
             "errors": errors[:20],
             "note": "Files were copied to the new storage path. Original files were kept in place.",
         }
+
+    @staticmethod
+    async def cleanup_orphan_files(db: AsyncSession, *, dry_run: bool = True) -> dict:
+        """Find or delete files under storage root that are not referenced by DB rows."""
+        root = resolve_storage_root().resolve()
+        if not root.exists():
+            return {
+                "status": "ok",
+                "storage_root": str(root),
+                "dry_run": dry_run,
+                "orphan_count": 0,
+                "orphan_bytes": 0,
+                "deleted_count": 0,
+                "deleted_bytes": 0,
+                "errors": [],
+                "samples": [],
+            }
+
+        referenced: set[str] = set()
+        contents_result = await db.execute(
+            select(Content.file_path).where(Content.file_path.is_not(None))
+        )
+        for (file_path,) in contents_result.all():
+            normalized = StorageService._relative_storage_path(file_path, root)
+            if normalized:
+                referenced.add(normalized)
+
+        chunks_result = await db.execute(
+            select(ContentChunk.image_path).where(ContentChunk.image_path.is_not(None))
+        )
+        for (image_path,) in chunks_result.all():
+            normalized = StorageService._relative_storage_path(image_path, root)
+            if normalized:
+                referenced.add(normalized)
+
+        orphan_count = orphan_bytes = deleted_count = deleted_bytes = 0
+        errors: list[dict] = []
+        samples: list[dict] = []
+
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                rel = path.resolve().relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if rel in referenced:
+                continue
+
+            size = path.stat().st_size
+            orphan_count += 1
+            orphan_bytes += size
+            if len(samples) < 20:
+                samples.append({"path": rel, "size": size})
+
+            if dry_run:
+                continue
+            try:
+                path.unlink()
+                deleted_count += 1
+                deleted_bytes += size
+            except OSError as exc:
+                errors.append({"path": rel, "error": str(exc)})
+
+        if not dry_run:
+            for directory in sorted(
+                (p for p in root.rglob("*") if p.is_dir()),
+                key=lambda p: len(p.parts),
+                reverse=True,
+            ):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
+
+        return {
+            "status": "ok",
+            "storage_root": str(root),
+            "dry_run": dry_run,
+            "orphan_count": orphan_count,
+            "orphan_bytes": orphan_bytes,
+            "deleted_count": deleted_count,
+            "deleted_bytes": deleted_bytes,
+            "errors": errors[:20],
+            "samples": samples,
+        }

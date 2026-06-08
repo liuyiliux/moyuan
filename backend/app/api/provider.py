@@ -41,14 +41,14 @@ DEFAULT_FUNCTION_BINDINGS: dict[str, FunctionBinding] = {
 }
 
 FUNCTION_LABELS: dict[str, str] = {
-    "summarize": "Summarization",
-    "embedding": "Embeddings",
-    "chunking": "Semantic chunking",
-    "quiz": "Quiz generation",
-    "judge": "Answer judging",
-    "ocr": "Image OCR",
-    "transcribe": "Audio/video transcription",
-    "qa": "Knowledge Q&A",
+    "summarize": "摘要生成",
+    "embedding": "嵌入向量",
+    "chunking": "智能分块",
+    "quiz": "题库生成",
+    "judge": "答题判断",
+    "ocr": "图文识别",
+    "transcribe": "语音转写",
+    "qa": "知识问答",
 }
 
 REQUIRED_MODEL_FUNCTIONS = {"summarize", "embedding", "chunking", "quiz", "judge", "ocr", "transcribe", "qa"}
@@ -114,28 +114,28 @@ async def get_provider_diagnostics(db: AsyncSession = Depends(get_db)):
     checks = [
         package_check(
             "trafilatura",
-            "Web text extraction",
+            "网页正文提取",
             "trafilatura",
-            "Install trafilatura to extract readable article text from web pages.",
+            "请安装 trafilatura，用于从网页中提取可阅读正文。",
         ),
         package_check(
             "playwright",
-            "Web screenshots",
+            "网页截图",
             "playwright",
-            "Install Playwright and browser binaries to capture web page screenshots.",
+            "请安装 Playwright 和浏览器运行时，用于采集网页截图。",
         ),
         package_check(
             "faster_whisper",
-            "Local transcription",
+            "本地语音转写",
             "faster_whisper",
-            "Install faster-whisper to use local audio/video transcription.",
+            "请安装 faster-whisper，用于本地音视频转写。",
         ),
         RuntimeCheck(
             key="ffmpeg",
-            label="Video screenshots",
+            label="视频截图",
             ok=ffmpeg_path is not None,
             status="available" if ffmpeg_path else "missing",
-            detail=None if ffmpeg_path else "Install ffmpeg and add it to PATH to capture video frames.",
+            detail=None if ffmpeg_path else "请安装 ffmpeg 并加入 PATH，用于截取视频画面。",
         ),
     ]
 
@@ -145,13 +145,13 @@ async def get_provider_diagnostics(db: AsyncSession = Depends(get_db)):
         ok = bool(provider and provider.is_active and (binding.model or fn not in REQUIRED_MODEL_FUNCTIONS))
         detail = None
         if not binding.provider_id:
-            detail = "No provider selected."
+            detail = "未选择服务提供商。"
         elif provider is None:
-            detail = "Selected provider no longer exists."
+            detail = "选择的服务提供商已不存在。"
         elif not provider.is_active:
-            detail = "Selected provider is disabled."
+            detail = "选择的服务提供商已停用。"
         elif fn in REQUIRED_MODEL_FUNCTIONS and not binding.model:
-            detail = "No model configured for this function."
+            detail = "该功能未配置模型。"
 
         diagnostics.append(
             ProviderBindingDiagnostic(

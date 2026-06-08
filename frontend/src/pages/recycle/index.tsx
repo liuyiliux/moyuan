@@ -24,6 +24,8 @@ const TYPE_FILTERS = [
   { value: "web", label: "网页" },
 ] as const;
 
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+
 // ── Icon Mapping ──
 
 const TYPE_ICON_MAP: Record<string, React.ReactNode> = {
@@ -74,6 +76,7 @@ export default function RecyclePage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
@@ -90,15 +93,16 @@ export default function RecyclePage() {
     item: DeletedItem | null;
   }>({ open: false, type: "restore", item: null });
 
-  const PAGE_SIZE = 20;
-
   // ── Load Data ──
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fileApi.getDeleted(page, PAGE_SIZE, currentBrainId);
+      const res = await fileApi.getDeleted(page, pageSize, currentBrainId, {
+        content_type: typeFilter || undefined,
+        q: search.trim() || undefined,
+      });
       setItems(res.items);
       setTotal(res.total);
       setSelectedIds([]);
@@ -107,22 +111,13 @@ export default function RecyclePage() {
     } finally {
       setLoading(false);
     }
-  }, [page, currentBrainId]);
+  }, [page, pageSize, currentBrainId, typeFilter, search]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // ── Filtered Items (client-side search) ──
-
-  const filteredItems = items.filter((item) => {
-    if (typeFilter && item.content_type !== typeFilter) return false;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      return item.title.toLowerCase().includes(searchLower);
-    }
-    return true;
-  });
+  const filteredItems = items;
 
   // ── Selection ──
 
@@ -135,11 +130,19 @@ export default function RecyclePage() {
   }
 
   function toggleSelectAll() {
-    if (selectedIds.length === filteredItems.length) {
+    if (filteredItems.length > 0 && filteredItems.every((item) => selectedIds.includes(item.id))) {
       setSelectedIds([]);
     } else {
       setSelectedIds(filteredItems.map(item => item.id));
     }
+  }
+
+  function updatePageSize(value: number) {
+    const nextPageSize = PAGE_SIZE_OPTIONS.includes(value as (typeof PAGE_SIZE_OPTIONS)[number])
+      ? (value as (typeof PAGE_SIZE_OPTIONS)[number])
+      : 20;
+    setPageSize(nextPageSize);
+    setPage(1);
   }
 
   // ── Actions ──
@@ -207,7 +210,7 @@ export default function RecyclePage() {
 
   // ── Pagination ──
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
@@ -270,7 +273,10 @@ export default function RecyclePage() {
             type="text"
             placeholder={rt.searchPlaceholder}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             className="dao-input w-48 pl-9"
           />
         </div>
@@ -314,6 +320,22 @@ export default function RecyclePage() {
       {/* List */}
       {!loading && !error && filteredItems.length > 0 && (
         <div className="border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)]">
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--jade)] transition-colors"
+            >
+              {filteredItems.length > 0 && filteredItems.every((item) => selectedIds.includes(item.id)) ? (
+                <CheckSquare className="w-4 h-4" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
+              {filteredItems.length > 0 && filteredItems.every((item) => selectedIds.includes(item.id)) ? "取消全选本页" : "全选本页"}
+            </button>
+            <span className="text-xs text-[var(--text-muted)]">
+              已选择 {selectedIds.length} / 本页 {filteredItems.length} 项
+            </span>
+          </div>
           <div className="divide-y divide-[var(--border-subtle)]">
             {filteredItems.map((item) => (
               <div
@@ -380,40 +402,57 @@ export default function RecyclePage() {
               onClick={toggleSelectAll}
               className="flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--jade)] transition-colors"
             >
-              {selectedIds.length === filteredItems.length ? (
+              {filteredItems.length > 0 && filteredItems.every((item) => selectedIds.includes(item.id)) ? (
                 <CheckSquare className="w-4 h-4" />
               ) : (
                 <Square className="w-4 h-4" />
               )}
-              {selectedIds.length === filteredItems.length ? "取消全选" : "全选"}
+              {filteredItems.length > 0 && filteredItems.every((item) => selectedIds.includes(item.id)) ? "取消全选本页" : "全选本页"}
             </button>
             <span className="text-xs text-[var(--text-muted)]">
-              已选择 {selectedIds.length} / {filteredItems.length} 项
+              已选择 {selectedIds.length} / 本页 {filteredItems.length} 项
             </span>
           </div>
         </div>
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-8">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="px-3 py-1.5 text-sm border border-[var(--border-subtle)] rounded-lg disabled:opacity-40 hover:bg-[var(--bg-secondary)] transition-colors"
-          >
-            上一页
-          </button>
-          <span className="text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] px-2">
-            {page} / {totalPages}
+      {total > 0 && (
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1.5 text-sm border border-[var(--border-subtle)] rounded-lg disabled:opacity-40 hover:bg-[var(--bg-secondary)] transition-colors"
+            >
+              上一页
+            </button>
+            <span className="text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] px-2 tabular-nums">
+              {page} / {Math.max(1, totalPages)}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="px-3 py-1.5 text-sm border border-[var(--border-subtle)] rounded-lg disabled:opacity-40 hover:bg-[var(--bg-secondary)] transition-colors"
+            >
+              下一页
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            每页
+            <select
+              value={pageSize}
+              onChange={(event) => updatePageSize(Number(event.target.value))}
+              className="dao-input h-9 w-24 text-sm"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size} 条</option>
+              ))}
+            </select>
+          </label>
+          <span className="text-xs text-[var(--text-muted)] tabular-nums">
+            共 {total} 项
           </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-            className="px-3 py-1.5 text-sm border border-[var(--border-subtle)] rounded-lg disabled:opacity-40 hover:bg-[var(--bg-secondary)] transition-colors"
-          >
-            下一页
-          </button>
         </div>
       )}
 

@@ -110,6 +110,12 @@ async def upload_file(
     overwrite_content_id: str | None = Form(None),
     import_relative_path: str | None = Form(None),
     import_batch_id: str | None = Form(None),
+    title_override: str | None = Form(None),
+    text_content: str | None = Form(None),
+    subtitle_path: str | None = Form(None),
+    danmaku_path: str | None = Form(None),
+    course_index: int | None = Form(None),
+    course_import: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ):
     """上传文件，支持覆盖已有内容"""
@@ -142,6 +148,15 @@ async def upload_file(
             brain_id=brain_uuid,
             import_relative_path=import_relative_path,
             import_batch_id=import_batch_id,
+            title_override=title_override,
+            text_content=text_content,
+            extra_meta_patch={
+                "course_import": course_import or None,
+                "course_index": course_index,
+                "subtitle_path": subtitle_path,
+                "subtitle_source": "srt" if text_content else None,
+                "danmaku_path": danmaku_path,
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -236,6 +251,7 @@ async def list_files(
     processing_status: str | None = Query(None),
     study_status: str | None = Query(None),
     q: str | None = Query(None),
+    import_batch_id: str | None = Query(None),
     is_deleted: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -255,6 +271,7 @@ async def list_files(
         processing_status=processing_status,
         study_status=study_status,
         q=q,
+        import_batch_id=import_batch_id,
         is_deleted=is_deleted,
         page=page,
         page_size=page_size,
@@ -312,11 +329,35 @@ recycle_router = APIRouter(prefix="/api/recycle", tags=["recycle"])
 
 
 async def _delete_content_record(content, db: AsyncSession) -> bool:
-    from sqlalchemy import select
+    from sqlalchemy import delete, or_, select
     from app.core.config import get_settings
-    from app.models.models import Content
+    from app.models.models import (
+        Annotation,
+        CollectionItem,
+        Content,
+        ContentCategory,
+        ContentChunk,
+        ContentRelation,
+        ContentTag,
+        ProcessingTask,
+    )
 
     removed_file = False
+    storage_root = Path(get_settings().file_storage_root).resolve()
+
+    def remove_storage_file(path_value: str | None) -> bool:
+        if not path_value:
+            return False
+        file_path = (storage_root / path_value).resolve()
+        try:
+            file_path.relative_to(storage_root)
+        except ValueError:
+            return False
+        if file_path.exists():
+            file_path.unlink()
+            return True
+        return False
+
     file_path_value = content.file_path
     if file_path_value:
         references = await db.execute(
@@ -326,17 +367,37 @@ async def _delete_content_record(content, db: AsyncSession) -> bool:
             ).limit(1)
         )
         if references.scalar_one_or_none() is None:
-            file_path = Path(get_settings().file_storage_root) / file_path_value
-            if file_path.exists():
-                file_path.unlink()
-                removed_file = True
+            removed_file = remove_storage_file(file_path_value) or removed_file
+
+    chunk_paths_result = await db.execute(
+        select(ContentChunk.image_path)
+        .where(ContentChunk.content_id == content.id, ContentChunk.image_path.isnot(None))
+        .distinct()
+    )
+    for (image_path,) in chunk_paths_result.all():
+        references = await db.execute(
+            select(ContentChunk.id).where(
+                ContentChunk.content_id != content.id,
+                ContentChunk.image_path == image_path,
+            ).limit(1)
+        )
+        if references.scalar_one_or_none() is None:
+            removed_file = remove_storage_file(image_path) or removed_file
+
+    await db.execute(delete(ProcessingTask).where(ProcessingTask.content_id == content.id))
+    await db.execute(delete(Annotation).where(Annotation.content_id == content.id))
+    await db.execute(delete(ContentRelation).where(or_(ContentRelation.source_id == content.id, ContentRelation.target_id == content.id)))
+    await db.execute(delete(ContentTag).where(ContentTag.content_id == content.id))
+    await db.execute(delete(ContentCategory).where(ContentCategory.content_id == content.id))
+    await db.execute(delete(CollectionItem).where(CollectionItem.content_id == content.id))
+    await db.execute(delete(ContentChunk).where(ContentChunk.content_id == content.id))
 
     await db.delete(content)
     return removed_file
 
 
 async def cleanup_expired_recycle_items(db: AsyncSession, *, now: datetime | None = None) -> dict:
-    from sqlalchemy import select
+    from sqlalchemy import func, select
     from app.models.models import Content
 
     cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=30)
@@ -423,6 +484,16 @@ async def migrate_storage_files(
         return await StorageService.migrate_files(db=db, new_root=path, old_root=old_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@storage_router.post("/orphan-files/cleanup", response_model=dict)
+async def cleanup_orphan_storage_files(
+    dry_run: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.storage import StorageService
+
+    return await StorageService.cleanup_orphan_files(db=db, dry_run=dry_run)
 
 
 @storage_router.get("/stats", response_model=dict)
@@ -804,6 +875,12 @@ PROCESSING_CENTER_GROUPS = {
 }
 
 
+class ProcessingCenterActionRequest(BaseModel):
+    action: str  # retry_failed, embed_ready, reset_stuck_embeddings, cancel_queued, clear_finished_tasks
+    brain_id: str | None = None
+    limit: int = 100
+
+
 @contents_router.get("/processing-center", response_model=dict)
 async def get_processing_center(
     brain_id: str | None = Query(None),
@@ -894,7 +971,7 @@ async def get_processing_center(
     rows = rows_result.all()
     content_ids = [row.id for row in rows]
 
-    latest_tasks: dict[uuid.UUID, dict] = {}
+    task_history: dict[uuid.UUID, list[dict]] = {}
     if content_ids:
         task_rows = await db.execute(
             select(ProcessingTask)
@@ -902,9 +979,10 @@ async def get_processing_center(
             .order_by(ProcessingTask.content_id, desc(ProcessingTask.created_at))
         )
         for task in task_rows.scalars().all():
-            if task.content_id in latest_tasks:
+            history = task_history.setdefault(task.content_id, [])
+            if len(history) >= 3:
                 continue
-            latest_tasks[task.content_id] = {
+            history.append({
                 "id": str(task.id),
                 "task_type": task.task_type,
                 "status": task.status,
@@ -914,7 +992,7 @@ async def get_processing_center(
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "started_at": task.started_at.isoformat() if task.started_at else None,
                 "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-            }
+            })
 
     return {
         "queue_size": await get_queue_size(),
@@ -934,13 +1012,145 @@ async def get_processing_center(
                 "embedded_chunks": row.embedded_chunks or 0,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-                "latest_task": latest_tasks.get(row.id),
+                "latest_task": (task_history.get(row.id) or [None])[0],
+                "recent_tasks": task_history.get(row.id, []),
             }
             for row in rows
         ],
         "total": total,
         "page": page,
         "page_size": page_size,
+    }
+
+
+@contents_router.post("/processing-center/actions", response_model=dict)
+async def run_processing_center_action(
+    body: ProcessingCenterActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """处理状态中心批量动作。"""
+    from sqlalchemy import func, select
+    from app.models.models import Content, ProcessingTask
+    from app.services.task_queue import enqueue, get_queue_size
+
+    valid_actions = {"retry_failed", "embed_ready", "reset_stuck_embeddings", "cancel_queued", "clear_finished_tasks"}
+    if body.action not in valid_actions:
+        raise HTTPException(status_code=400, detail=f"Invalid action: {body.action}")
+    if body.limit < 1 or body.limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+
+    brain_uuid = _parse_brain_uuid(body.brain_id)
+    await _ensure_brain_exists(db, brain_uuid)
+
+    conditions = [Content.is_deleted == False]
+    if brain_uuid:
+        conditions.append(Content.brain_id == brain_uuid)
+
+    queued = 0
+    reset = 0
+    cancelled = 0
+    cleared = 0
+    affected_ids: list[str] = []
+
+    if body.action == "retry_failed":
+        result = await db.execute(
+            select(Content)
+            .where(*conditions, Content.processing_status == "failed")
+            .order_by(Content.updated_at.desc(), Content.created_at.desc())
+            .limit(body.limit)
+        )
+        for content in result.scalars().all():
+            await enqueue(str(content.id), task_type="parse", priority=1, db=db)
+            queued += 1
+            affected_ids.append(str(content.id))
+
+    elif body.action == "embed_ready":
+        result = await db.execute(
+            select(Content)
+            .where(*conditions, Content.processing_status.in_(["chunked", "partial"]))
+            .order_by(Content.updated_at.desc(), Content.created_at.desc())
+            .limit(body.limit)
+        )
+        for content in result.scalars().all():
+            await enqueue(str(content.id), task_type="embed", priority=1, db=db)
+            queued += 1
+            affected_ids.append(str(content.id))
+
+    elif body.action == "reset_stuck_embeddings":
+        server_now = (await db.execute(select(func.now()))).scalar()
+        cutoff = server_now - timedelta(minutes=30)
+        result = await db.execute(
+            select(Content)
+            .where(*conditions, Content.processing_status == "embedding", Content.updated_at < cutoff)
+            .order_by(Content.updated_at.asc())
+            .limit(body.limit)
+        )
+        stuck_contents = result.scalars().all()
+        for content in stuck_contents:
+            content.processing_status = "failed"
+            content.processing_error = "长时间停留在 embedding，自动回滚为 failed"
+            affected_ids.append(str(content.id))
+        if stuck_contents:
+            stuck_ids = [content.id for content in stuck_contents]
+            task_result = await db.execute(
+                select(ProcessingTask).where(
+                    ProcessingTask.content_id.in_(stuck_ids),
+                    ProcessingTask.task_type == "embed",
+                    ProcessingTask.status.in_(["queued", "processing"]),
+                )
+            )
+            for task in task_result.scalars().all():
+                task.status = "failed"
+                task.error_message = "长时间停留在 embedding，自动回滚为 failed"
+        reset = len(stuck_contents)
+
+    elif body.action == "cancel_queued":
+        result = await db.execute(
+            select(ProcessingTask, Content)
+            .join(Content, Content.id == ProcessingTask.content_id)
+            .where(
+                *conditions,
+                ProcessingTask.status == "queued",
+            )
+            .order_by(ProcessingTask.created_at.asc())
+            .limit(body.limit)
+        )
+        for task, content in result.all():
+            task.status = "cancelled"
+            if task.task_type == "embed":
+                content.processing_status = "chunked"
+            else:
+                content.processing_status = "pending"
+            content.processing_error = None
+            cancelled += 1
+            affected_ids.append(str(content.id))
+
+    elif body.action == "clear_finished_tasks":
+        result = await db.execute(
+            select(ProcessingTask)
+            .join(Content, Content.id == ProcessingTask.content_id)
+            .where(
+                *conditions,
+                ProcessingTask.status.in_(["completed", "failed", "cancelled"]),
+            )
+            .order_by(ProcessingTask.created_at.asc())
+            .limit(body.limit)
+        )
+        tasks = result.scalars().all()
+        for task in tasks:
+            await db.delete(task)
+        cleared = len(tasks)
+
+    await db.commit()
+    return {
+        "status": "ok",
+        "action": body.action,
+        "queued": queued,
+        "reset": reset,
+        "cancelled": cancelled,
+        "cleared": cleared,
+        "affected_ids": affected_ids,
+        "queue_size": await get_queue_size(),
     }
 
 

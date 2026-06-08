@@ -134,6 +134,7 @@ export interface ProcessingCenterItem {
   created_at: string | null;
   updated_at: string | null;
   latest_task: ProcessingTaskSnapshot | null;
+  recent_tasks: ProcessingTaskSnapshot[];
 }
 
 export interface ProcessingCenterResponse {
@@ -153,6 +154,24 @@ export interface ProcessingCenterResponse {
   page_size: number;
 }
 
+export interface ProcessingCenterActionResponse {
+  status: string;
+  action: ProcessingCenterAction;
+  queued: number;
+  reset: number;
+  cancelled: number;
+  cleared: number;
+  affected_ids: string[];
+  queue_size: number;
+}
+
+export type ProcessingCenterAction =
+  | "retry_failed"
+  | "embed_ready"
+  | "reset_stuck_embeddings"
+  | "cancel_queued"
+  | "clear_finished_tasks";
+
 // ── API ──
 
 export const fileApi = {
@@ -163,6 +182,14 @@ export const fileApi = {
     overwriteContentId?: string,
     importRelativePath?: string,
     importBatchId?: string,
+    options?: {
+      titleOverride?: string;
+      textContent?: string;
+      subtitlePath?: string;
+      danmakuPath?: string;
+      courseIndex?: number;
+      courseImport?: boolean;
+    },
   ): Promise<FileUploadResponse> => {
     const formData = new FormData();
     formData.append("file", file);
@@ -178,6 +205,12 @@ export const fileApi = {
     if (importBatchId) {
       formData.append("import_batch_id", importBatchId);
     }
+    if (options?.titleOverride) formData.append("title_override", options.titleOverride);
+    if (options?.textContent) formData.append("text_content", options.textContent);
+    if (options?.subtitlePath) formData.append("subtitle_path", options.subtitlePath);
+    if (options?.danmakuPath) formData.append("danmaku_path", options.danmakuPath);
+    if (options?.courseIndex != null) formData.append("course_index", String(options.courseIndex));
+    if (options?.courseImport) formData.append("course_import", "true");
 
     const res = await fetch("/api/files/upload", {
       method: "POST",
@@ -199,6 +232,7 @@ export const fileApi = {
     category_id?: string;
     processing_status?: string;
     study_status?: "not_started" | "in_progress" | "completed";
+    import_batch_id?: string;
     q?: string;
     is_deleted?: boolean;
     page?: number;
@@ -210,6 +244,7 @@ export const fileApi = {
     if (params?.category_id) searchParams.set("category_id", params.category_id);
     if (params?.processing_status) searchParams.set("processing_status", params.processing_status);
     if (params?.study_status) searchParams.set("study_status", params.study_status);
+    if (params?.import_batch_id) searchParams.set("import_batch_id", params.import_batch_id);
     if (params?.q) searchParams.set("q", params.q);
     if (params?.is_deleted) searchParams.set("is_deleted", "true");
     if (params?.page) searchParams.set("page", String(params.page));
@@ -246,10 +281,17 @@ export const fileApi = {
   },
 
   /** 获取已删除文件列表 */
-  getDeleted: (page?: number, page_size?: number, brainId?: string | null) => {
+  getDeleted: (
+    page?: number,
+    page_size?: number,
+    brainId?: string | null,
+    params?: { content_type?: string; q?: string },
+  ) => {
     const searchParams = new URLSearchParams();
     searchParams.set("is_deleted", "true");
     if (brainId) searchParams.set("brain_id", brainId);
+    if (params?.content_type) searchParams.set("content_type", params.content_type);
+    if (params?.q) searchParams.set("q", params.q);
     if (page) searchParams.set("page", String(page));
     if (page_size) searchParams.set("page_size", String(page_size));
     const qs = searchParams.toString();
@@ -367,4 +409,15 @@ export const contentApi = {
     const qs = searchParams.toString();
     return api.get<ProcessingCenterResponse>(`/contents/processing-center${qs ? `?${qs}` : ""}`);
   },
+
+  runProcessingCenterAction: (
+    action: ProcessingCenterAction,
+    brainId?: string | null,
+    limit = 100,
+  ) =>
+    api.post<ProcessingCenterActionResponse>("/contents/processing-center/actions", {
+      action,
+      brain_id: brainId || undefined,
+      limit,
+    }),
 };

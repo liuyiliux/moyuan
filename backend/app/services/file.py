@@ -88,6 +88,9 @@ class FileService:
         brain_id: uuid.UUID | None = None,
         import_relative_path: str | None = None,
         import_batch_id: str | None = None,
+        title_override: str | None = None,
+        text_content: str | None = None,
+        extra_meta_patch: dict | None = None,
     ) -> Content:
         """上传文件：存储到磁盘 + 写入数据库"""
         storage_dir = _get_storage_dir()
@@ -128,7 +131,7 @@ class FileService:
 
         display_name = relative_import_path.name if relative_import_path else (file.filename or "unknown")
         content_type = _infer_content_type(display_name)
-        title = Path(display_name).stem if display_name else "untitled"
+        title = title_override.strip() if title_override and title_override.strip() else (Path(display_name).stem if display_name else "untitled")
         extra_meta = {"original_filename": file.filename} if file.filename else {}
         if relative_import_path:
             extra_meta.update({
@@ -136,6 +139,8 @@ class FileService:
                 "import_root": relative_import_path.parts[0],
                 "import_batch_id": batch_id,
             })
+        if extra_meta_patch:
+            extra_meta.update({key: value for key, value in extra_meta_patch.items() if value is not None})
         if not extra_meta:
             extra_meta = None
 
@@ -154,6 +159,7 @@ class FileService:
                 file_path=duplicate.file_path,  # 复用路径
                 file_size=duplicate.file_size,
                 file_md5=file_md5,
+                text_content=text_content,
                 brain_id=brain_id,
                 extra_meta=extra_meta,
             )
@@ -166,6 +172,7 @@ class FileService:
                 file_path=str(file_path.relative_to(storage_dir)),
                 file_size=file_size,
                 file_md5=file_md5,
+                text_content=text_content,
                 brain_id=brain_id,
                 extra_meta=extra_meta,
             )
@@ -285,6 +292,7 @@ class FileService:
         processing_status: str | None = None,
         study_status: str | None = None,
         q: str | None = None,
+        import_batch_id: str | None = None,
         is_deleted: bool = False,
         page: int = 1,
         page_size: int = 20,
@@ -314,6 +322,8 @@ class FileService:
                 Content.source_url.ilike(keyword),
                 Content.file_path.ilike(keyword),
             ))
+        if import_batch_id:
+            conditions.append(Content.extra_meta["import_batch_id"].astext == import_batch_id)
         if brain_id is not None:
             conditions.append(Content.brain_id == brain_id)
 

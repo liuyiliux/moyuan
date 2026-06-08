@@ -7,12 +7,14 @@ import {
   FolderTree,
   Bookmark,
   FolderOpen,
+  FolderInput,
   BarChart3,
   Activity,
   Brain,
   HardDrive,
   Trash2,
   Settings,
+  Wrench,
   Sun,
   Moon,
   ScrollText,
@@ -123,6 +125,7 @@ export default function Sidebar() {
           <SidebarLink to="/categories" icon={<FolderTree className="w-4 h-4" />} label={s.categories} tooltip={s.categoriesTip} />
           <SidebarLink to="/favorites" icon={<Bookmark className="w-4 h-4" />} label={s.favorites} tooltip={s.favoritesTip} />
           <SidebarLink to="/collections" icon={<FolderOpen className="w-4 h-4" />} label={s.collections} tooltip={s.collectionsTip} />
+          <SidebarLink to="/imports" icon={<FolderInput className="w-4 h-4" />} label={s.imports} tooltip={s.importsTip} />
           <SidebarLink to="/quiz" icon={<GraduationCap className="w-4 h-4" />} label={s.quiz} tooltip={s.quizTip} />
         </div>
 
@@ -142,6 +145,7 @@ export default function Sidebar() {
         <div className="dao-sidebar-section">
           <span className="dao-sidebar-section-title">{s.sectionXuanTai}</span>
           <SidebarLink to="/settings" icon={<Settings className="w-4 h-4" />} label={s.settings} tooltip={s.settingsTip} />
+          <SidebarLink to="/maintenance" icon={<Wrench className="w-4 h-4" />} label={s.maintenance} tooltip={s.maintenanceTip} />
           <SidebarLink to="/recycle" icon={<Trash2 className="w-4 h-4" />} label={s.recycle} tooltip={s.recycleTip} />
         </div>
 

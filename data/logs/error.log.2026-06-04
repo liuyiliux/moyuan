@@ -1,1410 +1,198 @@
-2026-06-04 10:43:10 - http - ERROR - [685584dd-7dd8-4ae1-91a7-67525f5536c3] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 385.20ms - 错误: 'CollectionItem' object has no attribute 'created_at'
+2026-06-04 21:55:13 - http - ERROR - [4388fcd4-cbe8-4ccd-a1a7-89cad64c538a] 请求异常 - GET /api/ai/quiz/wrong?page=1&page_size=20 - 耗时: 1.98ms - 错误: badly formed hexadecimal UUID string
 Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
     await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
     await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
     await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
     await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
     response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
     raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 136, in get_collection
-    "added_at": ci.created_at.isoformat() if ci.created_at else "",
-                                             ^^^^^^^^^^^^^
-AttributeError: 'CollectionItem' object has no attribute 'created_at'
-2026-06-04 10:43:14 - http - ERROR - [be482372-b109-473f-bd87-5f7a402f4b8e] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 395.93ms - 错误: 'CollectionItem' object has no attribute 'created_at'
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 939, in get_quiz_history
+    cid = UUID(content_id)
+  File "D:\Python310\lib\uuid.py", line 177, in __init__
+    raise ValueError('badly formed hexadecimal UUID string')
+ValueError: badly formed hexadecimal UUID string
+2026-06-04 21:56:36 - http - ERROR - [1a6e5e4b-08a7-4d44-974c-e8768c51038b] 请求异常 - GET /api/ai/quiz/wrong?page=1&page_size=20 - 耗时: 1.00ms - 错误: badly formed hexadecimal UUID string
 Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
     await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
     await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
     await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
     await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
     response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
     raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 136, in get_collection
-    "added_at": ci.created_at.isoformat() if ci.created_at else "",
-                                             ^^^^^^^^^^^^^
-AttributeError: 'CollectionItem' object has no attribute 'created_at'
-2026-06-04 10:44:11 - http - ERROR - [5e064c96-5592-4344-adbd-db38187dfaf8] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 444.21ms - 错误: 'CollectionItem' object has no attribute 'created_at'
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 939, in get_quiz_history
+    cid = UUID(content_id)
+  File "D:\Python310\lib\uuid.py", line 177, in __init__
+    raise ValueError('badly formed hexadecimal UUID string')
+ValueError: badly formed hexadecimal UUID string
+2026-06-04 22:20:39 - http - ERROR - [7970b85f-54ea-42ea-851b-fdc93113dacd] 请求异常 - GET /api/ai/quiz/wrong?page=1&page_size=20 - 耗时: 1.00ms - 错误: badly formed hexadecimal UUID string
 Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
     await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
     await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
     await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
     await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
     response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
     raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 136, in get_collection
-    "added_at": ci.created_at.isoformat() if ci.created_at else "",
-                                             ^^^^^^^^^^^^^
-AttributeError: 'CollectionItem' object has no attribute 'created_at'
-2026-06-04 10:44:22 - http - ERROR - [74a61c8d-589a-4ada-bae8-764e0ec5e2d4] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 426.87ms - 错误: 'CollectionItem' object has no attribute 'created_at'
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 939, in get_quiz_history
+    cid = UUID(content_id)
+  File "D:\Python310\lib\uuid.py", line 177, in __init__
+    raise ValueError('badly formed hexadecimal UUID string')
+ValueError: badly formed hexadecimal UUID string
+2026-06-04 22:27:14 - http - ERROR - [541b92f5-ca61-4145-b101-ae9114b18ba4] 请求异常 - GET /api/ai/quiz/wrong?page=1&page_size=20 - 耗时: 1.99ms - 错误: badly formed hexadecimal UUID string
 Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
     await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
     await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
     await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
     await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
     response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
     raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 136, in get_collection
-    "added_at": ci.created_at.isoformat() if ci.created_at else "",
-                                             ^^^^^^^^^^^^^
-AttributeError: 'CollectionItem' object has no attribute 'created_at'
-2026-06-04 10:51:20 - http - ERROR - [9ade5b2f-f72b-4e81-9fda-1ba4b774ed0e] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 473.93ms - 错误: 'CollectionItem' object has no attribute 'created_at'
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 939, in get_quiz_history
+    cid = UUID(content_id)
+  File "D:\Python310\lib\uuid.py", line 177, in __init__
+    raise ValueError('badly formed hexadecimal UUID string')
+ValueError: badly formed hexadecimal UUID string
+2026-06-04 22:32:55 - http - ERROR - [4ff3a9f5-eecb-4964-80e7-c2624cf6ad10] 请求异常 - GET /api/ai/quiz/wrong?page=1&page_size=20 - 耗时: 1.57ms - 错误: badly formed hexadecimal UUID string
 Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
     await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
     await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
     await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
     await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
     response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
     raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 136, in get_collection
-    "added_at": ci.created_at.isoformat() if ci.created_at else "",
-                                             ^^^^^^^^^^^^^
-AttributeError: 'CollectionItem' object has no attribute 'created_at'
-2026-06-04 10:53:14 - http - ERROR - [a4eca938-21ea-408d-823d-f488b27bfe3c] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 439.65ms - 错误: 'CollectionItem' object has no attribute 'created_at'
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 939, in get_quiz_history
+    cid = UUID(content_id)
+  File "D:\Python310\lib\uuid.py", line 177, in __init__
+    raise ValueError('badly formed hexadecimal UUID string')
+ValueError: badly formed hexadecimal UUID string
+2026-06-04 22:43:18 - http - ERROR - [aba34c4d-9224-4737-8fb2-ea61b83a2e88] 请求异常 - GET /api/ai/quiz/wrong?page=1&page_size=20 - 耗时: 1.00ms - 错误: badly formed hexadecimal UUID string
 Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
+  File "F:\PycharmProjects\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
     await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 715, in __call__
     await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 735, in app
     await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 288, in handle
     await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 76, in app
     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
     raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
     await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\starlette\routing.py", line 73, in app
     response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 301, in app
     raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
+  File "F:\PycharmProjects\moyuan\backend\venv\lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 136, in get_collection
-    "added_at": ci.created_at.isoformat() if ci.created_at else "",
-                                             ^^^^^^^^^^^^^
-AttributeError: 'CollectionItem' object has no attribute 'created_at'
-2026-06-04 11:01:46 - http - ERROR - [63fef560-0b3b-4834-836a-1942783b0996] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 88.34ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.UndefinedColumnError: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 121, in get_collection
-    ir = await db.execute(
-         ^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
-    result: Result[Any] = compile_state_cls.orm_execute_statement(
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 11:02:07 - http - ERROR - [5ea4bfa9-9b6a-466d-9cca-fe8543fa487a] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 81.35ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.UndefinedColumnError: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 121, in get_collection
-    ir = await db.execute(
-         ^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
-    result: Result[Any] = compile_state_cls.orm_execute_statement(
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 11:02:22 - http - ERROR - [10c3ff4c-11de-4771-80c7-0f11ae5398c2] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 66.73ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.UndefinedColumnError: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 121, in get_collection
-    ir = await db.execute(
-         ^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
-    result: Result[Any] = compile_state_cls.orm_execute_statement(
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 11:05:05 - http - ERROR - [ae260d37-4ab3-4bb7-af84-e14edb4b7bf8] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 81.42ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.UndefinedColumnError: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 121, in get_collection
-    ir = await db.execute(
-         ^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
-    result: Result[Any] = compile_state_cls.orm_execute_statement(
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 11:11:22 - http - ERROR - [5c98195f-e1dd-4603-af9c-18b146f369e3] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 74.08ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.UndefinedColumnError: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 121, in get_collection
-    ir = await db.execute(
-         ^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
-    result: Result[Any] = compile_state_cls.orm_execute_statement(
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 11:11:38 - http - ERROR - [bf383569-b71b-490d-a8e2-04b359905db1] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 401.53ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.UndefinedColumnError: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 121, in get_collection
-    ir = await db.execute(
-         ^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
-    result: Result[Any] = compile_state_cls.orm_execute_statement(
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 11:16:16 - http - ERROR - [32c15038-5d78-40d8-a8b8-61adbf3955ad] 请求异常 - GET /api/collections/cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c - 耗时: 93.20ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.UndefinedColumnError: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\collections.py", line 121, in get_collection
-    ir = await db.execute(
-         ^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2247, in _execute_internal
-    result: Result[Any] = compile_state_cls.orm_execute_statement(
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 305, in orm_execute_statement
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column collection_items.created_at does not exist
-[SQL: SELECT collection_items.id, collection_items.collection_id, collection_items.content_id, collection_items.sort_order, collection_items.created_at, contents.id AS id_1, contents.title, contents.content_type, contents.source_type, contents.source_url, contents.file_path, contents.file_size, contents.file_md5, contents.text_content, contents.processing_status, contents.processing_error, contents.embedding, contents.embedding_type, contents.extra_meta, contents.is_starred, contents.is_pinned, contents.is_deleted, contents.deleted_at, contents.brain_id, contents.created_at AS created_at_1, contents.updated_at 
-FROM collection_items JOIN contents ON collection_items.content_id = contents.id 
-WHERE collection_items.collection_id = $1::UUID ORDER BY collection_items.sort_order]
-[parameters: (UUID('cb39fea0-3cb0-4e9e-a0dd-d2ce40aebc8c'),)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 14:51:30 - http - ERROR - [080d4eda-7a34-4f58-b556-1bd4be102629] 请求异常 - POST /api/ai/quiz - 耗时: 15146.12ms - 错误: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.PostgresSyntaxError'>: syntax error at or near "$2"
-[SQL: 
-        SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
-               1 - (cc.embedding <=> $1) AS score
-        FROM content_chunks cc
-        WHERE cc.content_id IN $2
-          AND cc.chunk_type = 'text'
-          AND cc.chunk_text IS NOT NULL
-          AND cc.embedding IS NOT NULL
-          AND cc.id != $3
-        ORDER BY cc.embedding <=> $1
-        LIMIT $4
-    ]
-[parameters: ('[0.006064256,-0.01232734,-0.0071909484,-0.005467772,-0.017099213,0.0024190748,-0.013719137,0.0075886045,-0.00815195,-0.008880987,0.002849869,-0.00818 ... (52297 characters truncated) ... 842,0.006064256,0.013454032,-0.0073897764,-0.0047387355,-0.019617703,-0.0039599924,-0.0040594065,0.0065613263,-0.000890584,0.0031812491,0.0038937163]', ('13fb58e1-51e8-488b-8e03-ade64a6dbabd',), UUID('a9b3ee0f-a04a-46a0-98a5-e6b0a44f8e69'), 3)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 510, in _prepare_and_execute
-    prepared_stmt, attributes = await adapt_connection._prepare(
-                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 756, in _prepare
-    prepared_stmt = await self._connection.prepare(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 635, in prepare
-    return await self._prepare(
-           ^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 653, in _prepare
-    stmt = await self._get_statement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\asyncpg\connection.py", line 432, in _get_statement
-    statement = await self._protocol.prepare(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "asyncpg\\protocol\\protocol.pyx", line 165, in prepare
-asyncpg.exceptions.PostgresSyntaxError: syntax error at or near "$2"
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.PostgresSyntaxError'>: syntax error at or near "$2"
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\ai.py", line 643, in generate_quiz
-    similars = await _find_similar_chunks(
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\ai.py", line 512, in _find_similar_chunks
-    result = await db.execute(sql, {
-             ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 461, in execute
-    result = await greenlet_spawn(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
-    result = context.throw(*sys.exc_info())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2362, in execute
-    return self._execute_internal(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2256, in _execute_internal
-    result = conn.execute(
-             ^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1418, in execute
-    return meth(
-           ^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 515, in _execute_on_connection
-    return connection._execute_clauseelement(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1640, in _execute_clauseelement
-    ret = self._execute_context(
-          ^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
-    return self._exec_single_context(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
-    self._handle_dbapi_exception(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
-    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
-    self.dialect.do_execute(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 941, in do_execute
-    cursor.execute(statement, parameters)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in execute
-    self._adapt_connection.await_(
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
-    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
-    value = await result
-            ^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 546, in _prepare_and_execute
-    self._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 497, in _handle_exception
-    self._adapt_connection._handle_exception(error)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 780, in _handle_exception
-    raise translated_error from error
-sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.PostgresSyntaxError'>: syntax error at or near "$2"
-[SQL: 
-        SELECT cc.id, cc.content_id, cc.chunk_text, cc.chunk_index, cc.page_number,
-               1 - (cc.embedding <=> $1) AS score
-        FROM content_chunks cc
-        WHERE cc.content_id IN $2
-          AND cc.chunk_type = 'text'
-          AND cc.chunk_text IS NOT NULL
-          AND cc.embedding IS NOT NULL
-          AND cc.id != $3
-        ORDER BY cc.embedding <=> $1
-        LIMIT $4
-    ]
-[parameters: ('[0.006064256,-0.01232734,-0.0071909484,-0.005467772,-0.017099213,0.0024190748,-0.013719137,0.0075886045,-0.00815195,-0.008880987,0.002849869,-0.00818 ... (52297 characters truncated) ... 842,0.006064256,0.013454032,-0.0073897764,-0.0047387355,-0.019617703,-0.0039599924,-0.0040594065,0.0065613263,-0.000890584,0.0031812491,0.0038937163]', ('13fb58e1-51e8-488b-8e03-ade64a6dbabd',), UUID('a9b3ee0f-a04a-46a0-98a5-e6b0a44f8e69'), 3)]
-(Background on this error at: https://sqlalche.me/e/20/f405)
-2026-06-04 14:55:28 - http - ERROR - [4e3fd708-8f3e-41d8-bc15-1f2fe67c3f44] 请求异常 - POST /api/ai/quiz - 耗时: 15293.51ms - 错误: 'utf-8' codec can't decode byte 0xfd in position 0: invalid start byte
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\ai.py", line 687, in generate_quiz
-    provider = await _get_ai_provider(db, "quiz")
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\ai.py", line 55, in _get_ai_provider
-    api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\core\crypto.py", line 62, in decrypt
-    return plaintext[:-pad_len].decode("utf-8")
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-UnicodeDecodeError: 'utf-8' codec can't decode byte 0xfd in position 0: invalid start byte
-2026-06-04 15:18:27 - http - ERROR - [c2916fdb-9592-457f-b764-0cc2cb5e8a6b] 请求异常 - GET /api/ai/quiz/wrong?page=1&page_size=20 - 耗时: 1.69ms - 错误: badly formed hexadecimal UUID string
-Traceback (most recent call last):
-  File "C:\my\code\moyuan\backend\app\middleware\tracing.py", line 51, in __call__
-    await self.app(scope, receive, send_with_headers)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 735, in app
-    await route.handle(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\starlette\routing.py", line 73, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\venv\Lib\site-packages\fastapi\routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\my\code\moyuan\backend\app\api\ai.py", line 932, in get_quiz_history
-    )
-      
-  File "C:\Users\AI\AppData\Local\Programs\Python\Python311\Lib\uuid.py", line 178, in __init__
+  File "F:\PycharmProjects\moyuan\backend\app\api\ai.py", line 939, in get_quiz_history
+    if not quiz_default:
+  File "D:\Python310\lib\uuid.py", line 177, in __init__
     raise ValueError('badly formed hexadecimal UUID string')
 ValueError: badly formed hexadecimal UUID string

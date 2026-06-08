@@ -20,11 +20,13 @@ const NotesPage = lazy(() => import("./pages/notes"));
 const AnalyticsPage = lazy(() => import("./pages/analytics"));
 const BackupPage = lazy(() => import("./pages/backup"));
 const CollectionsPage = lazy(() => import("./pages/collections"));
+const ImportsPage = lazy(() => import("./pages/imports"));
 const RecyclePage = lazy(() => import("./pages/recycle"));
 const BrainsPage = lazy(() => import("./pages/brains"));
 const LogsPage = lazy(() => import("./pages/logs"));
 const QuizPage = lazy(() => import("./pages/quiz"));
 const ProcessingPage = lazy(() => import("./pages/processing"));
+const MaintenancePage = lazy(() => import("./pages/maintenance"));
 
 function PageLoader() {
   return (
@@ -53,12 +55,14 @@ function Header() {
             {location.pathname === "/categories" && s.categories}
             {location.pathname === "/favorites" && s.favorites}
             {location.pathname === "/collections" && s.collections}
+            {location.pathname === "/imports" && s.imports}
             {location.pathname === "/brains" && s.brains}
             {location.pathname === "/analytics" && s.analytics}
             {location.pathname === "/processing" && s.processing}
             {location.pathname === "/logs" && s.logs}
             {location.pathname === "/backup" && s.backup}
             {location.pathname === "/settings" && s.settings}
+            {location.pathname === "/maintenance" && s.maintenance}
             {location.pathname === "/recycle" && s.recycle}
             {location.pathname === "/quiz" && s.quiz}
           </span>
@@ -93,9 +97,11 @@ function Layout() {
                   <Route path="/processing" element={<ProcessingPage />} />
                   <Route path="/collections" element={<CollectionsPage />} />
                   <Route path="/collections/:id" element={<CollectionsPage />} />
+                  <Route path="/imports" element={<ImportsPage />} />
                   <Route path="/backup" element={<BackupPage />} />
                   <Route path="/recycle" element={<RecyclePage />} />
                   <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/maintenance" element={<MaintenancePage />} />
                   <Route path="/brains" element={<BrainsPage />} />
                   <Route path="/logs" element={<LogsPage />} />
                   <Route path="/quiz" element={<QuizPage />} />

@@ -823,6 +823,8 @@ export const sidebarCopy: CopyText<{
   favoritesTip: string;
   collections: string;
   collectionsTip: string;
+  imports: string;
+  importsTip: string;
   quiz: string;
   quizTip: string;
   brains: string;
@@ -837,6 +839,8 @@ export const sidebarCopy: CopyText<{
   backupTip: string;
   settings: string;
   settingsTip: string;
+  maintenance: string;
+  maintenanceTip: string;
   recycle: string;
   recycleTip: string;
   logoTitle: string;
@@ -857,6 +861,7 @@ export const sidebarCopy: CopyText<{
     categories: "坤舆", categoriesTip: "分类",
     favorites: "珍藏", favoritesTip: "收藏",
     collections: "藏经", collectionsTip: "合集",
+    imports: "入藏", importsTip: "导入批次",
     quiz: "考校", quizTip: "出题测验",
     brains: "丹室", brainsTip: "工作区",
     analytics: "卦象", analyticsTip: "统计",
@@ -864,6 +869,7 @@ export const sidebarCopy: CopyText<{
     logs: "玄鉴", logsTip: "日志",
     backup: "封魔", backupTip: "备份",
     settings: "玄台", settingsTip: "设置",
+    maintenance: "清垢", maintenanceTip: "数据维护",
     recycle: "归墟", recycleTip: "回收站",
     logoTitle: "墨渊",
     logoSubtitle: "Moyuan",
@@ -883,6 +889,7 @@ export const sidebarCopy: CopyText<{
     categories: "分类", categoriesTip: "管理分类",
     favorites: "收藏", favoritesTip: "我的收藏",
     collections: "合集", collectionsTip: "合集管理",
+    imports: "导入", importsTip: "导入批次",
     quiz: "测验", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作区",
     analytics: "统计", analyticsTip: "数据分析",
@@ -890,6 +897,7 @@ export const sidebarCopy: CopyText<{
     logs: "日志", logsTip: "系统日志",
     backup: "备份", backupTip: "数据备份",
     settings: "设置", settingsTip: "系统设置",
+    maintenance: "维护", maintenanceTip: "数据维护",
     recycle: "回收站", recycleTip: "回收站",
     logoTitle: "墨渊",
     logoSubtitle: "Moyuan",
@@ -909,6 +917,7 @@ export const sidebarCopy: CopyText<{
     categories: "分类分类~", categoriesTip: "分类",
     favorites: "我的珍藏", favoritesTip: "收藏夹",
     collections: "合集合集~", collectionsTip: "合集",
+    imports: "导入记录", importsTip: "导入批次",
     quiz: "来考试喵~", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作空间",
     analytics: "数据喵~", analyticsTip: "统计",
@@ -916,6 +925,7 @@ export const sidebarCopy: CopyText<{
     logs: "日志喵", logsTip: "日志",
     backup: "备份备份~", backupTip: "备份",
     settings: "设置设置~", settingsTip: "设置",
+    maintenance: "维护喵", maintenanceTip: "数据维护",
     recycle: "回收站喵", recycleTip: "回收站",
     logoTitle: "墨渊",
     logoSubtitle: "Moyuan",

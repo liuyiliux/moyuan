@@ -76,10 +76,22 @@ export interface BrainOverview {
   }>;
 }
 
+export interface UnassignedContentSummary {
+  count: number;
+  total_count?: number;
+  deleted_count?: number;
+  samples: Array<{
+    id: string;
+    title: string;
+    content_type: string;
+  }>;
+}
+
 // ── Brain API ──
 
 export const brainApi = {
   list: (archived = false) => api.get<Brain[]>(`/brains?archived=${archived}`),
+  getUnassignedContent: () => api.get<UnassignedContentSummary>("/brains/unassigned-content"),
   get: (id: string) => api.get<Brain>(`/brains/${id}`),
   getOverview: (id: string) => api.get<BrainOverview>(`/brains/${id}/overview`),
   create: (data: BrainCreate) => api.post<Brain>("/brains", data),
@@ -87,6 +99,7 @@ export const brainApi = {
   delete: (id: string) => api.delete<void>(`/brains/${id}`),
   archive: (id: string) => api.post<void>(`/brains/${id}/archive`),
   restore: (id: string) => api.post<void>(`/brains/${id}/restore`),
+  adoptUnassigned: (id: string) => api.post<{ ok: boolean; adopted: number; brain_id: string }>(`/brains/${id}/adopt-unassigned`),
   getConfig: (id: string) => api.get<BrainConfig>(`/brains/${id}/config`),
   updateConfig: (id: string, config: BrainConfig) => api.put<void>(`/brains/${id}/config`, config),
 };

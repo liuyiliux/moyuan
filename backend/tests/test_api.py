@@ -1569,6 +1569,62 @@ async def test_brain_overview_returns_stats_and_recent_contents(client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_brain_can_adopt_unassigned_legacy_content(client: AsyncClient):
+    from app.core.database import async_session_factory
+    from app.models.models import Brain, Content
+
+    async with async_session_factory() as db:
+        brain = Brain(name=f"legacy-adopt-{uuid.uuid4().hex[:8]}")
+        legacy_title = f"legacy-content-{uuid.uuid4().hex[:8]}"
+        legacy_deleted_title = f"legacy-deleted-{uuid.uuid4().hex[:8]}"
+        db.add_all([
+            brain,
+            Content(
+                title=legacy_title,
+                content_type="doc",
+                source_type="manual",
+                processing_status="completed",
+                brain_id=None,
+            ),
+            Content(
+                title=legacy_deleted_title,
+                content_type="doc",
+                source_type="manual",
+                processing_status="completed",
+                brain_id=None,
+                is_deleted=True,
+            ),
+        ])
+        await db.commit()
+        brain_id = str(brain.id)
+        legacy_id = None
+
+    summary_resp = await client.get("/api/brains/unassigned-content")
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()
+    assert summary["count"] >= 1
+    assert summary["total_count"] >= 2
+    assert summary["deleted_count"] >= 1
+    for item in summary["samples"]:
+        if item["title"] == legacy_title:
+            legacy_id = item["id"]
+            break
+    assert legacy_id is not None
+
+    adopt_resp = await client.post(f"/api/brains/{brain_id}/adopt-unassigned")
+    assert adopt_resp.status_code == 200
+    assert adopt_resp.json()["adopted"] >= 1
+
+    async with async_session_factory() as db:
+        legacy = await db.get(Content, uuid.UUID(legacy_id))
+        assert legacy.brain_id == uuid.UUID(brain_id)
+
+    scoped_resp = await client.get(f"/api/files?brain_id={brain_id}&q={legacy_title}")
+    assert scoped_resp.status_code == 200
+    assert scoped_resp.json()["total"] == 1
+
+
+@pytest.mark.asyncio
 async def test_content_brain_move_cleans_old_organization_links(client: AsyncClient):
     from app.core.database import async_session_factory
     from app.models.models import (
@@ -1879,10 +1935,14 @@ async def test_delete_brain_removes_related_content_and_organization(client: Asy
         Category,
         Collection,
         CollectionItem,
+        Annotation,
         Content,
         ContentCategory,
+        ContentChunk,
+        ContentRelation,
         ContentTag,
         PromptTemplate,
+        ProcessingTask,
         SearchLog,
         Tag,
     )
@@ -1893,8 +1953,10 @@ async def test_delete_brain_removes_related_content_and_organization(client: Asy
     storage_root = tmp_path / "storage"
     storage_root.mkdir()
     file_path = storage_root / "delete-brain" / "stored.txt"
+    chunk_image_path = storage_root / "delete-brain" / "chunk.jpg"
     file_path.parent.mkdir()
     file_path.write_text("delete me", encoding="utf-8")
+    chunk_image_path.write_text("delete chunk image", encoding="utf-8")
     try:
         settings.file_storage_root = str(storage_root)
         create_resp = await client.post("/api/brains", json={"name": f"delete-brain-{uuid.uuid4().hex[:8]}"})
@@ -1909,34 +1971,58 @@ async def test_delete_brain_removes_related_content_and_organization(client: Asy
                 file_path="delete-brain/stored.txt",
                 brain_id=brain_id,
             )
+            related_content = Content(
+                title=f"delete-related-{uuid.uuid4().hex[:8]}",
+                content_type="doc",
+                source_type="manual",
+                brain_id=brain_id,
+            )
             category = Category(name=f"delete-cat-{uuid.uuid4().hex[:8]}", brain_id=brain_id)
             tag = Tag(name=f"delete-tag-{uuid.uuid4().hex[:8]}", brain_id=brain_id)
             collection = Collection(name=f"delete-col-{uuid.uuid4().hex[:8]}", brain_id=brain_id)
             db.add_all([
                 content,
+                related_content,
                 category,
                 tag,
                 collection,
                 SearchLog(query=f"delete-log-{uuid.uuid4().hex[:8]}", brain_id=brain_id),
             ])
             await db.flush()
+            content_id = content.id
+            related_content_id = related_content.id
             db.add_all([
                 ContentCategory(content_id=content.id, category_id=category.id),
                 ContentTag(content_id=content.id, tag_id=tag.id),
                 CollectionItem(content_id=content.id, collection_id=collection.id),
+                ContentChunk(content_id=content.id, chunk_index=0, chunk_type="image", image_path="delete-brain/chunk.jpg"),
+                ProcessingTask(content_id=content.id, task_type="parse", status="queued"),
+                Annotation(content_id=content.id, selected_text="x", start_offset=0, end_offset=1, annotation_text="note"),
+                ContentRelation(source_id=content.id, target_id=related_content.id, relation_type="reference"),
             ])
             await db.commit()
 
         delete_resp = await client.delete(f"/api/brains/{brain_id}")
         assert delete_resp.status_code == 200
-        assert delete_resp.json()["deleted_contents"] == 1
+        assert delete_resp.json()["deleted_contents"] == 2
         assert delete_resp.json()["removed_files"] == 1
         assert not file_path.exists()
+        assert not chunk_image_path.exists()
 
         async with async_session_factory() as db:
             for model in (Brain, Content, Category, Tag, Collection, PromptTemplate, SearchLog):
                 result = await db.execute(select(func.count()).select_from(model).where(model.brain_id == brain_id) if model is not Brain else select(func.count()).select_from(model).where(model.id == brain_id))
                 assert result.scalar() == 0
+            for model in (ContentChunk, ProcessingTask, Annotation, ContentCategory, ContentTag, CollectionItem):
+                result = await db.execute(select(func.count()).select_from(model).where(model.content_id.in_([content_id, related_content_id])))
+                assert result.scalar() == 0
+            relation_result = await db.execute(
+                select(func.count()).select_from(ContentRelation).where(
+                    (ContentRelation.source_id.in_([content_id, related_content_id]))
+                    | (ContentRelation.target_id.in_([content_id, related_content_id]))
+                )
+            )
+            assert relation_result.scalar() == 0
     finally:
         settings.file_storage_root = old_storage_root
 
@@ -3545,6 +3631,13 @@ async def test_processing_center_summarizes_scope_and_latest_tasks(client: Async
         db.add_all([
             ContentChunk(content_id=active.id, chunk_index=0, chunk_type="text", chunk_text="a", embedding=[0.0] * 4096),
             ContentChunk(content_id=active.id, chunk_index=1, chunk_type="text", chunk_text="b"),
+            ProcessingTask(
+                content_id=active.id,
+                task_type="parse",
+                status="completed",
+                progress=100,
+                created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+            ),
             ProcessingTask(content_id=active.id, task_type="embed", status="processing", progress=35),
             ProcessingTask(content_id=failed.id, task_type="parse", status="failed", progress=0, error_message="task failed"),
         ])
@@ -3567,6 +3660,7 @@ async def test_processing_center_summarizes_scope_and_latest_tasks(client: Async
     assert active_data["items"][0]["chunk_count"] == 2
     assert active_data["items"][0]["embedded_chunks"] == 1
     assert active_data["items"][0]["latest_task"]["task_type"] == "embed"
+    assert [task["task_type"] for task in active_data["items"][0]["recent_tasks"]] == ["embed", "parse"]
 
     assert failed_resp.status_code == 200
     failed_items = failed_resp.json()["items"]
@@ -3574,6 +3668,108 @@ async def test_processing_center_summarizes_scope_and_latest_tasks(client: Async
     assert failed_items[0]["id"] == failed_id
     assert failed_items[0]["latest_task"]["error_message"] == "task failed"
     assert missing_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_processing_center_actions_retry_embed_and_reset_stuck(client: AsyncClient):
+    from app.core.database import async_session_factory
+    from app.models.models import Brain, Content, ProcessingTask
+
+    old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    async with async_session_factory() as db:
+        brain = Brain(name=f"processing-actions-{uuid.uuid4().hex[:8]}")
+        other_brain = Brain(name=f"processing-actions-other-{uuid.uuid4().hex[:8]}")
+        db.add_all([brain, other_brain])
+        await db.flush()
+
+        failed = Content(
+            title=f"processing-action-failed-{uuid.uuid4().hex[:8]}",
+            content_type="pdf",
+            source_type="upload",
+            processing_status="failed",
+            brain_id=brain.id,
+        )
+        ready = Content(
+            title=f"processing-action-ready-{uuid.uuid4().hex[:8]}",
+            content_type="doc",
+            source_type="upload",
+            processing_status="chunked",
+            brain_id=brain.id,
+        )
+        stuck = Content(
+            title=f"processing-action-stuck-{uuid.uuid4().hex[:8]}",
+            content_type="audio",
+            source_type="upload",
+            processing_status="embedding",
+            updated_at=old_time,
+            brain_id=brain.id,
+        )
+        other_failed = Content(
+            title=f"processing-action-other-{uuid.uuid4().hex[:8]}",
+            content_type="pdf",
+            source_type="upload",
+            processing_status="failed",
+            brain_id=other_brain.id,
+        )
+        db.add_all([failed, ready, stuck, other_failed])
+        await db.flush()
+        db.add(ProcessingTask(content_id=stuck.id, task_type="embed", status="processing", progress=10))
+        await db.commit()
+        brain_id = str(brain.id)
+        failed_id = failed.id
+        ready_id = ready.id
+        stuck_id = stuck.id
+        other_failed_id = other_failed.id
+
+    retry_resp = await client.post(
+        "/api/contents/processing-center/actions",
+        json={"action": "retry_failed", "brain_id": brain_id},
+    )
+    embed_resp = await client.post(
+        "/api/contents/processing-center/actions",
+        json={"action": "embed_ready", "brain_id": brain_id},
+    )
+    cancel_resp = await client.post(
+        "/api/contents/processing-center/actions",
+        json={"action": "cancel_queued", "brain_id": brain_id},
+    )
+    reset_resp = await client.post(
+        "/api/contents/processing-center/actions",
+        json={"action": "reset_stuck_embeddings", "brain_id": brain_id},
+    )
+    clear_resp = await client.post(
+        "/api/contents/processing-center/actions",
+        json={"action": "clear_finished_tasks", "brain_id": brain_id},
+    )
+    invalid_resp = await client.post(
+        "/api/contents/processing-center/actions",
+        json={"action": "unknown", "brain_id": brain_id},
+    )
+
+    assert retry_resp.status_code == 200
+    assert retry_resp.json()["queued"] == 1
+    assert embed_resp.status_code == 200
+    assert embed_resp.json()["queued"] == 1
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["cancelled"] == 2
+    assert reset_resp.status_code == 200
+    assert reset_resp.json()["reset"] == 1
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["cleared"] == 3
+    assert invalid_resp.status_code == 400
+
+    async with async_session_factory() as db:
+        failed = await db.get(Content, failed_id)
+        ready = await db.get(Content, ready_id)
+        stuck = await db.get(Content, stuck_id)
+        other_failed = await db.get(Content, other_failed_id)
+        assert failed.processing_status == "pending"
+        assert ready.processing_status == "chunked"
+        assert stuck.processing_status == "failed"
+        assert stuck.processing_error == "长时间停留在 embedding，自动回滚为 failed"
+        assert other_failed.processing_status == "failed"
+        task_result = await db.execute(select(ProcessingTask).where(ProcessingTask.content_id.in_([failed_id, ready_id, stuck_id])))
+        assert task_result.scalars().all() == []
 
 
 @pytest.mark.asyncio

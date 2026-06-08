@@ -1,11 +1,13 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Brain, Plus, Settings, Archive, Trash2, RotateCcw, Edit, X, Loader2, BarChart3 } from "lucide-react";
-import { brainApi, getCurrentBrainId, setCurrentBrainId, type Brain as BrainType, type BrainConfig, type BrainOverview } from "../../api/brains";
+import { Brain, Plus, Settings, Archive, Trash2, RotateCcw, Edit, X, Loader2, BarChart3, Search } from "lucide-react";
+import { brainApi, getCurrentBrainId, setCurrentBrainId, type Brain as BrainType, type BrainConfig, type BrainOverview, type UnassignedContentSummary } from "../../api/brains";
 import { contentApi } from "../../api/content";
 import { providerApi, type ProviderConfig } from "../../api/provider";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
+import { useBrain } from "../../lib/brain-context";
 import { brainsCopy, useCopy } from "../../lib/copywriting";
 
 interface BrainFormData {
@@ -17,11 +19,16 @@ interface BrainFormData {
 
 export default function BrainsPage() {
   const t = useCopy(brainsCopy);
+  const { refreshBrains } = useBrain();
   const [searchParams] = useSearchParams();
   const [brains, setBrains] = useState<BrainType[]>([]);
   const [archivedBrains, setArchivedBrains] = useState<BrainType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -31,6 +38,9 @@ export default function BrainsPage() {
   const [config, setConfig] = useState<BrainConfig>({});
   const [overview, setOverview] = useState<BrainOverview | null>(null);
   const [isOverviewLoading, setIsOverviewLoading] = useState(false);
+  const [unassigned, setUnassigned] = useState<UnassignedContentSummary | null>(null);
+  const [unassignedError, setUnassignedError] = useState<string | null>(null);
+  const [adoptingLegacy, setAdoptingLegacy] = useState(false);
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [formData, setFormData] = useState<BrainFormData>({ name: "", description: "", icon: "", template: "study" });
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -47,6 +57,33 @@ export default function BrainsPage() {
     }
   }, [notification]);
 
+  const visibleBrains = useMemo(() => {
+    const source = showArchived ? archivedBrains : brains;
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return source;
+    return source.filter((brain) => `${brain.name} ${brain.description || ""}`.toLowerCase().includes(keyword));
+  }, [archivedBrains, brains, query, showArchived]);
+
+  const selectedBrains = useMemo(
+    () => visibleBrains.filter((brain) => selectedIds.has(brain.id)),
+    [selectedIds, visibleBrains],
+  );
+
+  const adoptTargetBrain = useMemo(() => {
+    const currentId = getCurrentBrainId();
+    return brains.find((brain) => brain.id === currentId) || brains[0] || null;
+  }, [brains]);
+  const unassignedTotal = unassigned?.total_count ?? unassigned?.count ?? 0;
+  const unassignedDeleted = unassigned?.deleted_count ?? Math.max(0, unassignedTotal - (unassigned?.count ?? 0));
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const visibleIds = new Set(visibleBrains.map((brain) => brain.id));
+      const next = new Set([...current].filter((id) => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [visibleBrains]);
+
   async function loadBrains() {
     setIsLoading(true);
     try {
@@ -58,10 +95,41 @@ export default function BrainsPage() {
     } finally {
       setIsLoading(false);
     }
+    try {
+      setUnassigned(await brainApi.getUnassignedContent());
+      setUnassignedError(null);
+    } catch (error) {
+      setUnassigned(null);
+      setUnassignedError((error as Error).message || "加载旧内容统计失败");
+    }
   }
 
   function notify(type: "success" | "error", message: string) {
     setNotification({ type, message });
+  }
+
+  async function refreshBrainViews() {
+    await loadBrains();
+    await refreshBrains();
+    window.dispatchEvent(new CustomEvent("brains-updated"));
+  }
+
+  function toggleSelection(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((current) => {
+      if (visibleBrains.length > 0 && visibleBrains.every((brain) => current.has(brain.id))) {
+        return new Set();
+      }
+      return new Set(visibleBrains.map((brain) => brain.id));
+    });
   }
 
   async function handleCreate() {
@@ -76,7 +144,7 @@ export default function BrainsPage() {
       notify("success", "工作区创建成功");
       setShowCreateModal(false);
       setFormData({ name: "", description: "", icon: "", template: "study" });
-      loadBrains();
+      await refreshBrainViews();
     } catch { notify("error", "创建工作区失败"); }
   }
 
@@ -88,7 +156,7 @@ export default function BrainsPage() {
       setShowEditModal(false);
       setSelectedBrain(null);
       setFormData({ name: "", description: "", icon: "", template: "study" });
-      loadBrains();
+      await refreshBrainViews();
     } catch { notify("error", "更新工作区失败"); }
   }
 
@@ -100,18 +168,83 @@ export default function BrainsPage() {
       setShowDeleteModal(false);
       if (getCurrentBrainId() === selectedBrain.id) setCurrentBrainId("");
       setSelectedBrain(null);
-      loadBrains();
+      await refreshBrainViews();
     } catch { notify("error", "删除工作区失败"); }
   }
 
   async function handleArchive(brain: BrainType) {
-    try { await brainApi.archive(brain.id); notify("success", "工作区已归档"); loadBrains(); }
+    try { await brainApi.archive(brain.id); notify("success", "工作区已归档"); await refreshBrainViews(); }
     catch { notify("error", "归档工作区失败"); }
   }
 
   async function handleRestore(brain: BrainType) {
-    try { await brainApi.restore(brain.id); notify("success", "工作区已恢复"); loadBrains(); }
+    try { await brainApi.restore(brain.id); notify("success", "工作区已恢复"); await refreshBrainViews(); }
     catch { notify("error", "恢复工作区失败"); }
+  }
+
+  async function handleBulkArchive() {
+    if (selectedBrains.length === 0) return;
+    setBulkLoading(true);
+    try {
+      await Promise.all(selectedBrains.map((brain) => brainApi.archive(brain.id)));
+      notify("success", `已归档 ${selectedBrains.length} 个工作区`);
+      setSelectedIds(new Set());
+      await refreshBrainViews();
+    } catch {
+      notify("error", "批量归档失败");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleBulkRestore() {
+    if (selectedBrains.length === 0) return;
+    setBulkLoading(true);
+    try {
+      await Promise.all(selectedBrains.map((brain) => brainApi.restore(brain.id)));
+      notify("success", `已恢复 ${selectedBrains.length} 个工作区`);
+      setSelectedIds(new Set());
+      await refreshBrainViews();
+    } catch {
+      notify("error", "批量恢复失败");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedBrains.length === 0) return;
+    setBulkLoading(true);
+    try {
+      await Promise.all(selectedBrains.map((brain) => brainApi.delete(brain.id)));
+      if (selectedBrains.some((brain) => getCurrentBrainId() === brain.id)) setCurrentBrainId("");
+      notify("success", `已删除 ${selectedBrains.length} 个工作区`);
+      setBulkDeleteConfirm(false);
+      setSelectedIds(new Set());
+      await refreshBrainViews();
+    } catch {
+      notify("error", "批量删除失败");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleAdoptUnassigned() {
+    const targetId = getCurrentBrainId() || brains[0]?.id;
+    if (!targetId) {
+      notify("error", "请先创建一个工作区");
+      return;
+    }
+    setAdoptingLegacy(true);
+    try {
+      const result = await brainApi.adoptUnassigned(targetId);
+      notify("success", `已归入 ${result.adopted} 条旧内容`);
+      await refreshBrainViews();
+    } catch {
+      notify("error", "归入旧内容失败");
+    } finally {
+      setAdoptingLegacy(false);
+    }
   }
 
   async function handleOpenConfig(brain: BrainType) {
@@ -181,22 +314,102 @@ export default function BrainsPage() {
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-2 mb-6">
-          <button onClick={() => setShowArchived(false)} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${!showArchived ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}>
-            {t.tabActive}
-          </button>
-          <button onClick={() => setShowArchived(true)} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${showArchived ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}>
-            {t.tabArchived(archivedBrains.length)}
-          </button>
+        <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">
+                旧内容归入
+                {unassigned && (
+                  <span className="ml-2 font-normal">
+                    可归入 {unassigned.count} 条 / 总未归属 {unassignedTotal} 条
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 text-xs opacity-80">
+                {unassignedError
+                  ? `暂时无法统计旧内容：${unassignedError}`
+                  : unassigned && unassigned.count > 0
+                    ? `早期没有工作区字段的内容不会出现在当前知识库。${adoptTargetBrain ? `可归入「${adoptTargetBrain.name}」。` : ""}${unassignedDeleted > 0 ? ` 另有 ${unassignedDeleted} 条在回收站/已删除，不会自动归入。` : ""}`
+                    : unassignedTotal > 0
+                      ? `检测到 ${unassignedTotal} 条未归属内容，但都在回收站/已删除，所以不会自动归入。`
+                      : "没有检测到未归属工作区的旧内容。"}
+              </div>
+            </div>
+            <button
+              onClick={handleAdoptUnassigned}
+              disabled={adoptingLegacy || !adoptTargetBrain || !!unassignedError || !unassigned || unassigned.count === 0}
+              className="dao-btn dao-btn-secondary text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {adoptingLegacy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+              归入当前工作区
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setShowArchived(false); setSelectedIds(new Set()); }} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${!showArchived ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}>
+                {t.tabActive}
+              </button>
+              <button onClick={() => { setShowArchived(true); setSelectedIds(new Set()); }} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${showArchived ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"}`}>
+                {t.tabArchived(archivedBrains.length)}
+              </button>
+            </div>
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索工作区..."
+                className="dao-input w-full pl-9 h-9 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2">
+            <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={visibleBrains.length > 0 && visibleBrains.every((brain) => selectedIds.has(brain.id))}
+                onChange={toggleSelectAll}
+                className="accent-jade"
+              />
+              已选 {selectedBrains.length} / {visibleBrains.length}
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              {!showArchived ? (
+                <button onClick={handleBulkArchive} disabled={selectedBrains.length === 0 || bulkLoading} className="dao-btn dao-btn-secondary text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50">
+                  {bulkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+                  批量归档
+                </button>
+              ) : (
+                <button onClick={handleBulkRestore} disabled={selectedBrains.length === 0 || bulkLoading} className="dao-btn dao-btn-secondary text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50">
+                  {bulkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  批量恢复
+                </button>
+              )}
+              <button onClick={() => setBulkDeleteConfirm(true)} disabled={selectedBrains.length === 0 || bulkLoading} className="dao-btn dao-btn-ghost text-xs inline-flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50 text-[var(--danger)]">
+                <Trash2 className="w-3.5 h-3.5" />
+                批量删除
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(showArchived ? archivedBrains : brains).map((brain) => (
-            <div key={brain.id} className="dao-card dao-glow-hover p-5">
+          {visibleBrains.map((brain) => (
+            <div key={brain.id} className={`dao-card dao-glow-hover p-5 ${selectedIds.has(brain.id) ? "ring-2 ring-[var(--accent)]" : ""}`}>
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(brain.id)}
+                    onChange={() => toggleSelection(brain.id)}
+                    className="accent-jade"
+                    aria-label={`选择 ${brain.name}`}
+                  />
                   {brain.icon ? <span className="text-2xl">{brain.icon}</span> : <div className="w-10 h-10 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center"><Brain className="w-5 h-5 text-[var(--accent)]" /></div>}
                   <div>
                     <h3 className="font-semibold text-[var(--text-primary)]">{brain.name}</h3>
@@ -225,12 +438,12 @@ export default function BrainsPage() {
         </div>
 
         {/* Empty */}
-        {(showArchived ? archivedBrains : brains).length === 0 && (
+        {visibleBrains.length === 0 && (
           <div className="text-center py-16">
             <Brain className="w-16 h-16 text-[var(--text-muted)] mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">{showArchived ? t.emptyArchived : t.empty}</h3>
-            <p className="text-[var(--text-secondary)] mb-6 text-sm">{showArchived ? t.emptyArchivedHint : t.emptyHint}</p>
-            {!showArchived && <button onClick={() => setShowCreateModal(true)} className="dao-btn dao-btn-primary text-sm">{t.btnCreate}</button>}
+            <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">{query.trim() ? "没有匹配的工作区" : showArchived ? t.emptyArchived : t.empty}</h3>
+            <p className="text-[var(--text-secondary)] mb-6 text-sm">{query.trim() ? "换个关键词再试试" : showArchived ? t.emptyArchivedHint : t.emptyHint}</p>
+            {!showArchived && !query.trim() && <button onClick={() => setShowCreateModal(true)} className="dao-btn dao-btn-primary text-sm">{t.btnCreate}</button>}
           </div>
         )}
       </div>
@@ -258,6 +471,17 @@ export default function BrainsPage() {
         onCancel={() => { setShowDeleteModal(false); setSelectedBrain(null); }}
       />
 
+      <ConfirmDialog
+        open={bulkDeleteConfirm}
+        title="批量删除工作区"
+        message={`确定要删除选中的 ${selectedBrains.length} 个工作区吗？此操作不可恢复，相关内容也会被删除。`}
+        confirmLabel="确认删除"
+        variant="danger"
+        loading={bulkLoading}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setBulkDeleteConfirm(false)}
+      />
+
       {/* Overview Modal */}
       {showOverviewModal && selectedBrain && <Modal title={`概览 — ${selectedBrain.name}`} widthClass="max-w-2xl" onClose={() => { setShowOverviewModal(false); setSelectedBrain(null); setOverview(null); }}>
         <OverviewPanel overview={overview} loading={isOverviewLoading} />
@@ -279,8 +503,8 @@ export default function BrainsPage() {
 
 /* ── Shared Components ── */
 
-function Modal({ title, onClose, children, widthClass = "max-w-md" }: { title: string; onClose: () => void; children: React.ReactNode; widthClass?: string }) {
-  return (
+function Modal({ title, onClose, children, widthClass = "max-w-md" }: { title: string; onClose: () => void; children: ReactNode; widthClass?: string }) {
+  return createPortal(
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className={`bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-xl w-full ${widthClass} dao-card`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-[var(--border-subtle)]">
@@ -289,7 +513,8 @@ function Modal({ title, onClose, children, widthClass = "max-w-md" }: { title: s
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

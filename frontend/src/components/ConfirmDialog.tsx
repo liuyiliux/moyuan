@@ -1,5 +1,6 @@
 import { Loader2, AlertCircle, AlertTriangle } from "lucide-react";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -40,7 +41,7 @@ export default function ConfirmDialog({
     ? "bg-red-500 hover:bg-red-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)]"
     : "bg-[var(--gold)] hover:bg-[var(--gold)]/90 text-[var(--ink)] shadow-[0_0_20px_rgba(201,168,76,0.4)]";
 
-  return (
+  return createPortal(
     <div
       className="fixed top-0 left-0 right-0 bottom-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 min-h-screen"
       onClick={onCancel}
@@ -79,6 +80,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

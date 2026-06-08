@@ -201,6 +201,40 @@ async def list_brains(
     return [_brain_dict(b, count_map.get(b.id, 0)) for b in brains]
 
 
+@router.get("/unassigned-content")
+async def get_unassigned_content_summary(db: AsyncSession = Depends(get_db)):
+    """统计旧版本未归属任何工作区的内容。"""
+    unassigned_filter = (Content.brain_id.is_(None),)
+    legacy_visible_filter = (
+        *unassigned_filter,
+        or_(Content.is_deleted == False, Content.is_deleted.is_(None)),
+    )
+    total_result = await db.execute(
+        select(func.count(Content.id)).where(*unassigned_filter)
+    )
+    count_result = await db.execute(
+        select(func.count(Content.id)).where(*legacy_visible_filter)
+    )
+    deleted_result = await db.execute(
+        select(func.count(Content.id)).where(*unassigned_filter, Content.is_deleted == True)
+    )
+    sample_result = await db.execute(
+        select(Content.id, Content.title, Content.content_type)
+        .where(*legacy_visible_filter)
+        .order_by(Content.updated_at.desc(), Content.created_at.desc())
+        .limit(5)
+    )
+    return {
+        "count": count_result.scalar() or 0,
+        "total_count": total_result.scalar() or 0,
+        "deleted_count": deleted_result.scalar() or 0,
+        "samples": [
+            {"id": str(row.id), "title": row.title, "content_type": row.content_type}
+            for row in sample_result.all()
+        ],
+    }
+
+
 @router.get("/{brain_id}")
 async def get_brain(brain_id: str, db: AsyncSession = Depends(get_db)):
     """查询单个工作区"""
@@ -211,6 +245,24 @@ async def get_brain(brain_id: str, db: AsyncSession = Depends(get_db)):
     )
     count = count_result.scalar() or 0
     return _brain_dict(brain, count)
+
+
+@router.post("/{brain_id}/adopt-unassigned")
+async def adopt_unassigned_content(brain_id: str, db: AsyncSession = Depends(get_db)):
+    """将旧版本未归属工作区的内容归入指定工作区。"""
+    brain = await _get_brain_or_404(db, brain_id)
+    result = await db.execute(
+        select(Content).where(
+            Content.brain_id.is_(None),
+            or_(Content.is_deleted == False, Content.is_deleted.is_(None)),
+        )
+    )
+    contents = result.scalars().all()
+    for content in contents:
+        content.brain_id = brain.id
+        content.is_deleted = False
+    await db.commit()
+    return {"ok": True, "adopted": len(contents), "brain_id": str(brain.id)}
 
 
 @router.get("/{brain_id}/overview")

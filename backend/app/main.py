@@ -19,6 +19,8 @@ from app.api.collections import router as collections_router
 from app.api.embedding import router as embedding_router
 from app.api.file import router as file_router
 from app.api.file import contents_router, recycle_router, storage_router
+from app.api.imports import router as imports_router
+from app.api.maintenance import router as maintenance_router
 from app.api.notes import router as notes_router
 from app.api.preview import router as preview_router
 from app.api.provider import router as provider_router
@@ -120,6 +122,7 @@ app.include_router(provider_router)
 app.include_router(file_router)
 app.include_router(contents_router)
 app.include_router(storage_router)
+app.include_router(imports_router)
 app.include_router(recycle_router)
 app.include_router(search_router)
 app.include_router(tags_router)
@@ -135,6 +138,7 @@ app.include_router(relations_router)
 app.include_router(brains_router)
 app.include_router(brain_config_router)
 app.include_router(annotations_router)
+app.include_router(maintenance_router)
 
 settings = get_settings()
 app.mount("/files", StaticFiles(directory=settings.file_storage_root), name="files")

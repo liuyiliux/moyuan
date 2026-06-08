@@ -21,6 +21,41 @@ const FUNCTION_LABELS: Record<string, string> = {
   qa: "知识问答",
 };
 
+const DIAGNOSTIC_LABELS: Record<string, string> = {
+  "Web text extraction": "网页正文提取",
+  "Web screenshots": "网页截图",
+  "Local transcription": "本地语音转写",
+  "Video screenshots": "视频截图",
+  Summarization: "摘要生成",
+  Embeddings: "嵌入向量",
+  "Semantic chunking": "智能分块",
+  "Quiz generation": "题库生成",
+  "Answer judging": "答题判断",
+  "Image OCR": "图文识别",
+  "Audio/video transcription": "语音转写",
+  "Knowledge Q&A": "知识问答",
+};
+
+const DIAGNOSTIC_DETAILS: Record<string, string> = {
+  "Install trafilatura to extract readable article text from web pages.": "请安装 trafilatura，用于从网页中提取可阅读正文。",
+  "Install Playwright and browser binaries to capture web page screenshots.": "请安装 Playwright 和浏览器运行时，用于采集网页截图。",
+  "Install faster-whisper to use local audio/video transcription.": "请安装 faster-whisper，用于本地音视频转写。",
+  "Install ffmpeg and add it to PATH to capture video frames.": "请安装 ffmpeg 并加入 PATH，用于截取视频画面。",
+  "No provider selected.": "未选择服务提供商。",
+  "Selected provider no longer exists.": "选择的服务提供商已不存在。",
+  "Selected provider is disabled.": "选择的服务提供商已停用。",
+  "No model configured for this function.": "该功能未配置模型。",
+};
+
+function diagnosticLabel(value: string): string {
+  return DIAGNOSTIC_LABELS[value] || value;
+}
+
+function diagnosticDetail(value: string | null): string | null {
+  if (!value) return null;
+  return DIAGNOSTIC_DETAILS[value] || value;
+}
+
 export default function SettingsPage() {
   const st = useCopy(settingsCopy);
   const { currentBrainId } = useBrain();
@@ -53,9 +88,11 @@ export default function SettingsPage() {
   } | null>(null);
   const [storageLoading, setStorageLoading] = useState(false);
   const [storageMigrating, setStorageMigrating] = useState(false);
+  const [storageCleaning, setStorageCleaning] = useState(false);
+  const [orphanSummary, setOrphanSummary] = useState<{ count: number; bytes: number } | null>(null);
   const [storagePath, setStoragePath] = useState("");
   const [storageMsg, setStorageMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [confirmAction, setConfirmAction] = useState<"migrate_storage" | "reindex" | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"migrate_storage" | "cleanup_orphans" | "reindex" | null>(null);
 
   // Embedding stats
   const [embedStats, setEmbedStats] = useState<{
@@ -161,6 +198,41 @@ export default function SettingsPage() {
     }
   };
 
+  const handleScanOrphans = async () => {
+    setStorageCleaning(true);
+    setStorageMsg(null);
+    try {
+      const data = await api.post<{ orphan_count: number; orphan_bytes: number }>("/storage/orphan-files/cleanup?dry_run=true");
+      setOrphanSummary({ count: data.orphan_count, bytes: data.orphan_bytes });
+      setStorageMsg({
+        type: "success",
+        text: `扫描完成：发现 ${data.orphan_count} 个孤儿文件，占用 ${(data.orphan_bytes / 1024 / 1024).toFixed(2)} MB。`,
+      });
+    } catch (e) {
+      setStorageMsg({ type: "error", text: (e as Error).message });
+    } finally {
+      setStorageCleaning(false);
+    }
+  };
+
+  const handleCleanupOrphans = async () => {
+    setStorageCleaning(true);
+    setStorageMsg(null);
+    try {
+      const data = await api.post<{ deleted_count: number; deleted_bytes: number; errors?: unknown[] }>("/storage/orphan-files/cleanup?dry_run=false");
+      setOrphanSummary({ count: 0, bytes: 0 });
+      setStorageMsg({
+        type: data.errors && data.errors.length > 0 ? "error" : "success",
+        text: `清理完成：删除 ${data.deleted_count} 个孤儿文件，释放 ${(data.deleted_bytes / 1024 / 1024).toFixed(2)} MB。`,
+      });
+      void loadStorageConfig();
+    } catch (e) {
+      setStorageMsg({ type: "error", text: (e as Error).message });
+    } finally {
+      setStorageCleaning(false);
+    }
+  };
+
   const loadEmbedStats = useCallback(async () => {
       setEmbedLoading(true);
     try {
@@ -251,6 +323,7 @@ export default function SettingsPage() {
     const action = confirmAction;
     setConfirmAction(null);
     if (action === "migrate_storage") void handleMigrateStorage();
+    if (action === "cleanup_orphans") void handleCleanupOrphans();
     if (action === "reindex") void handleReindex();
   };
 
@@ -359,6 +432,18 @@ export default function SettingsPage() {
         cancelLabel="取消"
         variant="warning"
         loading={storageMigrating}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmAction === "cleanup_orphans"}
+        title="清理孤儿文件"
+        message={`确定要删除未被数据库引用的物理文件吗？${orphanSummary ? `当前扫描到 ${orphanSummary.count} 个，约 ${(orphanSummary.bytes / 1024 / 1024).toFixed(2)} MB。` : ""}`}
+        confirmLabel="确认清理"
+        cancelLabel="取消"
+        variant="danger"
+        loading={storageCleaning}
         onConfirm={handleConfirmAction}
         onCancel={() => setConfirmAction(null)}
       />
@@ -802,6 +887,36 @@ export default function SettingsPage() {
                       迁移会复制现有文件和派生截图到新路径，原路径文件不会自动删除。
                     </p>
 
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)]/50 px-4 py-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h4 className="text-sm font-medium text-[var(--text-primary)]">孤儿文件清理</h4>
+                          <p className="mt-1 text-xs text-[var(--text-muted)]">
+                            清理已不被 contents 或 content_chunks 引用的物理文件。
+                            {orphanSummary && ` 当前扫描：${orphanSummary.count} 个，${(orphanSummary.bytes / 1024 / 1024).toFixed(2)} MB。`}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={handleScanOrphans}
+                            disabled={storageCleaning}
+                            className="dao-btn dao-btn-ghost text-sm inline-flex items-center justify-center gap-2"
+                          >
+                            {storageCleaning ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                            扫描
+                          </button>
+                          <button
+                            onClick={() => setConfirmAction("cleanup_orphans")}
+                            disabled={storageCleaning || (orphanSummary !== null && orphanSummary.count === 0)}
+                            className="dao-btn text-sm inline-flex items-center justify-center gap-2 bg-[var(--danger-soft)] text-[var(--danger)] hover:bg-[var(--danger-soft)] disabled:opacity-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            清理孤儿文件
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
                     {storageMsg && (
                       <div
                         className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
@@ -967,16 +1082,16 @@ export default function SettingsPage() {
                         className="p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)]"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-medium text-[var(--text-primary)]">{check.label}</p>
+                          <p className="text-sm font-medium text-[var(--text-primary)]">{diagnosticLabel(check.label)}</p>
                           {check.ok ? (
                             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                           ) : (
                             <AlertCircle className="w-4 h-4 text-[var(--warning)] shrink-0" />
                           )}
                         </div>
-                        <p className="mt-1 text-xs text-[var(--text-muted)]">{check.status}</p>
-                        {check.detail && (
-                          <p className="mt-2 text-xs leading-relaxed text-[var(--text-secondary)]">{check.detail}</p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">{check.ok ? "可用" : "缺失"}</p>
+                        {diagnosticDetail(check.detail) && (
+                          <p className="mt-2 text-xs leading-relaxed text-[var(--text-secondary)]">{diagnosticDetail(check.detail)}</p>
                         )}
                       </div>
                     ))}
@@ -992,9 +1107,9 @@ export default function SettingsPage() {
                         className="grid grid-cols-[minmax(120px,1fr)_minmax(140px,1.2fr)_minmax(160px,1.4fr)_24px] items-center gap-3 p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)]"
                       >
                         <div>
-                          <p className="text-sm font-medium text-[var(--text-primary)]">{binding.label}</p>
-                          {binding.detail && (
-                            <p className="mt-0.5 text-xs text-[var(--warning)]">{binding.detail}</p>
+                          <p className="text-sm font-medium text-[var(--text-primary)]">{diagnosticLabel(binding.label)}</p>
+                          {diagnosticDetail(binding.detail) && (
+                            <p className="mt-0.5 text-xs text-[var(--warning)]">{diagnosticDetail(binding.detail)}</p>
                           )}
                         </div>
                         <p className="text-xs text-[var(--text-secondary)] truncate">
