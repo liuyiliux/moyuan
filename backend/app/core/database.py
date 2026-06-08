@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -6,10 +7,8 @@ settings = get_settings()
 engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
+    poolclass=NullPool,
     pool_pre_ping=True,
-    pool_recycle=1800,
     connect_args={
         "timeout": 30,
         "command_timeout": 60,

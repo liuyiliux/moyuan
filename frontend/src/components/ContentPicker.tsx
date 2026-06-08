@@ -1,34 +1,51 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { fileApi, type FileItem } from "../api/content";
 import { Search, Loader2, X, Plus } from "lucide-react";
+import { useBrain } from "../lib/brain-context";
 
 interface Props {
   onSelect: (contentId: string, title: string) => void;
   onClose: () => void;
+  brainId?: string | null;
+  excludeIds?: string[];
 }
 
-export default function ContentPicker({ onSelect, onClose }: Props) {
+export default function ContentPicker({ onSelect, onClose, brainId, excludeIds = [] }: Props) {
+  const { currentBrainId } = useBrain();
+  const effectiveBrainId = brainId === undefined ? currentBrainId : brainId;
   const [items, setItems] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const requestSeq = useRef(0);
 
   useEffect(() => {
-    loadItems();
-  }, []);
+    const timer = window.setTimeout(() => {
+      void loadItems(search);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [effectiveBrainId, search]);
 
-  async function loadItems() {
+  async function loadItems(keyword = "") {
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
     setLoading(true);
     try {
-      const res = await fileApi.list({ page: 1, page_size: 50 });
+      const query = keyword.trim();
+      const res = await fileApi.list({
+        page: 1,
+        page_size: 100,
+        brain_id: effectiveBrainId || undefined,
+        q: query || undefined,
+      });
+      if (seq !== requestSeq.current) return;
       setItems(res.items || []);
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
   }
 
-  const filtered = search.trim()
-    ? items.filter((i) => i.title.toLowerCase().includes(search.toLowerCase()))
-    : items;
+  const excluded = new Set(excludeIds);
+  const availableItems = items.filter((item) => !excluded.has(item.id));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -65,13 +82,13 @@ export default function ContentPicker({ onSelect, onClose }: Props) {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
             </div>
-          ) : filtered.length === 0 ? (
+          ) : availableItems.length === 0 ? (
             <div className="text-center py-12 text-sm text-[var(--text-muted)]">
-              {search.trim() ? "没有匹配的内容" : "暂无内容"}
+              {search.trim() ? "没有匹配的内容" : items.length > 0 ? "可添加内容都已在合集里" : "暂无内容"}
             </div>
           ) : (
             <div className="divide-y divide-[var(--border-subtle)]">
-              {filtered.map((item) => (
+              {availableItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => { onSelect(item.id, item.title); onClose(); }}

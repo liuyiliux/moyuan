@@ -19,6 +19,13 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatMatchType(type: string): string {
+  if (type === "md5") return "内容相同";
+  if (type === "filename") return "文件名相同";
+  if (type === "relative_path") return "路径相同";
+  return type;
+}
+
 export default function DuplicateModal({
   filename,
   duplicates,
@@ -74,6 +81,18 @@ export default function DuplicateModal({
                   <p className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
                     {d.content_type} · {formatSize(d.file_size)}
                   </p>
+                  {d.match_types && d.match_types.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {d.match_types.map((type) => (
+                        <span
+                          key={type}
+                          className="rounded-full bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]"
+                        >
+                          {formatMatchType(type)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </label>
             ))}

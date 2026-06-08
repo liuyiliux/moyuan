@@ -1,28 +1,33 @@
-"""内容处理管道 Service
+"""Content processing pipeline.
 
-负责将上传的原始文件解析为可检索的文本内容，并执行语义分块：
-- PDF   → PyMuPDF 提取文字 + 图片 → 语义分块
-- 图片  → 单块（预留 OCR）
-- 音频  → 预留 Whisper 转写 → 按时间戳分块
-- 视频  → 预留音频提取+转写 → 按时间戳分块 + 关键帧截图
-- Office → python-docx / openpyxl 提取文字 → 语义分块
-- 网页  → trafilatura 提取正文 → 语义分块
+Converts uploaded or captured content into searchable chunks:
+- PDF: extract text and embedded images.
+- Image: keep the original image chunk and optionally add OCR text.
+- Audio: transcribe via the configured provider and create timestamped chunks.
+- Video: transcribe via the configured provider and optionally capture a frame.
+- Office: extract text plus basic document structure metadata.
+- Web: extract article text and optionally capture a page screenshot.
 """
 
 import asyncio
+import base64
+import hashlib
 import logging
+import mimetypes
 import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import httpx
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.models.models import Content, ContentChunk
+from app.models.models import Content, ContentChunk, FunctionBindingConfig, ProviderConfig
+from app.core.crypto import crypto_service
 
 settings = get_settings()
 logger = get_logger(__name__)
@@ -77,55 +82,360 @@ def _extract_pdf_images(path: Path, output_dir: Path) -> list[tuple[int, str]]:
 
 # ── Office 文档解析 ──
 
-def _extract_docx(path: Path) -> str:
+def _extract_docx(path: Path) -> tuple[str, dict]:
     from docx import Document
 
     doc = Document(str(path))
-    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    parts: list[str] = []
+    headings: list[dict] = []
+    paragraph_count = 0
+    for index, paragraph in enumerate(doc.paragraphs):
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        paragraph_count += 1
+        style_name = paragraph.style.name if paragraph.style else ""
+        if style_name.lower().startswith("heading"):
+            level_text = style_name.split()[-1]
+            level = int(level_text) if level_text.isdigit() else None
+            headings.append({"text": text, "level": level, "paragraph_index": index})
+        parts.append(text)
+
+    tables: list[dict] = []
+    for table_index, table in enumerate(doc.tables):
+        rows = []
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            if any(cells):
+                rows.append(cells)
+                parts.append(" | ".join(cell for cell in cells if cell))
+        tables.append({
+            "table_index": table_index,
+            "row_count": len(table.rows),
+            "column_count": len(table.columns),
+            "preview": rows[:5],
+        })
+
+    metadata = {
+        "format": "docx",
+        "paragraph_count": paragraph_count,
+        "headings": headings,
+        "tables": tables,
+    }
+    return "\n".join(parts), metadata
 
 
-def _extract_xlsx(path: Path) -> str:
+def _extract_xlsx(path: Path) -> tuple[str, dict]:
     from openpyxl import load_workbook
 
     wb = load_workbook(path, read_only=True)
     parts = []
+    sheets: list[dict] = []
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
+        non_empty_rows = 0
+        preview = []
         for row in ws.iter_rows(values_only=True):
             cells = [str(c) for c in row if c is not None]
             if cells:
+                non_empty_rows += 1
+                if len(preview) < 5:
+                    preview.append(cells)
                 parts.append(" | ".join(cells))
+        sheets.append({
+            "name": sheet_name,
+            "max_row": ws.max_row,
+            "max_column": ws.max_column,
+            "non_empty_rows": non_empty_rows,
+            "preview": preview,
+        })
     wb.close()
-    return "\n".join(parts)
+    return "\n".join(parts), {"format": "xlsx", "sheets": sheets}
 
 
-# ── 图片 OCR（预留）──
+# -- Image OCR --
 
-async def _ocr_image(path: Path) -> str:
-    # TODO: Phase 5 实现腾讯云 OCR 接入
-    return ""
+async def _get_function_binding(db: AsyncSession, function: str) -> tuple[ProviderConfig, str] | None:
+    binding_result = await db.execute(
+        select(FunctionBindingConfig).where(FunctionBindingConfig.function == function)
+    )
+    binding = binding_result.scalar_one_or_none()
+    if binding and binding.provider_id and binding.model:
+        provider_result = await db.execute(
+            select(ProviderConfig).where(
+                ProviderConfig.id == binding.provider_id,
+                ProviderConfig.is_active == True,
+            )
+        )
+        provider = provider_result.scalar_one_or_none()
+        if provider is not None:
+            return provider, binding.model
+
+    result = await db.execute(
+        select(ProviderConfig).where(ProviderConfig.is_active == True)
+    )
+    for provider in result.scalars().all():
+        models = provider.default_models or {}
+        model = models.get(function)
+        if model:
+            return provider, model
+
+    return None
 
 
-# ── 音频转写（预留）──
-
-async def _transcribe_audio(path: Path) -> list[dict]:
-    """预留音频转写接口，返回带时间戳的句子列表
-
-    期望格式: [{"text": "...", "start": 0.0, "end": 2.5}, ...]
-    """
-    # TODO: Phase 5 实现 Whisper 转写
-    return []
+async def _get_ocr_binding(db: AsyncSession) -> tuple[ProviderConfig, str] | None:
+    return await _get_function_binding(db, "ocr")
 
 
-# ── 视频处理（预留）──
+async def _ocr_image(path: Path, db: AsyncSession | None = None) -> str:
+    if db is None:
+        return ""
 
-async def _process_video(path: Path) -> tuple[list[dict], list[str]]:
-    """预留视频处理：提取音频转写 + 关键帧截图
+    binding = await _get_ocr_binding(db)
+    if binding is None:
+        logger.info("OCR provider is not configured; skipping image text extraction")
+        return ""
 
-    返回: (transcript_segments, screenshot_paths)
-    """
-    # TODO: Phase 5 实现
-    return ([], [])
+    if not path.exists():
+        logger.warning(f"OCR image file does not exist: {path}")
+        return ""
+
+    provider, model = binding
+    api_key = ""
+    if provider.api_key_encrypted:
+        try:
+            api_key = crypto_service.decrypt(provider.api_key_encrypted)
+        except Exception:
+            logger.warning(f"OCR API key decrypt failed - provider_id={provider.id}", exc_info=True)
+            return ""
+
+    try:
+        from openai import AsyncOpenAI
+
+        mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+        image_data = base64.b64encode(path.read_bytes()).decode("ascii")
+        data_url = f"data:{mime_type};base64,{image_data}"
+        base_url = provider.base_url or settings.openai_base_url
+        client = AsyncOpenAI(api_key=api_key or "no-key", base_url=base_url)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Extract all readable text from this image. "
+                                "Return only the extracted text. If there is no readable text, return an empty string."
+                            ),
+                        },
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+            temperature=0,
+        )
+        content = response.choices[0].message.content if response.choices else ""
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts = [
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            ]
+            return "\n".join(part for part in parts if part).strip()
+        return ""
+    except Exception:
+        logger.warning(
+            f"OCR extraction failed - provider_id={provider.id}, model={model}, path={path}",
+            exc_info=True,
+        )
+        return ""
+
+
+# -- Audio transcription --
+
+def _normalize_transcript_segments(response) -> list[dict]:
+    segments = getattr(response, "segments", None)
+    if segments:
+        normalized = []
+        for seg in segments:
+            text = getattr(seg, "text", None)
+            if text is None and isinstance(seg, dict):
+                text = seg.get("text")
+            text = (text or "").strip()
+            if not text:
+                continue
+            start = getattr(seg, "start", None)
+            end = getattr(seg, "end", None)
+            if isinstance(seg, dict):
+                start = seg.get("start", start)
+                end = seg.get("end", end)
+            normalized.append({"text": text, "start": start, "end": end})
+        if normalized:
+            return normalized
+
+    text = getattr(response, "text", None)
+    if text is None and isinstance(response, dict):
+        text = response.get("text")
+    text = (text or "").strip()
+    if not text:
+        return []
+    return [{"text": text, "start": None, "end": None}]
+
+
+async def _transcribe_with_faster_whisper(path: Path, model: str, extra_params: dict | None = None) -> list[dict]:
+    """Run local faster-whisper transcription in a worker thread."""
+    extra_params = extra_params or {}
+
+    def run() -> list[dict]:
+        from faster_whisper import WhisperModel
+
+        model_size_or_path = extra_params.get("model_path") or model
+        device = extra_params.get("device", "auto")
+        compute_type = extra_params.get("compute_type", "default")
+        language = extra_params.get("language") or None
+        beam_size = int(extra_params.get("beam_size", 5))
+
+        whisper_model = WhisperModel(
+            model_size_or_path,
+            device=device,
+            compute_type=compute_type,
+        )
+        segments, _info = whisper_model.transcribe(
+            str(path),
+            language=language,
+            beam_size=beam_size,
+        )
+        return [
+            {"text": segment.text.strip(), "start": segment.start, "end": segment.end}
+            for segment in segments
+            if segment.text and segment.text.strip()
+        ]
+
+    return await asyncio.to_thread(run)
+
+
+async def _transcribe_audio(path: Path, db: AsyncSession | None = None) -> list[dict]:
+    """Return transcript segments as [{"text": "...", "start": 0.0, "end": 2.5}, ...]."""
+    if db is None:
+        return []
+
+    binding = await _get_function_binding(db, "transcribe")
+    if binding is None:
+        logger.info("Transcription provider is not configured; skipping audio text extraction")
+        return []
+
+    if not path.exists():
+        logger.warning(f"Audio file does not exist: {path}")
+        return []
+
+    provider, model = binding
+    extra_params = provider.extra_params or {}
+    binding_backend = extra_params.get("transcribe_backend")
+    if binding_backend == "faster_whisper" or provider.base_url == "local:faster-whisper":
+        try:
+            return await _transcribe_with_faster_whisper(path, model, extra_params)
+        except Exception:
+            logger.warning(
+                f"Local faster-whisper transcription failed - provider_id={provider.id}, model={model}, path={path}",
+                exc_info=True,
+            )
+            return []
+
+    api_key = ""
+    if provider.api_key_encrypted:
+        try:
+            api_key = crypto_service.decrypt(provider.api_key_encrypted)
+        except Exception:
+            logger.warning(f"Transcription API key decrypt failed - provider_id={provider.id}", exc_info=True)
+            return []
+
+    try:
+        from openai import AsyncOpenAI
+
+        base_url = provider.base_url or settings.openai_base_url
+        client = AsyncOpenAI(api_key=api_key or "no-key", base_url=base_url)
+        with path.open("rb") as audio_file:
+            try:
+                response = await client.audio.transcriptions.create(
+                    model=model,
+                    file=audio_file,
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment"],
+                )
+            except TypeError:
+                audio_file.seek(0)
+                response = await client.audio.transcriptions.create(
+                    model=model,
+                    file=audio_file,
+                    response_format="json",
+                )
+        return _normalize_transcript_segments(response)
+    except Exception:
+        logger.warning(
+            f"Audio transcription failed - provider_id={provider.id}, model={model}, path={path}",
+            exc_info=True,
+        )
+        return []
+
+
+# -- Video processing --
+
+async def _extract_video_screenshots(path: Path, output_dir: Path) -> list[str]:
+    import shutil
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        logger.info("ffmpeg is not available; skipping video screenshots")
+        return []
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "frame_0001.jpg"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-y",
+            "-ss",
+            "1",
+            "-i",
+            str(path),
+            "-frames:v",
+            "1",
+            str(output_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+        if proc.returncode != 0 or not output_path.exists():
+            logger.warning(
+                f"Video screenshot extraction failed - path={path}, "
+                f"stdout={stdout.decode(errors='ignore')[:300]}, "
+                f"stderr={stderr.decode(errors='ignore')[:300]}"
+            )
+            return []
+
+        storage_root = Path(settings.file_storage_root).resolve()
+        try:
+            return [output_path.resolve().relative_to(storage_root).as_posix()]
+        except ValueError:
+            return [str(output_path)]
+    except Exception:
+        logger.warning(f"Video screenshot extraction failed - path={path}", exc_info=True)
+        return []
+
+
+async def _process_video(
+    path: Path,
+    db: AsyncSession | None = None,
+    screenshot_dir: Path | None = None,
+) -> tuple[list[dict], list[str]]:
+    """Return transcript segments and optional screenshot paths."""
+    segments = await _transcribe_audio(path, db)
+    screenshots = await _extract_video_screenshots(path, screenshot_dir) if screenshot_dir else []
+    return (segments, screenshots)
 
 
 # ── 网页抓取 ──
@@ -138,6 +448,33 @@ async def _extract_web(url: str) -> str:
         return ""
     result = trafilatura.extract(downloaded)
     return result or ""
+
+
+async def _capture_web_screenshot(url: str, output_dir: Path) -> str | None:
+    try:
+        from playwright.async_api import async_playwright
+    except Exception:
+        logger.info("Playwright is not installed; skipping web screenshot capture")
+        return None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "web_capture.png"
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch()
+            page = await browser.new_page(viewport={"width": 1365, "height": 900})
+            await page.goto(url, wait_until="networkidle", timeout=15000)
+            await page.screenshot(path=str(output_path), full_page=True)
+            await browser.close()
+
+        storage_root = Path(settings.file_storage_root).resolve()
+        try:
+            return output_path.resolve().relative_to(storage_root).as_posix()
+        except ValueError:
+            return str(output_path)
+    except Exception:
+        logger.warning(f"Web screenshot capture failed - url={url}", exc_info=True)
+        return None
 
 
 # ── 主处理类 ──
@@ -586,8 +923,31 @@ class ContentProcessService:
             chunk_type="image",
             image_path=content.file_path,
         ))
+        ocr_text = ""
+        if content.file_path:
+            try:
+                image_path = Path(self._resolve_path(content.file_path))
+                ocr_text = await _ocr_image(image_path, self.db)
+            except Exception:
+                logger.warning(f"图片 OCR 处理失败，保留图片块 - content_id={content.id}", exc_info=True)
+
+        if ocr_text.strip():
+            content.text_content = ocr_text.strip()
+            self.db.add(ContentChunk(
+                content_id=content.id,
+                chunk_index=1,
+                chunk_type="text",
+                chunk_text=content.text_content,
+                start_offset=0,
+                end_offset=len(content.text_content),
+                extra_meta={"source": "ocr"},
+            ))
+
         await self.db.flush()
-        logger.info(f"图片分块完成 - content_id={content.id}")
+        logger.info(
+            f"图片分块完成 - content_id={content.id}, "
+            f"ocr_text={'yes' if ocr_text.strip() else 'no'}"
+        )
 
     async def _process_doc(self, content: Content) -> None:
         """Office 文档处理：文字提取 → 语义分块"""
@@ -596,10 +956,11 @@ class ContentProcessService:
         p = Path(file_path)
 
         suffix = p.suffix.lower()
+        metadata: dict = {}
         if suffix == ".docx":
-            text = _extract_docx(p)
+            text, metadata = _extract_docx(p)
         elif suffix in (".xlsx", ".xls"):
-            text = _extract_xlsx(p)
+            text, metadata = _extract_xlsx(p)
         else:
             text = ""
 
@@ -608,6 +969,11 @@ class ContentProcessService:
             return
 
         content.text_content = text
+        if metadata:
+            content.extra_meta = {
+                **(content.extra_meta or {}),
+                "document_structure": metadata,
+            }
         await self._text_chunk(content, text)
 
     async def _process_note(self, content: Content) -> None:
@@ -620,6 +986,7 @@ class ContentProcessService:
 
     async def _process_web(self, content: Content) -> None:
         """网页处理：正文提取（或使用已有 text_content）→ 语义分块"""
+        content_id = str(content.id)
         text = content.text_content or ""
         if not text.strip() and content.source_url:
             text = await _extract_web(content.source_url)
@@ -629,6 +996,26 @@ class ContentProcessService:
             return
         await self._text_chunk(content, text)
 
+        if content.source_url:
+            screenshot_dir = Path(settings.file_storage_root) / "images" / content_id
+            screenshot_path = await _capture_web_screenshot(content.source_url, screenshot_dir)
+            if screenshot_path:
+                result = await self.db.execute(
+                    select(ContentChunk.chunk_index)
+                    .where(ContentChunk.content_id == content.id)
+                    .order_by(ContentChunk.chunk_index.desc())
+                    .limit(1)
+                )
+                last_index = result.scalar_one_or_none()
+                self.db.add(ContentChunk(
+                    content_id=content.id,
+                    chunk_index=(last_index + 1) if last_index is not None else 0,
+                    chunk_type="image",
+                    image_path=screenshot_path,
+                    extra_meta={"source": "web_screenshot", "source_url": content.source_url},
+                ))
+                await self.db.flush()
+
     async def _process_audio(self, content: Content) -> None:
         """音频处理：转写 → 按字幕时间戳分块"""
         content_id = str(content.id)
@@ -636,7 +1023,7 @@ class ContentProcessService:
         segments: list[dict] = []
         if content.file_path:
             file_path = self._resolve_path(content.file_path)
-            segments = await _transcribe_audio(Path(file_path))
+            segments = await _transcribe_audio(Path(file_path), self.db)
 
         if not segments:
             logger.warning(f"无转写数据，跳过音频分块 - content_id={content_id}")
@@ -669,10 +1056,16 @@ class ContentProcessService:
         screenshots: list[str] = []
 
         if content.file_path:
-            # 调用模块级 _process_video（预留接口）
+            # Call the module-level implementation to keep tests monkeypatchable.
             import sys
             module = sys.modules[__name__]
-            segments, screenshots = await module._process_video(Path(content.file_path))
+            file_path = self._resolve_path(content.file_path)
+            screenshots_dir = Path(settings.file_storage_root) / "images" / content_id
+            segments, screenshots = await module._process_video(
+                Path(file_path),
+                self.db,
+                screenshots_dir,
+            )
 
         if not segments:
             logger.warning(f"无转写数据，跳过视频分块 - content_id={content_id}")

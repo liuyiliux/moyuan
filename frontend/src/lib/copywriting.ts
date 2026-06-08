@@ -2,10 +2,12 @@ import { useStyleTheme } from "./style-theme";
 import type { StyleTheme } from "./style-theme";
 
 /** 三风格文案映射 */
-export type CopyText<T extends Record<string, string>> = Record<StyleTheme, T>;
+type CopyValue = string | ((...args: never[]) => string);
+
+export type CopyText<T extends Record<string, CopyValue>> = Record<StyleTheme, T>;
 
 /** 根据当前风格获取对应文案 */
-export function useCopy<T extends Record<string, string>>(texts: CopyText<T>): T {
+export function useCopy<T extends Record<string, CopyValue>>(texts: CopyText<T>): T {
   const { styleTheme } = useStyleTheme();
   return texts[styleTheme] || texts.daoist;
 }
@@ -827,6 +829,8 @@ export const sidebarCopy: CopyText<{
   brainsTip: string;
   analytics: string;
   analyticsTip: string;
+  processing: string;
+  processingTip: string;
   logs: string;
   logsTip: string;
   backup: string;
@@ -856,6 +860,7 @@ export const sidebarCopy: CopyText<{
     quiz: "考校", quizTip: "出题测验",
     brains: "丹室", brainsTip: "工作区",
     analytics: "卦象", analyticsTip: "统计",
+    processing: "炉火", processingTip: "处理队列",
     logs: "玄鉴", logsTip: "日志",
     backup: "封魔", backupTip: "备份",
     settings: "玄台", settingsTip: "设置",
@@ -881,6 +886,7 @@ export const sidebarCopy: CopyText<{
     quiz: "测验", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作区",
     analytics: "统计", analyticsTip: "数据分析",
+    processing: "处理", processingTip: "处理队列",
     logs: "日志", logsTip: "系统日志",
     backup: "备份", backupTip: "数据备份",
     settings: "设置", settingsTip: "系统设置",
@@ -906,6 +912,7 @@ export const sidebarCopy: CopyText<{
     quiz: "来考试喵~", quizTip: "出题测验",
     brains: "工作区", brainsTip: "工作空间",
     analytics: "数据喵~", analyticsTip: "统计",
+    processing: "处理中", processingTip: "处理队列",
     logs: "日志喵", logsTip: "日志",
     backup: "备份备份~", backupTip: "备份",
     settings: "设置设置~", settingsTip: "设置",

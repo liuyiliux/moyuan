@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
@@ -20,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.models.models import Content, FunctionBindingConfig, ProviderConfig
+from app.models.models import Brain, Content, FunctionBindingConfig, ProviderConfig
 from app.core.crypto import crypto_service
 
 settings = get_settings()
@@ -149,13 +150,43 @@ async def _call_openai_embedding(
     return result
 
 
-async def _get_embedding_binding(db: AsyncSession) -> dict | None:
+async def _get_embedding_binding(db: AsyncSession, brain_id: uuid.UUID | str | None = None) -> dict | None:
     """从 provider-config 读取 embedding 功能绑定
 
     优先级：
-    1. Provider.default_models["embedding"]（数据库持久化）
-    2. 功能绑定 /api/providers/bindings（内存，fallback）
+    1. Brain.config（工作区覆盖）
+    2. Provider.default_models["embedding"]（数据库持久化）
+    3. 功能绑定 /api/providers/bindings（fallback）
     """
+    if brain_id:
+        try:
+            uid = brain_id if isinstance(brain_id, uuid.UUID) else uuid.UUID(str(brain_id))
+        except ValueError:
+            uid = None
+        if uid:
+            brain = await db.get(Brain, uid)
+            config = brain.config if brain else None
+            if isinstance(config, dict) and config.get("provider_id"):
+                try:
+                    provider_uuid = uuid.UUID(str(config["provider_id"]))
+                except ValueError:
+                    provider_uuid = None
+                if provider_uuid is not None:
+                    provider_result = await db.execute(
+                        select(ProviderConfig).where(
+                            ProviderConfig.id == provider_uuid,
+                            ProviderConfig.is_active == True,
+                        )
+                    )
+                    provider = provider_result.scalar_one_or_none()
+                    if provider:
+                        model = config.get("embedding_model") or (provider.default_models or {}).get("embedding")
+                        if model:
+                            return {
+                                "provider_id": str(provider.id),
+                                "model": model,
+                            }
+
     result = await db.execute(
         select(ProviderConfig).where(ProviderConfig.is_active == True)
     )
@@ -249,9 +280,10 @@ async def embed_text(
     text: str,
     model: str | None = None,
     provider_id: str | None = None,
+    brain_id: uuid.UUID | str | None = None,
 ) -> list[float] | None:
     """为单条文本生成嵌入向量"""
-    binding = await _get_embedding_binding(db)
+    binding = await _get_embedding_binding(db, brain_id)
     if binding is None:
         return None
 
@@ -275,13 +307,14 @@ async def embed_texts(
     texts: list[str],
     model: str | None = None,
     provider_id: str | None = None,
+    brain_id: uuid.UUID | str | None = None,
 ) -> list[list[float] | None]:
     """Batch-generate embeddings for text chunks."""
     if not texts:
         logger.debug("embed_texts: 空输入，返回空结果")
         return []
 
-    binding = await _get_embedding_binding(db)
+    binding = await _get_embedding_binding(db, brain_id)
     if binding is None:
         logger.warning("embed_texts: 未找到 embedding 绑定配置")
         return [None] * len(texts)
@@ -313,13 +346,14 @@ async def embed_image(
     file_path: str,
     model: str | None = None,
     provider_id: str | None = None,
+    brain_id: uuid.UUID | str | None = None,
 ) -> list[float] | None:
     """为单张图片生成嵌入向量（使用多模态模型）
 
     Qwen3-VL-Embedding-8B 等多模态模型支持图片输入，
     通过 OpenAI 兼容 API 的 input 字段传入图片 URL 或 base64。
     """
-    binding = await _get_embedding_binding(db)
+    binding = await _get_embedding_binding(db, brain_id)
     if binding is None:
         return None
 
@@ -359,13 +393,14 @@ async def embed_images(
     file_paths: list[str],
     model: str | None = None,
     provider_id: str | None = None,
+    brain_id: uuid.UUID | str | None = None,
 ) -> list[list[float] | None]:
     """Batch-generate embeddings for image chunks.
     
     使用硅基流动的批量格式，可以一次传多张图片：
     [{"image": "...base64..."}, {"image": "...base64..."}, ...]
     """
-    binding = await _get_embedding_binding(db)
+    binding = await _get_embedding_binding(db, brain_id)
     if binding is None:
         return [None] * len(file_paths)
 
@@ -434,12 +469,12 @@ async def embed_content(db: AsyncSession, content_id: str) -> bool:
 
     # 对于图片类型，优先生成图像嵌入
     if content.content_type == "image" and content.file_path:
-        vec = await embed_image(db, content.file_path)
+        vec = await embed_image(db, content.file_path, brain_id=content.brain_id)
         embed_type = "image"
 
     # 对于有文本的内容，生成文本嵌入
     if vec is None and content.text_content:
-        vec = await embed_text(db, content.text_content)
+        vec = await embed_text(db, content.text_content, brain_id=content.brain_id)
         embed_type = "text"
 
     if vec is not None:
@@ -525,11 +560,11 @@ async def generate_embeddings(
 
 # ── 查询向量生成 ──
 
-async def embed_query(db: AsyncSession, query: str) -> list[float] | None:
+async def embed_query(db: AsyncSession, query: str, brain_id: uuid.UUID | str | None = None) -> list[float] | None:
     """为搜索查询文本生成嵌入向量"""
-    return await embed_text(db, query)
+    return await embed_text(db, query, brain_id=brain_id)
 
 
-async def embed_query_image(db: AsyncSession, file_path: str) -> list[float] | None:
+async def embed_query_image(db: AsyncSession, file_path: str, brain_id: uuid.UUID | str | None = None) -> list[float] | None:
     """为搜索查询图片生成嵌入向量"""
-    return await embed_image(db, file_path)
+    return await embed_image(db, file_path, brain_id=brain_id)

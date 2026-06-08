@@ -16,11 +16,11 @@
 - **THEN** 系统发送探测请求，3 秒内返回连接成功/失败结果，失败时展示错误信息
 
 ### Requirement: OCR 服务配置
-系统 SHALL 支持配置腾讯云 OCR/IMA 服务（SecretId、SecretKey、Region），也支持配置本地 OCR 服务端点作为替代。
+系统 SHALL 支持配置用户自有的 OCR 服务提供商（兼容 OpenAI Vision Chat API 或自定义 OpenAI-compatible API），OCR 调用仅使用用户在设置中配置并绑定的 Provider，不内置特定云厂商专用逻辑。
 
-#### Scenario: 配置腾讯云 OCR
-- **WHEN** 用户填写腾讯云 SecretId 和 SecretKey 后保存
-- **THEN** 后续图片上传的 OCR 处理通过腾讯云 API 执行，处理结果与本地方案输出格式一致
+#### Scenario: 配置 OCR Provider
+- **WHEN** 用户填写 OCR Provider 的 Base URL、API Key 并为「OCR」功能绑定模型后保存
+- **THEN** 后续图片上传的 OCR 处理通过该已配置 Provider 执行；未配置或未绑定时不调用外部 OCR API
 
 ### Requirement: 语音转写服务配置
 系统 SHALL 支持配置 Whisper API（OpenAI 或自托管）与本地 faster-whisper 作为语音转写服务，可选择语言和模型规格。

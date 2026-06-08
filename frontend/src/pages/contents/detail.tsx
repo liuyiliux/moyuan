@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { fileApi, contentApi, type FileItem } from "../../api/content";
 import { annotationApi, type Annotation } from "../../api/annotations";
 import { tagApi, categoryApi, collectionApi } from "../../api/organization";
-import type { Tag, Category } from "../../api/organization";
+import type { Tag, Category, CollectionItem } from "../../api/organization";
 import { relationApi, type SeriesInfo } from "../../api/relations";
 import ImageViewer from "../../components/ImageViewer";
 import PDFViewer from "../../components/PDFViewer";
@@ -14,16 +14,20 @@ import AnnotationPanel from "../../components/AnnotationPanel";
 import KnowledgeGraph from "../../components/KnowledgeGraph";
 import SeriesNavigation from "../../components/SeriesNavigation";
 import Toast from "../../components/Toast";
+import ConfirmDialog from "../../components/ConfirmDialog";
 import PromptEditor from "../../components/PromptEditor";
 import QuizGenerator from "../../components/QuizGenerator";
 import {
   ArrowLeft, Save, RefreshCw, Trash2, FileText,
   FileAudio, FileVideo, Image, FileSpreadsheet, File, Globe,
-  Star, Bookmark, Tag as TagIcon,
-  Sparkles, Brain, BookOpen, Loader2, MessageCircle,
+  Star, Bookmark, Tag as TagIcon, FolderOpen,
+  Sparkles, Brain, Loader2, MessageCircle,
   MessageSquare, ChevronDown, ChevronUp, Settings2,
-  ArrowUp, ArrowDown, ZoomIn, X, RefreshCw as RefreshIcon
+  ArrowUp, ArrowDown, ZoomIn, X, RefreshCw as RefreshIcon, CheckCircle2
 } from "lucide-react";
+import { useBrain } from "../../lib/brain-context";
+import { compareCollectionItems } from "../../lib/collection-sort";
+import { api } from "../../api/provider";
 
 const TYPE_ICON_MAP: Record<string, React.ReactNode> = {
   note: <FileText className="w-5 h-5 text-[var(--accent-text)]" />,
@@ -39,6 +43,115 @@ function getTypeIcon(type: string) {
   return TYPE_ICON_MAP[type] ?? <File className="w-5 h-5 text-[var(--text-muted)]" />;
 }
 
+interface DocumentHeading {
+  text: string;
+  level?: number | null;
+}
+
+interface DocumentTable {
+  table_index?: number;
+  row_count?: number;
+  column_count?: number;
+  preview?: string[][];
+}
+
+interface DocumentSheet {
+  name: string;
+  max_row?: number;
+  max_column?: number;
+  non_empty_rows?: number;
+  preview?: string[][];
+}
+
+interface DocumentStructure {
+  format?: string;
+  paragraph_count?: number;
+  headings?: DocumentHeading[];
+  tables?: DocumentTable[];
+  sheets?: DocumentSheet[];
+}
+
+interface ContentStatusResponse {
+  processing_status: string;
+  chunk_count: number;
+  text_chunks: number;
+  image_chunks: number;
+  embedded_chunks: number;
+}
+
+function getDocumentStructure(item: FileItem | null): DocumentStructure | null {
+  const structure = item?.extra_meta?.document_structure;
+  if (!structure || typeof structure !== "object") return null;
+  return structure as DocumentStructure;
+}
+
+function getStringMeta(item: FileItem | null, key: string): string | null {
+  const value = item?.extra_meta?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function DocumentStructurePanel({ structure }: { structure: DocumentStructure }) {
+  const format = (structure.format || "document").toUpperCase();
+  return (
+    <div className="mb-6 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">文档结构</h2>
+        <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-muted)]">{format}</span>
+      </div>
+
+      {structure.headings && structure.headings.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-[var(--text-muted)] mb-2">标题</p>
+          <div className="space-y-1">
+            {structure.headings.slice(0, 8).map((heading, index) => (
+              <div key={`${heading.text}-${index}`} className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <span className="text-xs text-[var(--text-muted)] w-10">H{heading.level ?? "-"}</span>
+                <span className="truncate">{heading.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {structure.tables && structure.tables.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-[var(--text-muted)] mb-2">表格</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {structure.tables.slice(0, 4).map((table, index) => (
+              <div key={index} className="rounded-lg border border-[var(--border-subtle)] p-3 text-xs text-[var(--text-secondary)]">
+                <div className="font-medium text-[var(--text-primary)] mb-1">表格 {(table.table_index ?? index) + 1}</div>
+                <div>{table.row_count ?? 0} 行 x {table.column_count ?? 0} 列</div>
+                {table.preview?.[0] && (
+                  <div className="mt-2 text-[var(--text-muted)] truncate">{table.preview[0].join(" | ")}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {structure.sheets && structure.sheets.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-[var(--text-muted)] mb-2">工作表</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {structure.sheets.slice(0, 6).map((sheet) => (
+              <div key={sheet.name} className="rounded-lg border border-[var(--border-subtle)] p-3 text-xs text-[var(--text-secondary)]">
+                <div className="font-medium text-[var(--text-primary)] mb-1">{sheet.name}</div>
+                <div>{sheet.non_empty_rows ?? 0} 个非空行</div>
+                <div>{sheet.max_row ?? 0} 行 x {sheet.max_column ?? 0} 列</div>
+                {sheet.preview?.[0] && (
+                  <div className="mt-2 text-[var(--text-muted)] truncate">{sheet.preview[0].join(" | ")}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const STATUS_MAP: Record<string, string> = {
   pending: "bg-[var(--warning-soft)] text-amber-700 dark:bg-amber-900/40",
   chunking: "bg-purple-100 text-purple-700 dark:bg-purple-900/40",
@@ -50,13 +163,21 @@ const STATUS_MAP: Record<string, string> = {
   failed: "bg-[var(--danger-soft)] text-red-700 dark:bg-red-900/40",
 };
 
+const STUDY_STATUS_OPTIONS = [
+  { value: "not_started", label: "未学" },
+  { value: "in_progress", label: "学习中" },
+  { value: "completed", label: "已学完" },
+] as const;
+
 export default function ContentsDetail() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { currentBrainId } = useBrain();
   
   const targetPage = searchParams.get("page") ? parseInt(searchParams.get("page")!, 10) : undefined;
   const targetTime = searchParams.get("t") ? parseFloat(searchParams.get("t")!) : undefined;
+  const collectionId = searchParams.get("collection_id") || null;
 
   const [item, setItem] = useState<FileItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,11 +194,13 @@ export default function ContentsDetail() {
   const [showCatPicker, setShowCatPicker] = useState(false);
   const [favorited, setFavorited] = useState(false);
   const [loadingOrg, setLoadingOrg] = useState(false);
+  const [studyUpdating, setStudyUpdating] = useState(false);
+  const [openingCollectionItem, setOpeningCollectionItem] = useState<string | null>(null);
 
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
-  const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number; matched_chunk?: { chunk_id: string; chunk_index: number; page_number: number | null; image_path: string | null } }[] | null>(null);
+  const [relatedItems, setRelatedItems] = useState<{ id: string; title: string; content_type: string; similarity: number; relation_type?: string | null; relation_bonus?: number; matched_chunk?: { chunk_id: string; chunk_index: number; page_number: number | null; image_path: string | null } }[] | null>(null);
   const [loadingRelated, setLoadingRelated] = useState(false);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [showQaPromptEditor, setShowQaPromptEditor] = useState(false);
@@ -113,12 +236,19 @@ export default function ContentsDetail() {
 
   const [series, setSeries] = useState<SeriesInfo | null>(null);
   const [loadingSeries, setLoadingSeries] = useState(false);
+  const [collectionContext, setCollectionContext] = useState<{
+    id: string;
+    name: string;
+    items: CollectionItem[];
+  } | null>(null);
 
   const [showGraphPanel, setShowGraphPanel] = useState(false);
 
   const [showImageViewer, setShowImageViewer] = useState(false);
 
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [showScrollButtons, setShowScrollButtons] = useState(false);
 
@@ -127,11 +257,12 @@ export default function ContentsDetail() {
     setLoading(true);
     setError(null);
     try {
-      const [data, tags, cats, statusRes] = await Promise.all([
-        fileApi.get(id),
-        tagApi.list(1, 200),
-        categoryApi.listAll(),
-        fetch(`/api/contents/${id}/status`).then(r => r.json()),
+      const data = await fileApi.get(id);
+      const orgBrainId = data.brain_id || currentBrainId;
+      const [tags, cats, statusRes] = await Promise.all([
+        tagApi.list(1, 200, orgBrainId),
+        categoryApi.listAll(orgBrainId),
+        api.get<ContentStatusResponse>(`/contents/${id}/status`),
       ]);
       setItem(data);
       setStatusInfo(statusRes);
@@ -139,7 +270,11 @@ export default function ContentsDetail() {
       setAllTags(tags);
       setAllCats(cats);
       setItemTags((data.extra_meta?.tags as string[] | undefined) || []);
-      setItemCat((data.extra_meta?.category_id as string | null | undefined) || null);
+      setItemCat(
+        (data.extra_meta?.category_id as string | null | undefined) ||
+        (data.extra_meta?.import_category_id as string | null | undefined) ||
+        null
+      );
       setFavorited(Boolean(data.extra_meta?.favorited));
     } catch (err) {
       setError((err as Error).message);
@@ -150,7 +285,7 @@ export default function ContentsDetail() {
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [id, currentBrainId]);
 
   useEffect(() => {
     if (!id) return;
@@ -169,6 +304,22 @@ export default function ContentsDetail() {
       .catch(() => setSeries(null))
       .finally(() => setLoadingSeries(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!collectionId) {
+      setCollectionContext(null);
+      return;
+    }
+    collectionApi.get(collectionId)
+      .then((data) => {
+        setCollectionContext({
+          id: data.collection.id,
+          name: data.collection.name,
+          items: [...data.items].sort(compareCollectionItems),
+        });
+      })
+      .catch(() => setCollectionContext(null));
+  }, [collectionId]);
 
   const scrollToTop = useCallback(() => {
     mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -194,7 +345,7 @@ export default function ContentsDetail() {
   async function pollProcessingStatus(doneStatuses: string[] = ["completed", "failed", "partial", "chunked"]) {
     if (!id) return;
     const poll = async () => {
-      const status = await fetch(`/api/contents/${id}/status`).then(r => r.json());
+      const status = await api.get<ContentStatusResponse>(`/contents/${id}/status`);
       if (doneStatuses.includes(status.processing_status)) {
         await load();
         if (status.processing_status === "chunked") {
@@ -213,7 +364,7 @@ export default function ContentsDetail() {
     if (!id) return;
     setProcessing(true);
     try {
-      await fetch(`/api/contents/${id}/process`, { method: "POST" });
+      await api.post<unknown>(`/contents/${id}/process`);
       pollProcessingStatus(["completed", "failed", "partial"]);
     } catch (err) {
       const msg = "重新处理失败: " + (err as Error).message;
@@ -231,6 +382,7 @@ export default function ContentsDetail() {
       pollProcessingStatus(["chunked", "failed"]);
     } catch (err) {
       setError((err as Error).message);
+      setToast({ type: "error", message: "分块失败: " + (err as Error).message });
       setProcessing(false);
     }
   }
@@ -243,6 +395,7 @@ export default function ContentsDetail() {
       pollProcessingStatus(["completed", "failed", "partial"]);
     } catch (err) {
       setError((err as Error).message);
+      setToast({ type: "error", message: "生成嵌入失败: " + (err as Error).message });
       setProcessing(false);
     }
   }
@@ -272,12 +425,16 @@ export default function ContentsDetail() {
   }
 
   async function handleDelete() {
-    if (!id || !confirm("确定要删除此内容吗？")) return;
+    if (!id) return;
+    setDeleting(true);
     try {
       await fileApi.delete(id);
+      setDeleteConfirmOpen(false);
       navigate("/contents");
     } catch (err) {
       setToast({ type: "error", message: "删除失败: " + (err as Error).message });
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -287,22 +444,23 @@ export default function ContentsDetail() {
     setQaAnswer(null);
     setQaSources([]);
     try {
-      const res = await fetch("/api/ai/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: qaQuestion.trim(),
-          top_k: 5,
-          scope_type: "content",
-          scope_id: id,
-        }),
+      const data = await api.post<{
+        answer?: string | null;
+        sources?: Array<{ chunk_id: string; content_id: string; content_title: string; page_number: number | null; chunk_text: string }>;
+      }>("/ai/ask", {
+        question: qaQuestion.trim(),
+        top_k: 5,
+        scope_type: "content",
+        scope_id: id,
+        brain_id: item?.brain_id || currentBrainId || undefined,
       });
-      const data = await res.json();
       setQaAnswer(data.answer || null);
       setQaSources(data.sources || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      setToast({ type: "error", message: "提问失败: " + (err as Error).message });
+    }
     finally { setQaAsking(false); }
-  }, [id, qaQuestion]);
+  }, [id, qaQuestion, item?.brain_id, currentBrainId]);
 
   const handleSaveQaToNote = useCallback(async () => {
     if (!qaAnswer || !qaQuestion) return;
@@ -314,15 +472,13 @@ export default function ContentsDetail() {
           ).join("\n")
         : "";
       const content = `${qaAnswer}${sourcesMd}`;
-      await fetch("/api/notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: qaQuestion, content }),
-      });
-      alert("已保存到笔记");
-    } catch { alert("保存失败"); }
+      await api.post<unknown>("/notes", { title: qaQuestion, content, brain_id: item?.brain_id || currentBrainId || undefined });
+      setToast({ type: "success", message: "已保存到笔记" });
+    } catch (err) {
+      setToast({ type: "error", message: "保存失败: " + (err as Error).message });
+    }
     finally { setQaSavingNote(false); }
-  }, [qaAnswer, qaQuestion, qaSources]);
+  }, [qaAnswer, qaQuestion, qaSources, item?.brain_id, currentBrainId]);
 
   const handleSummarize = useCallback(async (force = false) => {
     if (!id) return;
@@ -333,16 +489,7 @@ export default function ContentsDetail() {
     setShowAiPanel(true);
     setSummarizing(true);
     try {
-      const res = await fetch("/api/ai/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content_id: id, max_length: 500 }),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `请求失败 (${res.status})`);
-      }
-      const data = await res.json();
+      const data = await api.post<{ summary: string }>("/ai/summarize", { content_id: id, max_length: 500 });
       setSummary(data.summary);
     } catch (e) {
       const msg = "摘要生成失败: " + (e as Error).message;
@@ -362,12 +509,7 @@ export default function ContentsDetail() {
     setShowAiPanel(true);
     setLoadingRelated(true);
     try {
-      const res = await fetch(`/api/ai/related/${id}?top_k=10`);
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `请求失败 (${res.status})`);
-      }
-      const data = await res.json();
+      const data = await api.get<{ related?: typeof relatedItems }>(`/ai/related/${id}?top_k=10`);
       setRelatedItems(data.related || []);
     } catch (e) {
       setToast({ type: "error", message: "获取相关内容失败: " + (e as Error).message });
@@ -388,7 +530,7 @@ export default function ContentsDetail() {
         setItemTags(prev => [...prev, tagId]);
       }
     } catch (err) {
-      alert((err as Error).message);
+      setToast({ type: "error", message: (err as Error).message });
     } finally {
       setLoadingOrg(false);
     }
@@ -402,7 +544,7 @@ export default function ContentsDetail() {
       setItemCat(catId);
       setShowCatPicker(false);
     } catch (err) {
-      alert((err as Error).message);
+      setToast({ type: "error", message: (err as Error).message });
     } finally {
       setLoadingOrg(false);
     }
@@ -414,8 +556,76 @@ export default function ContentsDetail() {
       const res = await collectionApi.toggleFavorite(id);
       setFavorited(res.favorited);
     } catch (err) {
-      alert((err as Error).message);
+      setToast({ type: "error", message: (err as Error).message });
     }
+  }
+
+  async function setStudyStatus(status: "not_started" | "in_progress" | "completed") {
+    if (!item) return false;
+    setStudyUpdating(true);
+    try {
+      const now = new Date().toISOString();
+      const nextMeta: Record<string, unknown> = {
+        ...(item.extra_meta || {}),
+        study_status: status,
+        study_started_at: status === "not_started" ? null : (item.extra_meta?.study_started_at || now),
+        study_completed_at: status === "completed" ? now : null,
+      };
+      const updated = await contentApi.update(item.id, { extra_meta: nextMeta });
+      setItem(updated);
+      setCollectionContext((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((entry) =>
+                entry.content_id === item.id
+                  ? {
+                      ...entry,
+                      study_status: status,
+                      study_started_at: status === "not_started" ? null : (entry.study_started_at || now),
+                      study_completed_at: status === "completed" ? now : null,
+                    }
+                  : entry
+              ),
+            }
+          : prev
+      );
+      return true;
+    } catch (e) {
+      setToast({ type: "error", message: (e as Error).message || "更新学习状态失败" });
+      return false;
+    } finally {
+      setStudyUpdating(false);
+    }
+  }
+
+  async function markCollectionItemInProgress(entry: CollectionItem) {
+    if (entry.study_status === "in_progress" || entry.study_status === "completed") return;
+    const now = new Date().toISOString();
+    await contentApi.update(entry.content_id, {
+      extra_meta: {
+        study_status: "in_progress",
+        study_started_at: entry.study_started_at || now,
+        study_completed_at: null,
+      },
+    });
+    setCollectionContext((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: prev.items.map((item) =>
+              item.content_id === entry.content_id
+                ? {
+                    ...item,
+                    study_status: "in_progress",
+                    study_started_at: item.study_started_at || now,
+                    study_completed_at: null,
+                  }
+                : item
+            ),
+          }
+        : prev
+    );
   }
 
   function renderTextWithAnnotations(text: string, annotations: Annotation[]): React.ReactNode {
@@ -479,7 +689,7 @@ export default function ContentsDetail() {
         {error || "内容不存在"}
         <div className="mt-4">
           <Link to="/contents" className="text-sm text-[var(--accent-text)] hover:underline">
-            ← 返回列表
+            返回列表
           </Link>
         </div>
       </div>
@@ -487,14 +697,62 @@ export default function ContentsDetail() {
   }
 
   const statusLabel: Record<string, string> = {
-    pending: "待分块",
+    pending: "待处理",
     chunking: "分块中...",
-    chunked: "分块完成",
-    embedding: "嵌入中...",
+    chunked: "已分块",
+    embedding: "向量化中...",
     processing: "处理中...",
-    partial: "部分成功",
+    partial: "部分完成",
     completed: "已完成",
     failed: "失败",
+  };
+
+  const collectionIndex = collectionContext?.items.findIndex((entry) => entry.content_id === item.id) ?? -1;
+  const collectionPrev = collectionContext && collectionIndex > 0 ? collectionContext.items[collectionIndex - 1] : null;
+  const collectionNext = collectionContext && collectionIndex >= 0 && collectionIndex < collectionContext.items.length - 1
+    ? collectionContext.items[collectionIndex + 1]
+    : null;
+  const collectionStudyTotal = collectionContext?.items.length ?? 0;
+  const collectionStudyCompleted = collectionContext?.items.filter((entry) => entry.study_status === "completed").length ?? 0;
+  const collectionStudyInProgress = collectionContext?.items.filter((entry) => entry.study_status === "in_progress").length ?? 0;
+  const collectionStudyNotStarted = Math.max(
+    0,
+    collectionStudyTotal - collectionStudyCompleted - collectionStudyInProgress
+  );
+  const collectionStudyPercent = collectionStudyTotal > 0
+    ? Math.round((collectionStudyCompleted / collectionStudyTotal) * 100)
+    : 0;
+  const currentCollectionItem = collectionContext && collectionIndex >= 0
+    ? collectionContext.items[collectionIndex]
+    : null;
+  const handleCompleteAndAdvance = async () => {
+    const ok = await setStudyStatus("completed");
+    if (!ok) return;
+    if (collectionNext && collectionContext) {
+      try {
+        await markCollectionItemInProgress(collectionNext);
+      } catch (e) {
+        setToast({ type: "error", message: (e as Error).message || "下一节状态更新失败" });
+      }
+      navigate(`/contents/${collectionNext.content_id}?collection_id=${collectionContext.id}`);
+    } else {
+      setToast({ type: "success", message: "已标记为学完" });
+    }
+  };
+
+  const handleOpenCollectionItem = async (entry: CollectionItem) => {
+    if (!collectionContext || openingCollectionItem) return;
+    setOpeningCollectionItem(entry.content_id);
+    try {
+      try {
+        await markCollectionItemInProgress(entry);
+      } catch (e) {
+        setToast({ type: "error", message: (e as Error).message || "学习状态更新失败" });
+      }
+      navigate(`/contents/${entry.content_id}?collection_id=${collectionContext.id}`);
+    } finally {
+      setOpeningCollectionItem(null);
+    }
   };
 
   return (
@@ -502,11 +760,11 @@ export default function ContentsDetail() {
       <div ref={mainContentRef} className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-6 py-6">
           <Link
-            to="/contents"
+            to={collectionId ? `/collections/${collectionId}` : "/contents"}
             className="inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-[var(--text-primary)] dark:hover:text-[var(--text-primary)] mb-4"
           >
             <ArrowLeft className="w-4 h-4" />
-            返回列表
+            {collectionId ? "返回合集" : "返回列表"}
           </Link>
 
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -622,7 +880,7 @@ export default function ContentsDetail() {
             </button>
           )}
           <button
-            onClick={handleDelete}
+            onClick={() => setDeleteConfirmOpen(true)}
             className="p-2 text-[var(--text-secondary)] dark:text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] dark:hover:bg-red-950/30 rounded-lg transition-colors"
             title="删除"
           >
@@ -644,6 +902,84 @@ export default function ContentsDetail() {
             }}
             loading={loadingSeries}
           />
+        </div>
+      )}
+
+      {collectionContext && collectionIndex >= 0 && (
+        <div className="mb-6 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-[var(--text-muted)]">合集学习</p>
+              <Link
+                to={`/collections/${collectionContext.id}`}
+                className="truncate text-sm font-medium text-[var(--accent-text)] hover:underline"
+              >
+                {collectionContext.name}
+              </Link>
+              {currentCollectionItem?.folder_path && (
+                <p className="mt-1 truncate text-xs text-[var(--text-muted)]">
+                  {currentCollectionItem.folder_path}
+                </p>
+              )}
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">{collectionStudyPercent}%</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                第 {collectionIndex + 1} / {collectionContext.items.length} 节
+              </p>
+            </div>
+          </div>
+          <div className="mb-4">
+            <div className="h-2 overflow-hidden rounded-full bg-[var(--bg-secondary)]">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all"
+                style={{ width: `${collectionStudyPercent}%` }}
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+              <span>已学完 {collectionStudyCompleted}</span>
+              <span>学习中 {collectionStudyInProgress}</span>
+              <span>未学 {collectionStudyNotStarted}</span>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {collectionPrev ? (
+              <button
+                type="button"
+                disabled={openingCollectionItem === collectionPrev.content_id}
+                onClick={() => void handleOpenCollectionItem(collectionPrev)}
+                className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-left text-sm hover:bg-[var(--bg-secondary)] disabled:cursor-wait disabled:opacity-70"
+              >
+                <span className="block text-xs text-[var(--text-muted)]">上一节</span>
+                <span className="flex items-center gap-2 truncate text-[var(--text-primary)]">
+                  {openingCollectionItem === collectionPrev.content_id && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+                  <span className="truncate">{collectionPrev.title}</span>
+                </span>
+              </button>
+            ) : (
+              <div className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-muted)]">
+                已是第一节
+              </div>
+            )}
+            {collectionNext ? (
+              <button
+                type="button"
+                disabled={openingCollectionItem === collectionNext.content_id}
+                onClick={() => void handleOpenCollectionItem(collectionNext)}
+                className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-left text-sm hover:bg-[var(--bg-secondary)] disabled:cursor-wait disabled:opacity-70"
+              >
+                <span className="block text-xs text-[var(--text-muted)]">下一节</span>
+                <span className="flex items-center gap-2 truncate text-[var(--text-primary)]">
+                  {openingCollectionItem === collectionNext.content_id && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+                  <span className="truncate">{collectionNext.title}</span>
+                </span>
+              </button>
+            ) : (
+              <div className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-muted)]">
+                已是最后一节
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -687,6 +1023,33 @@ export default function ContentsDetail() {
           </p>
         </div>
       </div>
+
+      {getStringMeta(item, "import_relative_path") && (
+        <div className="mb-6 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-text)]">
+              <FolderOpen className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-[var(--text-primary)]">导入来源</p>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                {getStringMeta(item, "import_root") || "文件夹导入"}
+              </p>
+              <p className="mt-1 truncate text-xs text-[var(--text-muted)]">
+                {getStringMeta(item, "import_relative_path")}
+              </p>
+              {getStringMeta(item, "import_collection_id") && (
+                <Link
+                  to={`/collections/${getStringMeta(item, "import_collection_id")}`}
+                  className="mt-2 inline-flex text-xs font-medium text-[var(--accent-text)] hover:underline"
+                >
+                  打开合集
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <div className="relative">
@@ -763,6 +1126,37 @@ export default function ContentsDetail() {
           <Star className={`w-3.5 h-3.5 ${favorited ? "fill-current" : ""}`} />
           {favorited ? "已收藏" : "收藏"}
         </button>
+
+        <div className="flex items-center gap-1 rounded-lg bg-[var(--bg-secondary)] p-1">
+          {STUDY_STATUS_OPTIONS.map((option) => {
+            const active = (getStringMeta(item, "study_status") || "not_started") === option.value;
+            return (
+              <button
+                key={option.value}
+                onClick={() => void setStudyStatus(option.value)}
+                disabled={studyUpdating}
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? "bg-[var(--bg-card)] text-[var(--accent-text)] shadow-sm"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {option.value === "completed" && active && <CheckCircle2 className="h-3.5 w-3.5" />}
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        {collectionContext && collectionIndex >= 0 && (
+          <button
+            onClick={() => void handleCompleteAndAdvance()}
+            disabled={studyUpdating}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-60 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/45"
+          >
+            {studyUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {collectionNext ? "学完并下一节" : "学完并结束"}
+          </button>
+        )}
       </div>
 
       {(item.content_type === "image" || item.content_type === "pdf" ||
@@ -827,6 +1221,10 @@ export default function ContentsDetail() {
         </div>
       )}
 
+      {getDocumentStructure(item) && (
+        <DocumentStructurePanel structure={getDocumentStructure(item)!} />
+      )}
+
       <div className="bg-[var(--bg-card)] dark:bg-[var(--bg-card)] border border-[var(--border-subtle)] dark:border-[var(--border-subtle)] rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
           <div className="flex items-center gap-1">
@@ -876,7 +1274,7 @@ export default function ContentsDetail() {
                 value={editText}
                 onChange={e => setEditText(e.target.value)}
                 className="w-full h-64 p-3 text-sm border border-zinc-300 dark:border-zinc-600 rounded-lg bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)] text-[var(--text-primary)] dark:text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                placeholder="输入或编辑文本内容..."
+                placeholder="输入或编辑提取文本..."
               />
             ) : (
               <div className="relative" id="content-text-area">
@@ -902,7 +1300,7 @@ export default function ContentsDetail() {
                               className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] transition-colors"
                             >
                               <ChevronDown className="w-3.5 h-3.5" />
-                              展开查看全部（{item.text_content.length} 字）
+                              展开全部（{item.text_content.length} 字符）
                             </button>
                           </div>
                         </>
@@ -969,7 +1367,7 @@ export default function ContentsDetail() {
                           <p className="text-xs text-[var(--text-secondary)] line-clamp-3 leading-relaxed">{c.chunk_text.slice(0, 300)}</p>
                         )}
                         {c.image_path && (
-                          <p className="text-xs text-[var(--text-muted)] mt-1">图片: {c.image_path}</p>
+                          <p className="text-xs text-[var(--text-muted)] mt-1">图片：{c.image_path}</p>
                         )}
                       </div>
                     ))}
@@ -1115,6 +1513,11 @@ export default function ContentsDetail() {
                     >
                       <span className="text-[var(--text-secondary)] dark:text-[var(--text-muted)] truncate flex-1">{r.title}</span>
                       <div className="flex flex-col items-end">
+                        {r.relation_type && (
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                            {r.relation_type === "series" ? "系列" : r.relation_type === "reference" ? "引用" : "相似"}
+                          </span>
+                        )}
                         <span className="text-xs text-[var(--text-muted)]">{r.content_type} · {Math.round(r.similarity * 100)}%</span>
                         {r.matched_chunk?.page_number && (
                           <span className="text-xs text-blue-500">第{r.matched_chunk.page_number}页</span>
@@ -1230,6 +1633,17 @@ export default function ContentsDetail() {
         </div>
       )}
 
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="删除内容"
+        message={`确定要将「${item.title}」归入归墟吗？此操作将一并清除相关向量记录。`}
+        confirmLabel="确认删除"
+        cancelLabel="取消"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => { if (!deleting) setDeleteConfirmOpen(false); }}
+      />
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );

@@ -9,10 +9,13 @@ import {
   Database,
   Clock,
   AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
-import { backupApi, type BackupItem } from "../../api/backup";
+import { backupApi, type BackupConfigPreview, type BackupInspection, type BackupItem } from "../../api/backup";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { backupCopy, useCopy } from "../../lib/copywriting";
+
+type RestoreMode = "all" | "files" | "config";
 
 /**
  * 格式化文件大小为人类可读格式
@@ -74,6 +77,25 @@ function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
   );
 }
 
+const restoreModeOptions: Array<{
+  mode: RestoreMode;
+  label: string;
+  detail: string;
+}> = [
+  { mode: "all", label: "全部恢复", detail: "文件、数据库和配置" },
+  { mode: "files", label: "仅文件", detail: "只覆盖备份内文件" },
+  { mode: "config", label: "仅配置", detail: "模型、功能绑定、工作区" },
+];
+
+function formatConfigPreview(preview: BackupConfigPreview): string {
+  const parts = [
+    preview.new > 0 ? `新增 ${preview.new}` : "",
+    preview.overwrite > 0 ? `覆盖 ${preview.overwrite}` : "",
+    preview.invalid > 0 ? `无效 ${preview.invalid}` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "无变更";
+}
+
 // ── Backup Page ──
 
 export default function BackupPage() {
@@ -85,6 +107,10 @@ export default function BackupPage() {
   const [deletingFile] = useState<string | null>(null);
   const [deleteConfirmFile, setDeleteConfirmFile] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [restoreConfirmFile, setRestoreConfirmFile] = useState<string | null>(null);
+  const [restoreInspection, setRestoreInspection] = useState<BackupInspection | null>(null);
+  const [restoreMode, setRestoreMode] = useState<RestoreMode>("all");
+  const [restoreLoading, setRestoreLoading] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const showToast = useCallback((message: string, type: "success" | "error") => {
@@ -149,6 +175,47 @@ export default function BackupPage() {
       setDeleteLoading(false);
     }
   }, [deleteConfirmFile, showToast, fetchBackups]);
+
+  const handleRequestRestore = useCallback(async (filename: string) => {
+    setRestoreLoading(true);
+    try {
+      const inspection = await backupApi.inspect(filename);
+      setRestoreInspection(inspection);
+      setRestoreMode("all");
+      setRestoreConfirmFile(filename);
+    } catch (e) {
+      showToast((e as Error).message || "读取备份信息失败", "error");
+    } finally {
+      setRestoreLoading(false);
+    }
+  }, [showToast]);
+
+  const handleConfirmRestore = useCallback(async () => {
+    if (!restoreConfirmFile) return;
+    setRestoreLoading(true);
+    try {
+      const result = await backupApi.restore(restoreConfirmFile, restoreMode);
+      const configCount = result.restored_config.providers + result.restored_config.function_bindings + result.restored_config.brains;
+      showToast(`恢复完成：${result.restored_files} 个文件，${configCount} 项配置，数据库：${result.database_status}`, "success");
+      setRestoreConfirmFile(null);
+      setRestoreInspection(null);
+      await fetchBackups();
+    } catch (e) {
+      showToast((e as Error).message || "恢复失败", "error");
+    } finally {
+      setRestoreLoading(false);
+    }
+  }, [restoreConfirmFile, restoreMode, showToast, fetchBackups]);
+
+  const restoreMessage = restoreInspection
+    ? `将从「${restoreInspection.filename}」恢复：${restoreInspection.file_count} 个文件，${restoreInspection.brain_configs} 个工作区配置，${restoreInspection.provider_configs} 个模型供应商配置，${restoreInspection.function_bindings} 个功能绑定。${restoreInspection.has_database_sql ? "包含 database.sql，将尝试恢复数据库。" : "不包含可恢复的 database.sql。"}API Keys ${restoreInspection.api_keys_included ? "可能包含在备份中，请谨慎确认。" : "未包含在备份元数据中。"}当前同名文件可能被覆盖。`
+    : `将从「${restoreConfirmFile ?? ""}」恢复文件，并在备份包含 database.sql 时尝试恢复数据库。当前同名文件可能被覆盖。`;
+
+  const restoreConfirmLabel = restoreMode === "all"
+    ? "确认全部恢复"
+    : restoreMode === "files"
+      ? "确认仅恢复文件"
+      : "确认仅恢复配置";
 
   return (
     <div className="min-h-screen">
@@ -260,18 +327,28 @@ export default function BackupPage() {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setDeleteConfirmFile(backup.filename)}
-                    disabled={deletingFile === backup.filename}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#dc2626] dark:text-red-400 hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                  >
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleRequestRestore(backup.filename)}
+                      disabled={restoreLoading}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--accent-text)] hover:bg-[var(--accent-soft)] rounded-md transition-colors disabled:opacity-50"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      恢复
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirmFile(backup.filename)}
+                      disabled={deletingFile === backup.filename}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#dc2626] dark:text-red-400 hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 rounded-md transition-colors"
+                    >
                     {deletingFile === backup.filename ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <Trash2 className="w-3.5 h-3.5" />
                     )}
                     删除
-                  </button>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -289,6 +366,61 @@ export default function BackupPage() {
         onCancel={() => setDeleteConfirmFile(null)}
         loading={deleteLoading}
       />
+
+      <ConfirmDialog
+        open={!!restoreConfirmFile}
+        title="确认恢复备份"
+        message={restoreMessage}
+        confirmLabel={restoreConfirmLabel}
+        variant="warning"
+        onConfirm={handleConfirmRestore}
+        onCancel={() => {
+          setRestoreConfirmFile(null);
+          setRestoreInspection(null);
+        }}
+        loading={restoreLoading}
+      >
+        {restoreInspection?.config_preview && (
+          <div className="mt-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-3">
+            <div className="text-sm font-semibold text-[var(--text-primary)]">配置影响预览</div>
+            <div className="mt-3 space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[var(--text-secondary)]">模型供应商</span>
+                <span className="text-xs text-[var(--text-muted)]">{formatConfigPreview(restoreInspection.config_preview.providers)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[var(--text-secondary)]">功能绑定</span>
+                <span className="text-xs text-[var(--text-muted)]">{formatConfigPreview(restoreInspection.config_preview.function_bindings)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[var(--text-secondary)]">工作区配置</span>
+                <span className="text-xs text-[var(--text-muted)]">{formatConfigPreview(restoreInspection.config_preview.brains)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {restoreModeOptions.map((option) => {
+            const selected = restoreMode === option.mode;
+            return (
+              <button
+                key={option.mode}
+                type="button"
+                onClick={() => setRestoreMode(option.mode)}
+                disabled={restoreLoading}
+                className={`text-left rounded-lg border px-3 py-2.5 transition-colors disabled:opacity-50 ${
+                  selected
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-text)]"
+                    : "border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--accent)]"
+                }`}
+              >
+                <span className="block text-sm font-semibold">{option.label}</span>
+                <span className="mt-1 block text-xs text-[var(--text-muted)] leading-snug">{option.detail}</span>
+              </button>
+            );
+          })}
+        </div>
+      </ConfirmDialog>
 
       {/* ── Toast ── */}
       {toast && <Toast toast={toast} onClose={() => setToast(null)} />}

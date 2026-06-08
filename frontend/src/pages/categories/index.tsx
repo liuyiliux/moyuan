@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { categoryApi } from "../../api/organization";
 import type { Category } from "../../api/organization";
@@ -7,6 +7,7 @@ import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
 import { categoriesCopy, useCopy } from "../../lib/copywriting";
 import QuizGenerator from "../../components/QuizGenerator";
+import { useBrain } from "../../lib/brain-context";
 
 interface CatNode extends Category {
   children?: CatNode[];
@@ -15,6 +16,7 @@ interface CatNode extends Category {
 export default function CategoriesPage() {
   const t = useCopy(categoriesCopy);
   const navigate = useNavigate();
+  const { currentBrainId } = useBrain();
   const [tree, setTree] = useState<CatNode[]>([]);
   const [flatList, setFlatList] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,21 +29,21 @@ export default function CategoriesPage() {
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [quizCategory, setQuizCategory] = useState<{ id: string; name: string } | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [treeData, flatData] = await Promise.all([
-        categoryApi.tree(),
-        categoryApi.listAll(),
+        categoryApi.tree(currentBrainId),
+        categoryApi.listAll(currentBrainId),
       ]);
       setTree(treeData);
       setFlatList(flatData);
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentBrainId]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +55,7 @@ export default function CategoriesPage() {
         await categoryApi.update(editing.id, { name: newName.trim(), parent_id: pid });
         setToast({ type: "success", message: t.toastUpdated });
       } else {
-        await categoryApi.create(newName.trim(), pid);
+        await categoryApi.create(newName.trim(), pid, currentBrainId);
         setToast({ type: "success", message: t.toastCreated });
       }
       setNewName("");

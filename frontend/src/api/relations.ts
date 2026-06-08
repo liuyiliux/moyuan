@@ -17,6 +17,14 @@ export interface RelationWithContent extends ContentRelation {
   target_type: string;
 }
 
+export interface RelationSuggestion {
+  id: string;
+  title: string;
+  content_type: string;
+  similarity: number;
+  reason: string;
+}
+
 /** 系列导航信息 */
 export interface SeriesInfo {
   series_name: string;
@@ -53,6 +61,7 @@ export interface CreateRelationPayload {
   target_id: string;
   relation_type: string;
   sort_order?: number;
+  metadata?: Record<string, unknown>;
 }
 
 // ── Relations API ──
@@ -69,6 +78,10 @@ export const relationApi = {
   /** 创建一条新关系 */
   create: (data: CreateRelationPayload): Promise<ContentRelation> =>
     api.post<ContentRelation>("/relations", data),
+
+  /** 获取待确认的相似关联建议 */
+  suggestions: (contentId: string, limit = 5): Promise<RelationSuggestion[]> =>
+    api.get<RelationSuggestion[]>(`/relations/suggestions?content_id=${contentId}&limit=${limit}`),
 
   /** 删除一条关系 */
   delete: (id: string): Promise<void> =>

@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useBrain } from "../lib/brain-context";
+import { api } from "../api/provider";
 
 interface TemplateData {
   system_prompt: string;
@@ -28,6 +30,7 @@ const QA_VARIABLES = [
 ];
 
 export default function PromptEditor({ onClose, templateType = "quiz" }: Props) {
+  const { currentBrainId } = useBrain();
   const type = templateType; // alias for readability
   const VARIABLES = type === "qa" ? QA_VARIABLES : QUIZ_VARIABLES;
   const apiPrefix = type === "qa" ? "qa" : "quiz";
@@ -37,33 +40,30 @@ export default function PromptEditor({ onClose, templateType = "quiz" }: Props) 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const brainQuery = currentBrainId ? `?brain_id=${currentBrainId}` : "";
 
   useEffect(() => {
-    fetch(`/api/ai/${apiPrefix}-template`)
-      .then(r => r.json())
+    setLoading(true);
+    api.get<{ template?: TemplateData; note?: string }>(`/ai/${apiPrefix}-template${brainQuery}`)
       .then(data => {
         setTemplate(data.template || { system_prompt: "", user_prompt_template: "" });
         if (data.note) setMessage(data.note);
       })
       .catch(() => setMessage("加载模板失败"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [apiPrefix, brainQuery]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`/api/ai/${apiPrefix}-template`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_prompt: template.system_prompt,
-          user_prompt_template: template.user_prompt_template,
-        }),
+      const data = await api.put<{ message?: string }>(`/ai/${apiPrefix}-template`, {
+        system_prompt: template.system_prompt,
+        user_prompt_template: template.user_prompt_template,
+        brain_id: currentBrainId || undefined,
       });
-      const data = await res.json();
       setMessage(data.message || "保存成功");
-    } catch {
-      setMessage("保存失败");
+    } catch (err) {
+      setMessage("保存失败: " + (err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -72,12 +72,11 @@ export default function PromptEditor({ onClose, templateType = "quiz" }: Props) 
   const handleReset = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`/api/ai/${apiPrefix}-template/reset`, { method: "POST" });
-      const data = await res.json();
+      const data = await api.post<{ template?: TemplateData; message?: string }>(`/ai/${apiPrefix}-template/reset${brainQuery}`);
       setTemplate(data.template || { system_prompt: "", user_prompt_template: "" });
       setMessage(data.message || "已恢复默认");
-    } catch {
-      setMessage("恢复失败");
+    } catch (err) {
+      setMessage("恢复失败: " + (err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -125,9 +124,8 @@ export default function PromptEditor({ onClose, templateType = "quiz" }: Props) 
           </div>
         </div>
 
-        {/* System Prompt */}
         <div className="mb-3">
-          <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">System Prompt</label>
+          <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">系统提示词</label>
           <textarea
             value={template.system_prompt}
             onChange={e => setTemplate(prev => ({ ...prev, system_prompt: e.target.value }))}
@@ -136,9 +134,8 @@ export default function PromptEditor({ onClose, templateType = "quiz" }: Props) 
           />
         </div>
 
-        {/* User Prompt Template */}
         <div className="mb-3">
-          <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">User Prompt Template</label>
+          <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">用户提示词模板</label>
           <textarea
             value={template.user_prompt_template}
             onChange={e => setTemplate(prev => ({ ...prev, user_prompt_template: e.target.value }))}

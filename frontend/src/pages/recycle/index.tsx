@@ -7,7 +7,9 @@ import {
   Globe, File, Loader2, CheckSquare, Square,
 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import Toast from "../../components/Toast";
 import { recycleCopy, useCopy } from "../../lib/copywriting";
+import { useBrain } from "../../lib/brain-context";
 
 // ── Type Filters ──
 
@@ -64,6 +66,7 @@ function formatDate(iso: string): string {
 
 export default function RecyclePage() {
   const rt = useCopy(recycleCopy);
+  const { currentBrainId } = useBrain();
   const [items, setItems] = useState<DeletedItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -72,6 +75,7 @@ export default function RecyclePage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
   // 批量选择状态
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -94,7 +98,7 @@ export default function RecyclePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fileApi.getDeleted(page, PAGE_SIZE);
+      const res = await fileApi.getDeleted(page, PAGE_SIZE, currentBrainId);
       setItems(res.items);
       setTotal(res.total);
       setSelectedIds([]);
@@ -103,7 +107,7 @@ export default function RecyclePage() {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, currentBrainId]);
 
   useEffect(() => {
     load();
@@ -160,8 +164,9 @@ export default function RecyclePage() {
         await recycleApi.permanentDelete(item.id);
       }
       await load();
+      setToast({ type: "success", message: type === "restore" ? "内容已恢复" : "内容已永久删除" });
     } catch (err) {
-      alert(`${type === "restore" ? "恢复" : "永久删除"}失败: ${(err as Error).message}`);
+      setToast({ type: "error", message: `${type === "restore" ? "恢复" : "永久删除"}失败: ${(err as Error).message}` });
     } finally {
       setActionLoading(null);
       setConfirmDialog({ open: false, type: "restore", item: null });
@@ -173,13 +178,12 @@ export default function RecyclePage() {
     if (selectedIds.length === 0) return;
     setBatchLoading(true);
     try {
-      for (const id of selectedIds) {
-        await fileApi.restore(id);
-      }
+      await fileApi.batch(selectedIds, "restore", currentBrainId);
       await load();
       setShowBatchConfirm(false);
+      setToast({ type: "success", message: `已恢复 ${selectedIds.length} 项内容` });
     } catch (err) {
-      alert(`批量恢复失败: ${(err as Error).message}`);
+      setToast({ type: "error", message: `批量恢复失败: ${(err as Error).message}` });
     } finally {
       setBatchLoading(false);
     }
@@ -190,13 +194,12 @@ export default function RecyclePage() {
     if (selectedIds.length === 0) return;
     setBatchLoading(true);
     try {
-      for (const id of selectedIds) {
-        await recycleApi.permanentDelete(id);
-      }
+      await fileApi.batch(selectedIds, "permanent_delete", currentBrainId);
       await load();
       setShowBatchConfirm(false);
+      setToast({ type: "success", message: `已永久删除 ${selectedIds.length} 项内容` });
     } catch (err) {
-      alert(`批量永久删除失败: ${(err as Error).message}`);
+      setToast({ type: "error", message: `批量永久删除失败: ${(err as Error).message}` });
     } finally {
       setBatchLoading(false);
     }
@@ -451,6 +454,7 @@ export default function RecyclePage() {
         onConfirm={batchActionType === "restore" ? handleBatchRestore : handleBatchPermanentDelete}
         onCancel={() => setShowBatchConfirm(false)}
       />
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

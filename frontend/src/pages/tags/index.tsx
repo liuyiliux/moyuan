@@ -5,9 +5,11 @@ import { Plus, Trash2, Loader2, TagIcon } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
 import { tagsCopy, useCopy } from "../../lib/copywriting";
+import { useBrain } from "../../lib/brain-context";
 
 export default function TagsPage() {
   const t = useCopy(tagsCopy);
+  const { currentBrainId } = useBrain();
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -19,12 +21,12 @@ export default function TagsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await tagApi.list(1, 200);
+      const data = await tagApi.list(1, 200, currentBrainId);
       setTags(data);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentBrainId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -33,7 +35,7 @@ export default function TagsPage() {
     if (!newName.trim()) return;
     setSaving(true);
     try {
-      await tagApi.create(newName.trim(), newColor);
+      await tagApi.create(newName.trim(), newColor, currentBrainId);
       setNewName("");
       setToast({ type: "success", message: t.toastCreated });
       await load();

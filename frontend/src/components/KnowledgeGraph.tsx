@@ -5,9 +5,11 @@ import { Plus, X, Search, Loader2 } from "lucide-react";
 import {
   relationApi,
   type RelationWithContent,
+  type RelationSuggestion,
   type GraphNode,
   type GraphLink,
 } from "../api/relations";
+import { api } from "../api/provider";
 
 /** 关系类型标签映射 */
 const RELATION_LABELS: Record<string, string> = {
@@ -57,6 +59,9 @@ export default function KnowledgeGraph({
   >([]);
   const [searching, setSearching] = useState(false);
   const [selectedType, setSelectedType] = useState<string>("reference");
+  const [suggestions, setSuggestions] = useState<RelationSuggestion[]>([]);
+  const [ignoredSuggestions, setIgnoredSuggestions] = useState<Set<string>>(new Set());
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   // 加载关系数据
   const loadRelations = useCallback(async () => {
@@ -71,9 +76,24 @@ export default function KnowledgeGraph({
     }
   }, [contentId]);
 
+  const loadSuggestions = useCallback(async () => {
+    try {
+      setSuggestionsLoading(true);
+      const data = await relationApi.suggestions(contentId, 5);
+      setSuggestions(data);
+    } catch (err) {
+      console.error("Failed to load relation suggestions:", err);
+      setSuggestions([]);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  }, [contentId]);
+
   useEffect(() => {
     loadRelations();
-  }, [loadRelations]);
+    loadSuggestions();
+    setIgnoredSuggestions(new Set());
+  }, [loadRelations, loadSuggestions]);
 
   // 搜索内容
   useEffect(() => {
@@ -85,10 +105,9 @@ export default function KnowledgeGraph({
     const timer = setTimeout(async () => {
       try {
         setSearching(true);
-        const res = await fetch(
-          `/api/contents?keyword=${encodeURIComponent(searchQuery)}&page_size=10`
+        const data = await api.get<{ items?: { id: string; title: string; content_type: string }[] }>(
+          `/contents?keyword=${encodeURIComponent(searchQuery)}&page_size=10`
         );
-        const data = await res.json();
         setSearchResults(
           (data.items || [])
             .filter((item: { id: string }) => item.id !== contentId)
@@ -119,9 +138,34 @@ export default function KnowledgeGraph({
       setShowAddDialog(false);
       setSearchQuery("");
       loadRelations();
+      loadSuggestions();
     } catch (err) {
       console.error("Failed to create relation:", err);
     }
+  }
+
+  async function handleConfirmSuggestion(suggestion: RelationSuggestion) {
+    try {
+      await relationApi.create({
+        source_id: contentId,
+        target_id: suggestion.id,
+        relation_type: "similar",
+        metadata: {
+          source: "auto_suggestion",
+          similarity: suggestion.similarity,
+          reason: suggestion.reason,
+        },
+      });
+      setSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
+      await loadRelations();
+      await loadSuggestions();
+    } catch (err) {
+      console.error("Failed to confirm relation suggestion:", err);
+    }
+  }
+
+  function handleIgnoreSuggestion(id: string) {
+    setIgnoredSuggestions((prev) => new Set(prev).add(id));
   }
 
   // 渲染 D3 力导向图
@@ -388,6 +432,51 @@ export default function KnowledgeGraph({
           添加关联
         </button>
       </div>
+
+      {(() => {
+        const visibleSuggestions = suggestions.filter((item) => !ignoredSuggestions.has(item.id));
+        if (visibleSuggestions.length === 0 && !suggestionsLoading) return null;
+        return (
+          <div className="border-b border-[rgba(0,0,0,0.06)] dark:border-[var(--border-subtle)] bg-[var(--bg-secondary)]/60 dark:bg-[var(--bg-elevated)]/40 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <div>
+                <h4 className="text-xs font-semibold text-[var(--text-primary)]">待确认相似关联</h4>
+                <p className="text-[10px] text-[var(--text-muted)]">根据向量相似度推荐，可确认加入图谱或忽略。</p>
+              </div>
+              {suggestionsLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--text-muted)]" />}
+            </div>
+            <div className="space-y-2">
+              {visibleSuggestions.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-[var(--text-primary)]">{item.title}</p>
+                    <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">
+                      {item.content_type} · {(item.similarity * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      onClick={() => handleConfirmSuggestion(item)}
+                      className="px-2 py-1 text-[10px] font-medium rounded-md bg-[var(--accent)] text-[var(--text-inverse)] hover:opacity-90 transition-opacity"
+                    >
+                      确认
+                    </button>
+                    <button
+                      onClick={() => handleIgnoreSuggestion(item.id)}
+                      className="px-2 py-1 text-[10px] font-medium rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
+                    >
+                      忽略
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Graph */}
       <div className="relative">

@@ -8,6 +8,10 @@ import {
 import { categoryApi, collectionApi } from "../../api/organization";
 import type { Category, Collection } from "../../api/organization";
 import { quizCopy, useCopy } from "../../lib/copywriting";
+import { useBrain } from "../../lib/brain-context";
+import { api } from "../../api/provider";
+
+type QuizCopy = (typeof quizCopy)["daoist"];
 
 type TabKey = "generate" | "answer" | "wrong";
 type ScopeFilter = { type: string; id: string; name: string };
@@ -22,33 +26,45 @@ interface HistoryQuestion {
 }
 
 type AnswerState = Record<string, { submitted: boolean; selected: string | string[]; correct: boolean }>;
+type QuizListResponse = { questions?: HistoryQuestion[]; total?: number; page?: number; page_size?: number };
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const QUIZ_PAGE_SIZE = 20;
 
 export default function QuizPage() {
   const qt = useCopy(quizCopy);
+  const { currentBrainId } = useBrain();
   const [activeTab, setActiveTab] = useState<TabKey>("generate");
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [historyQuestions, setHistoryQuestions] = useState<HistoryQuestion[]>([]);
   const [wrongQuestions, setWrongQuestions] = useState<HistoryQuestion[]>([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [wrongPage, setWrongPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [wrongTotal, setWrongTotal] = useState(0);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingWrong, setLoadingWrong] = useState(false);
   const [generatingWrong, setGeneratingWrong] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<"category" | "collection" | null>(null);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const [answers, setAnswers] = useState<AnswerState>({});
   const [answerStats, setAnswerStats] = useState<{ correct: number; total: number } | null>(null);
 
   useEffect(() => {
-    categoryApi.listAll().then(setCategories).catch(() => {});
-    collectionApi.list(1, 100).then(setCollections).catch(() => {});
-  }, []);
+    setScopeFilter(null);
+    setHistoryPage(1);
+    setWrongPage(1);
+    categoryApi.listAll(currentBrainId).then(setCategories).catch(() => {});
+    collectionApi.list(1, 100, currentBrainId).then((data) => setCollections(data.items)).catch(() => {});
+  }, [currentBrainId]);
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
+    setPageError(null);
     setAnswers({});
     setAnswerStats(null);
     try {
@@ -57,30 +73,50 @@ export default function QuizPage() {
         params.set("scope_type", scopeFilter.type);
         params.set("scope_id", scopeFilter.id);
       }
-      params.set("page", "1"); params.set("page_size", "20");
-      const res = await fetch(`/api/ai/quiz/history?${params}`);
-      const data = await res.json();
+      params.set("page", String(historyPage)); params.set("page_size", String(QUIZ_PAGE_SIZE));
+      const data = await api.get<QuizListResponse>(`/ai/quiz/history?${params}`);
+      const total = data.total || 0;
+      const maxPage = Math.max(1, Math.ceil(total / QUIZ_PAGE_SIZE));
+      if (historyPage > maxPage) {
+        setHistoryPage(maxPage);
+        return;
+      }
       setHistoryQuestions(data.questions || []);
-    } catch { setHistoryQuestions([]); }
+      setHistoryTotal(total);
+    } catch (err) {
+      setHistoryQuestions([]);
+      setHistoryTotal(0);
+      setPageError("加载练习记录失败: " + (err as Error).message);
+    }
     finally { setLoadingHistory(false); }
-  }, [scopeFilter]);
+  }, [historyPage, scopeFilter]);
 
   const loadWrong = useCallback(async () => {
     setLoadingWrong(true);
+    setPageError(null);
     try {
       const params = new URLSearchParams();
       if (scopeFilter) {
         params.set("scope_type", scopeFilter.type);
         params.set("scope_id", scopeFilter.id);
       }
-      params.set("page", "1"); params.set("page_size", "20");
-      const res = await fetch(`/api/ai/quiz/wrong?${params}`);
-      const data = await res.json();
-      console.log("[quiz] wrong response:", data);
+      params.set("page", String(wrongPage)); params.set("page_size", String(QUIZ_PAGE_SIZE));
+      const data = await api.get<QuizListResponse>(`/ai/quiz/wrong?${params}`);
+      const total = data.total || 0;
+      const maxPage = Math.max(1, Math.ceil(total / QUIZ_PAGE_SIZE));
+      if (wrongPage > maxPage) {
+        setWrongPage(maxPage);
+        return;
+      }
       setWrongQuestions(data.questions || []);
-    } catch { setWrongQuestions([]); }
+      setWrongTotal(total);
+    } catch (err) {
+      setWrongQuestions([]);
+      setWrongTotal(0);
+      setPageError("加载错题失败: " + (err as Error).message);
+    }
     finally { setLoadingWrong(false); }
-  }, [scopeFilter]);
+  }, [scopeFilter, wrongPage]);
 
   useEffect(() => {
     if (activeTab === "answer") loadHistory();
@@ -123,17 +159,10 @@ export default function QuizPage() {
   async function recordAnswer(q: HistoryQuestion, userAns: string, isCorrect: boolean) {
     if (!q.id) return;
     try {
-      const res = await fetch("/api/ai/quiz/record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question_id: q.id, user_answer: userAns, is_correct: isCorrect }),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        console.error("[quiz] record answer failed:", res.status, err);
-      }
+      await api.post<unknown>("/ai/quiz/record", { question_id: q.id, user_answer: userAns, is_correct: isCorrect });
     } catch (e) {
       console.error("[quiz] record answer error:", e);
+      setPageError("记录答题结果失败: " + (e as Error).message);
     }
   }
 
@@ -172,16 +201,11 @@ export default function QuizPage() {
   async function submitOpen(q: HistoryQuestion, text: string) {
     if (answers[q.id]?.submitted || !text.trim()) return;
     try {
-      const res = await fetch("/api/ai/quiz/judge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: q.question,
-          correct_answer: q.answer || "",
-          user_answer: text.trim(),
-        }),
+      const data = await api.post<{ is_correct?: boolean; explanation?: string }>("/ai/quiz/judge", {
+        question: q.question,
+        correct_answer: q.answer || "",
+        user_answer: text.trim(),
       });
-      const data = await res.json();
       const isCorrect = data.is_correct || false;
       setAnswers(prev => ({ ...prev, [q.id]: { submitted: true, selected: text.trim() + (data.explanation ? ` — ${data.explanation}` : ""), correct: isCorrect } }));
       recordAnswer(q, text.trim(), isCorrect);
@@ -204,9 +228,11 @@ export default function QuizPage() {
   const handleRemoveWrong = async (q: HistoryQuestion) => {
     if (!q.id) return;
     try {
-      await fetch(`/api/ai/quiz/wrong/${q.id}`, { method: "DELETE" });
-      setWrongQuestions(prev => prev.filter(wq => wq.id !== q.id));
-    } catch {}
+      await api.delete<unknown>(`/ai/quiz/wrong/${q.id}`);
+      await loadWrong();
+    } catch (err) {
+      setPageError("移除错题失败: " + (err as Error).message);
+    }
   };
 
   useEffect(() => {
@@ -222,7 +248,13 @@ export default function QuizPage() {
     { key: "wrong", icon: <AlertCircle className="w-4 h-4" />, label: qt.tabWrong },
   ];
 
-  const clearScope = () => setScopeFilter(null);
+  const setQuizScope = (scope: ScopeFilter | null) => {
+    setScopeFilter(scope);
+    setHistoryPage(1);
+    setWrongPage(1);
+  };
+
+  const clearScope = () => setQuizScope(null);
 
   return (
     <>
@@ -260,7 +292,7 @@ export default function QuizPage() {
                 <p className="text-xs text-[var(--text-muted)] px-3 py-2">{qt.noCategory}</p>
               )}
               {categories.map(cat => (
-                <button key={cat.id} onClick={() => setScopeFilter({ type: "category", id: cat.id, name: cat.name })}
+                <button key={cat.id} onClick={() => setQuizScope({ type: "category", id: cat.id, name: cat.name })}
                   className="w-full text-left px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors">{cat.name}</button>
               ))}
             </div>)}
@@ -276,7 +308,7 @@ export default function QuizPage() {
                 <p className="text-xs text-[var(--text-muted)] px-3 py-2">{qt.noCollection}</p>
               )}
               {collections.map(col => (
-                <button key={col.id} onClick={() => setScopeFilter({ type: "collection", id: col.id, name: col.name })}
+                <button key={col.id} onClick={() => setQuizScope({ type: "collection", id: col.id, name: col.name })}
                   className="w-full text-left px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors">{col.name}</button>
               ))}
             </div>)}
@@ -299,6 +331,11 @@ export default function QuizPage() {
               }`}>{tab.icon}{tab.label}</button>
           ))}
         </div>
+        {pageError && (
+          <div className="mb-4 rounded-lg border border-[var(--danger)]/20 bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
+            {pageError}
+          </div>
+        )}
 
         {/* Generate Tab */}
         {activeTab === "generate" && (
@@ -335,7 +372,7 @@ export default function QuizPage() {
                 {historyQuestions.map((q, i) => (
                   <AnswerQuestionCard
                     key={q.id || i}
-                    q={q} index={i}
+                    q={q} index={(historyPage - 1) * QUIZ_PAGE_SIZE + i}
                     state={answers[q.id] || { submitted: false, selected: "", correct: false }}
                     qt={qt}
                     onSingle={(letter) => handleSingle(q, letter)}
@@ -345,6 +382,13 @@ export default function QuizPage() {
                     onOpenSubmit={(text) => submitOpen(q, text)}
                   />
                 ))}
+                <QuizPager
+                  page={historyPage}
+                  total={historyTotal}
+                  pageSize={QUIZ_PAGE_SIZE}
+                  loading={loadingHistory}
+                  onPageChange={setHistoryPage}
+                />
               </div>
             )}
           </div>
@@ -367,26 +411,25 @@ export default function QuizPage() {
                   <button
                     onClick={async () => {
                       setGeneratingWrong(true);
+                      setPageError(null);
                       const wrongTexts = wrongQuestions.map(wq => wq.question).filter(Boolean);
                       try {
                         const body: Record<string, unknown> = {
                           wrong_question_texts: wrongTexts,
                           question_count: 5,
+                          brain_id: currentBrainId || undefined,
                         };
                         if (scopeFilter) {
                           body.scope_type = scopeFilter.type;
                           body.scope_id = scopeFilter.id;
                         }
-                        const res = await fetch("/api/ai/wrong_quiz", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify(body),
-                        });
-                        const data = await res.json();
+                        const data = await api.post<{ questions?: unknown[] }>("/ai/wrong_quiz", body);
                         if (data.questions?.length) {
                           setActiveTab("generate");
                         }
-                      } catch {}
+                      } catch (err) {
+                        setPageError("错题补强出题失败: " + (err as Error).message);
+                      }
                       finally { setGeneratingWrong(false); }
                     }}
                     disabled={generatingWrong}
@@ -407,7 +450,7 @@ export default function QuizPage() {
                         {getTypeLabel(qt, q.type)}
                       </span>
                     </div>
-                    <p className="text-sm font-medium text-[var(--text-primary)] mb-1">{i + 1}. {q.question}</p>
+                    <p className="text-sm font-medium text-[var(--text-primary)] mb-1">{(wrongPage - 1) * QUIZ_PAGE_SIZE + i + 1}. {q.question}</p>
                     {q.options?.length ? <div className="mt-1 space-y-0.5">{q.options.map((opt, j) => (
                       <p key={j} className="text-xs text-[var(--text-secondary)] pl-4">{OPTION_LETTERS[j]}. {opt}</p>
                     ))}</div> : null}
@@ -418,6 +461,13 @@ export default function QuizPage() {
                       className="mt-2 text-xs text-[var(--accent-text)] hover:underline">{qt.removeWrong}</button>
                   </div>
                 ))}
+                <QuizPager
+                  page={wrongPage}
+                  total={wrongTotal}
+                  pageSize={QUIZ_PAGE_SIZE}
+                  loading={loadingWrong}
+                  onPageChange={setWrongPage}
+                />
               </div>
             )}
           </div>
@@ -432,7 +482,51 @@ export default function QuizPage() {
 
 // ── Helpers ──
 
-function getTypeLabel(qt: ReturnType<typeof useCopy<typeof quizCopy>>, type: string): string {
+function QuizPager({
+  page,
+  total,
+  pageSize,
+  loading,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  loading: boolean;
+  onPageChange: (page: number) => void;
+}) {
+  const pageCount = Math.ceil(total / pageSize);
+  if (pageCount <= 1) return null;
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--text-muted)]">
+      <span>{start}-{end} / {total}</span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={loading || page <= 1}
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          className="rounded-md border border-[var(--border-subtle)] px-3 py-1.5 font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          上一页
+        </button>
+        <span className="min-w-16 text-center">{page} / {pageCount}</span>
+        <button
+          type="button"
+          disabled={loading || page >= pageCount}
+          onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+          className="rounded-md border border-[var(--border-subtle)] px-3 py-1.5 font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function getTypeLabel(qt: QuizCopy, type: string): string {
   const map: Record<string, string> = {
     single: qt.typeSingle, multiple: qt.typeMultiple,
     truefalse: qt.typeTrueFalse, open: qt.typeOpen,
@@ -448,7 +542,7 @@ function AnswerQuestionCard({
 }: {
   q: HistoryQuestion; index: number;
   state: { submitted: boolean; selected: string | string[]; correct: boolean };
-  qt: ReturnType<typeof useCopy<typeof quizCopy>>;
+  qt: QuizCopy;
   onSingle: (letter: string) => void; onMultiToggle: (letter: string) => void;
   onMultiSubmit: () => void; onTrueFalse: (val: string) => void;
   onOpenSubmit: (text: string) => void;

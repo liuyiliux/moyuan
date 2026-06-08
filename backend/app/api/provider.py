@@ -1,18 +1,24 @@
 import uuid
+import importlib.util
+import shutil
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import FunctionBindingConfig
+from app.models.models import FunctionBindingConfig, ProviderConfig
 from app.schemas.provider import (
     ProviderCreate,
     ProviderUpdate,
     ProviderResponse,
     ProviderTestResult,
+    ProviderApiKeyResponse,
     FunctionBinding,
     FunctionBindingsResponse,
+    ProviderBindingDiagnostic,
+    ProviderDiagnosticsResponse,
+    RuntimeCheck,
 )
 from app.services.provider import provider_service
 from app.core.crypto import crypto_service
@@ -33,6 +39,19 @@ DEFAULT_FUNCTION_BINDINGS: dict[str, FunctionBinding] = {
     "transcribe": FunctionBinding(function="transcribe"),
     "qa": FunctionBinding(function="qa"),
 }
+
+FUNCTION_LABELS: dict[str, str] = {
+    "summarize": "Summarization",
+    "embedding": "Embeddings",
+    "chunking": "Semantic chunking",
+    "quiz": "Quiz generation",
+    "judge": "Answer judging",
+    "ocr": "Image OCR",
+    "transcribe": "Audio/video transcription",
+    "qa": "Knowledge Q&A",
+}
+
+REQUIRED_MODEL_FUNCTIONS = {"summarize", "embedding", "chunking", "quiz", "judge", "ocr", "transcribe", "qa"}
 
 
 @router.get("/bindings", response_model=FunctionBindingsResponse)
@@ -55,16 +74,98 @@ async def update_function_bindings(data: FunctionBindingsResponse, db: AsyncSess
     existing = {item.function: item for item in existing_result.scalars().all()}
 
     for function, binding in data.bindings.items():
+        if function not in DEFAULT_FUNCTION_BINDINGS or binding.function != function:
+            raise HTTPException(status_code=400, detail=f"Unsupported function binding: {function}")
+        provider_id = binding.provider_id
+        if provider_id is not None and await db.get(ProviderConfig, provider_id) is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        model = binding.model.strip() if binding.model else None
+        model = model or None
+
         item = existing.get(function)
         if item is None:
             item = FunctionBindingConfig(function=function)
             db.add(item)
-        item.provider_id = binding.provider_id
-        item.model = binding.model
+        item.provider_id = provider_id
+        item.model = model
         item.extra_params = binding.extra_params
 
     await db.commit()
     return await get_function_bindings(db)
+
+
+@router.get("/diagnostics", response_model=ProviderDiagnosticsResponse)
+async def get_provider_diagnostics(db: AsyncSession = Depends(get_db)):
+    binding_response = await get_function_bindings(db)
+    providers_result = await db.execute(select(ProviderConfig))
+    providers = {item.id: item for item in providers_result.scalars().all()}
+
+    def package_check(key: str, label: str, module: str, detail: str) -> RuntimeCheck:
+        ok = importlib.util.find_spec(module) is not None
+        return RuntimeCheck(
+            key=key,
+            label=label,
+            ok=ok,
+            status="available" if ok else "missing",
+            detail=None if ok else detail,
+        )
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    checks = [
+        package_check(
+            "trafilatura",
+            "Web text extraction",
+            "trafilatura",
+            "Install trafilatura to extract readable article text from web pages.",
+        ),
+        package_check(
+            "playwright",
+            "Web screenshots",
+            "playwright",
+            "Install Playwright and browser binaries to capture web page screenshots.",
+        ),
+        package_check(
+            "faster_whisper",
+            "Local transcription",
+            "faster_whisper",
+            "Install faster-whisper to use local audio/video transcription.",
+        ),
+        RuntimeCheck(
+            key="ffmpeg",
+            label="Video screenshots",
+            ok=ffmpeg_path is not None,
+            status="available" if ffmpeg_path else "missing",
+            detail=None if ffmpeg_path else "Install ffmpeg and add it to PATH to capture video frames.",
+        ),
+    ]
+
+    diagnostics: list[ProviderBindingDiagnostic] = []
+    for fn, binding in binding_response.bindings.items():
+        provider = providers.get(binding.provider_id) if binding.provider_id else None
+        ok = bool(provider and provider.is_active and (binding.model or fn not in REQUIRED_MODEL_FUNCTIONS))
+        detail = None
+        if not binding.provider_id:
+            detail = "No provider selected."
+        elif provider is None:
+            detail = "Selected provider no longer exists."
+        elif not provider.is_active:
+            detail = "Selected provider is disabled."
+        elif fn in REQUIRED_MODEL_FUNCTIONS and not binding.model:
+            detail = "No model configured for this function."
+
+        diagnostics.append(
+            ProviderBindingDiagnostic(
+                function=fn,
+                label=FUNCTION_LABELS.get(fn, fn),
+                ok=ok,
+                provider_id=binding.provider_id,
+                provider_name=provider.name if provider else None,
+                model=binding.model,
+                detail=detail,
+            )
+        )
+
+    return ProviderDiagnosticsResponse(checks=checks, bindings=diagnostics)
 
 
 # ── Provider CRUD (放在 /bindings 之后，避免路径冲突) ──
@@ -109,6 +210,19 @@ async def get_provider(provider_id: uuid.UUID, db: AsyncSession = Depends(get_db
     if not provider:
         raise HTTPException(status_code=404, detail="提供商不存在")
     return _to_response(provider)
+
+
+@router.get("/{provider_id}/api-key", response_model=ProviderApiKeyResponse)
+async def reveal_provider_api_key(provider_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    provider = await provider_service.get_by_id(db, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    if not provider.api_key_encrypted:
+        return ProviderApiKeyResponse(api_key=None)
+    try:
+        return ProviderApiKeyResponse(api_key=crypto_service.decrypt(provider.api_key_encrypted))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="API Key decrypt failed") from exc
 
 
 @router.put("/{provider_id}", response_model=ProviderResponse)

@@ -4,11 +4,23 @@ import uuid
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.models import Brain, Content, PromptTemplate
+from app.models.models import (
+    Brain,
+    Category,
+    Collection,
+    CollectionItem,
+    Content,
+    ContentCategory,
+    ContentTag,
+    PromptTemplate,
+    ProviderConfig,
+    SearchLog,
+    Tag,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/brains", tags=["brains"])
@@ -86,6 +98,7 @@ class BrainCreate(BaseModel):
     name: str
     description: str | None = None
     icon: str | None = None
+    template: str | None = None
 
 
 class BrainUpdate(BaseModel):
@@ -98,6 +111,8 @@ class BrainConfig(BaseModel):
     embedding_model: str | None = None
     summarize_model: str | None = None
     quiz_model: str | None = None
+    qa_model: str | None = None
+    judge_model: str | None = None
     provider_id: str | None = None
 
 
@@ -117,10 +132,33 @@ async def create_brain(body: BrainCreate, db: AsyncSession = Depends(get_db)):
     await db.refresh(brain)
 
     # 自动创建默认分类根节点
-    from app.models.models import Category
     root = Category(name="未分类", brain_id=brain.id, sort_order=0)
     db.add(root)
     await db.commit()
+
+    if body.template == "study":
+        from app.api.tags import _ensure_tag_uniqueness_indexes
+
+        await _ensure_tag_uniqueness_indexes(db)
+        study_categories = ["基础概念", "课程笔记", "资料阅读", "实践练习", "复盘总结"]
+        for index, name in enumerate(study_categories, start=1):
+            db.add(Category(name=name, brain_id=brain.id, sort_order=index))
+        for name, description in [
+            ("课程合集", "按一套课程或系列视频收纳资料"),
+            ("书籍与 PDF", "按一本书、讲义或 PDF 资料包收纳"),
+            ("案例与练习", "收纳案例、作业、实践素材和复盘"),
+        ]:
+            db.add(Collection(name=name, description=description, brain_id=brain.id))
+        for name, color in [
+            ("入门", "#38bdf8"),
+            ("重点", "#f97316"),
+            ("待复习", "#a855f7"),
+            ("已掌握", "#22c55e"),
+            ("需要实践", "#eab308"),
+            ("作业", "#ef4444"),
+        ]:
+            db.add(Tag(name=name, color=color, brain_id=brain.id))
+        await db.commit()
 
     # 自动创建各类型默认 Prompt 模板
     for template_type, content in DEFAULT_PROMPT_TEMPLATES.items():
@@ -175,6 +213,142 @@ async def get_brain(brain_id: str, db: AsyncSession = Depends(get_db)):
     return _brain_dict(brain, count)
 
 
+@router.get("/{brain_id}/overview")
+async def get_brain_overview(brain_id: str, db: AsyncSession = Depends(get_db)):
+    """查询工作区概览：内容状态、组织结构和最近更新。"""
+    brain = await _get_brain_or_404(db, brain_id)
+
+    base_content_filter = (
+        Content.brain_id == brain.id,
+        Content.is_deleted == False,
+    )
+    total_result = await db.execute(
+        select(
+            func.count(Content.id),
+            func.coalesce(func.sum(Content.file_size), 0),
+        ).where(*base_content_filter)
+    )
+    total_contents, storage_bytes = total_result.one()
+
+    status_result = await db.execute(
+        select(Content.processing_status, func.count(Content.id))
+        .where(*base_content_filter)
+        .group_by(Content.processing_status)
+    )
+    by_status = {status or "unknown": count for status, count in status_result.all()}
+
+    type_result = await db.execute(
+        select(Content.content_type, func.count(Content.id))
+        .where(*base_content_filter)
+        .group_by(Content.content_type)
+    )
+    by_type = {content_type or "unknown": count for content_type, count in type_result.all()}
+
+    study_result = await db.execute(select(Content.extra_meta).where(*base_content_filter))
+    study_total = 0
+    study_completed = 0
+    study_in_progress = 0
+    for (meta,) in study_result.all():
+        study_total += 1
+        status = (meta or {}).get("study_status")
+        if status == "completed":
+            study_completed += 1
+        elif status == "in_progress":
+            study_in_progress += 1
+    study_not_started = max(0, study_total - study_completed - study_in_progress)
+
+    category_count = await db.scalar(select(func.count(Category.id)).where(Category.brain_id == brain.id))
+    tag_count = await db.scalar(select(func.count(Tag.id)).where(Tag.brain_id == brain.id))
+    collection_count = await db.scalar(select(func.count(Collection.id)).where(Collection.brain_id == brain.id))
+
+    recent_result = await db.execute(
+        select(Content)
+        .where(*base_content_filter)
+        .order_by(Content.updated_at.desc(), Content.created_at.desc())
+        .limit(6)
+    )
+    recent_contents = [
+        {
+            "id": str(content.id),
+            "title": content.title,
+            "content_type": content.content_type,
+            "processing_status": content.processing_status,
+            "file_size": content.file_size,
+            "created_at": content.created_at.isoformat() if content.created_at else None,
+            "updated_at": content.updated_at.isoformat() if content.updated_at else None,
+        }
+        for content in recent_result.scalars().all()
+    ]
+
+    study_status_value = Content.extra_meta["study_status"].astext
+    resume_result = await db.execute(
+        select(Content)
+        .where(
+            *base_content_filter,
+            or_(
+                Content.extra_meta.is_(None),
+                study_status_value.is_(None),
+                study_status_value != "completed",
+            ),
+        )
+        .order_by(
+            case((study_status_value == "in_progress", 0), else_=1),
+            Content.updated_at.desc(),
+            Content.created_at.asc(),
+        )
+        .limit(1)
+    )
+    resume_content = resume_result.scalar_one_or_none()
+    resume_collection_id = None
+    resume_collection_name = None
+    if resume_content is not None:
+        resume_collection_result = await db.execute(
+            select(CollectionItem.collection_id, Collection.name)
+            .join(Collection, Collection.id == CollectionItem.collection_id)
+            .where(
+                CollectionItem.content_id == resume_content.id,
+                Collection.brain_id == brain.id,
+            )
+            .order_by(CollectionItem.sort_order.asc(), Collection.created_at.asc())
+            .limit(1)
+        )
+        resume_collection = resume_collection_result.first()
+        if resume_collection:
+            resume_collection_id = str(resume_collection.collection_id)
+            resume_collection_name = resume_collection.name
+
+    return {
+        "brain": _brain_dict(brain, int(total_contents or 0)),
+        "stats": {
+            "total_contents": int(total_contents or 0),
+            "storage_bytes": int(storage_bytes or 0),
+            "by_status": by_status,
+            "by_type": by_type,
+            "categories": int(category_count or 0),
+            "tags": int(tag_count or 0),
+            "collections": int(collection_count or 0),
+        },
+        "study": {
+            "total": study_total,
+            "completed": study_completed,
+            "in_progress": study_in_progress,
+            "not_started": study_not_started,
+            "progress_percent": round((study_completed / study_total) * 100) if study_total else 0,
+        },
+        "resume_content": {
+            "id": str(resume_content.id),
+            "title": resume_content.title,
+            "content_type": resume_content.content_type,
+            "processing_status": resume_content.processing_status,
+            "study_status": (resume_content.extra_meta or {}).get("study_status") or "not_started",
+            "collection_id": resume_collection_id,
+            "collection_name": resume_collection_name,
+            "updated_at": resume_content.updated_at.isoformat() if resume_content.updated_at else None,
+        } if resume_content else None,
+        "recent_contents": recent_contents,
+    }
+
+
 @router.put("/{brain_id}")
 async def update_brain(brain_id: str, body: BrainUpdate, db: AsyncSession = Depends(get_db)):
     """更新工作区"""
@@ -207,14 +381,30 @@ async def delete_brain(brain_id: str, db: AsyncSession = Depends(get_db)):
     if brain.is_default:
         raise HTTPException(status_code=403, detail="Default brain cannot be deleted")
 
-    # 级联删除相关内容
-    await db.execute(
-        select(Content).where(Content.brain_id == brain.id)
-    )
-    # 使用 ORM 级联删除
+    content_result = await db.execute(select(Content).where(Content.brain_id == brain.id))
+    contents = content_result.scalars().all()
+
+    from app.api.file import _delete_content_record
+
+    removed_files = 0
+    for content in contents:
+        if await _delete_content_record(content, db):
+            removed_files += 1
+
+    category_ids = select(Category.id).where(Category.brain_id == brain.id)
+    tag_ids = select(Tag.id).where(Tag.brain_id == brain.id)
+    collection_ids = select(Collection.id).where(Collection.brain_id == brain.id)
+    await db.execute(delete(ContentCategory).where(ContentCategory.category_id.in_(category_ids)))
+    await db.execute(delete(ContentTag).where(ContentTag.tag_id.in_(tag_ids)))
+    await db.execute(delete(CollectionItem).where(CollectionItem.collection_id.in_(collection_ids)))
+    await db.execute(delete(Collection).where(Collection.brain_id == brain.id))
+    await db.execute(delete(Category).where(Category.brain_id == brain.id))
+    await db.execute(delete(Tag).where(Tag.brain_id == brain.id))
+    await db.execute(delete(PromptTemplate).where(PromptTemplate.brain_id == brain.id))
+    await db.execute(delete(SearchLog).where(SearchLog.brain_id == brain.id))
     await db.delete(brain)
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "deleted_contents": len(contents), "removed_files": removed_files}
 
 
 @router.post("/{brain_id}/archive")
@@ -252,7 +442,21 @@ async def update_brain_config(
 ):
     """更新工作区 AI 配置"""
     brain = await _get_brain_or_404(db, brain_id)
-    brain.config = body.model_dump(exclude_none=True)
+    config = {
+        key: value.strip() if isinstance(value, str) else value
+        for key, value in body.model_dump(exclude_none=True).items()
+    }
+    config = {key: value for key, value in config.items() if value not in ("", None)}
+    provider_id = config.get("provider_id")
+    if provider_id:
+        try:
+            provider_uuid = uuid.UUID(provider_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid provider_id")
+        if await db.get(ProviderConfig, provider_uuid) is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        config["provider_id"] = str(provider_uuid)
+    brain.config = config
     await db.commit()
     return {"ok": True}
 

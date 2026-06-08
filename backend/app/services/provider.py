@@ -3,24 +3,43 @@ import time
 from typing import Sequence
 
 import httpx
-from sqlalchemy import select, update, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import ProviderConfig
+from app.models.models import Brain, FunctionBindingConfig, ProviderConfig
 from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderTestResult
 from app.core.crypto import crypto_service
+
+
+def _clean_optional_str(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _clean_models(models: dict[str, str] | None) -> dict[str, str] | None:
+    if not models:
+        return None
+    cleaned = {
+        key.strip(): value.strip()
+        for key, value in models.items()
+        if key and value and key.strip() and value.strip()
+    }
+    return cleaned or None
 
 
 class ProviderService:
 
     @staticmethod
     async def create(db: AsyncSession, data: ProviderCreate) -> ProviderConfig:
+        api_key = _clean_optional_str(data.api_key)
         provider = ProviderConfig(
-            name=data.name,
+            name=data.name.strip(),
             provider_type=data.provider_type,
-            base_url=data.base_url,
-            api_key_encrypted=crypto_service.encrypt(data.api_key) if data.api_key else None,
-            default_models=data.default_models,
+            base_url=_clean_optional_str(data.base_url),
+            api_key_encrypted=crypto_service.encrypt(api_key) if api_key else None,
+            default_models=_clean_models(data.default_models),
             extra_params=data.extra_params,
         )
         db.add(provider)
@@ -52,7 +71,14 @@ class ProviderService:
         if "api_key" in update_data:
             raw_key = update_data.pop("api_key")
             if raw_key is not None:
-                update_data["api_key_encrypted"] = crypto_service.encrypt(raw_key)
+                cleaned_key = _clean_optional_str(raw_key)
+                update_data["api_key_encrypted"] = crypto_service.encrypt(cleaned_key) if cleaned_key else None
+        if "name" in update_data and update_data["name"] is not None:
+            update_data["name"] = update_data["name"].strip()
+        if "base_url" in update_data:
+            update_data["base_url"] = _clean_optional_str(update_data["base_url"])
+        if "default_models" in update_data:
+            update_data["default_models"] = _clean_models(update_data["default_models"])
 
         for key, value in update_data.items():
             setattr(provider, key, value)
@@ -66,6 +92,19 @@ class ProviderService:
         provider = await ProviderService.get_by_id(db, provider_id)
         if not provider:
             return False
+        bindings_result = await db.execute(
+            select(FunctionBindingConfig).where(FunctionBindingConfig.provider_id == provider_id)
+        )
+        for binding in bindings_result.scalars().all():
+            binding.provider_id = None
+
+        brains_result = await db.execute(select(Brain))
+        for brain in brains_result.scalars().all():
+            config = dict(brain.config or {})
+            if str(config.get("provider_id") or "") == str(provider_id):
+                config.pop("provider_id", None)
+                brain.config = config or None
+
         await db.delete(provider)
         await db.flush()
         return True

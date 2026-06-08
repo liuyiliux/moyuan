@@ -1,11 +1,14 @@
 const BASE_URL = "/api";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers: isFormData
+      ? options.headers
+      : {
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
     ...options,
   });
 
@@ -27,6 +30,10 @@ export const api = {
     request<T>(path, { method: "PUT", body: JSON.stringify(data) }),
   patch: <T>(path: string, data?: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(data) }),
+  postForm: <T>(path: string, data: FormData) =>
+    request<T>(path, { method: "POST", body: data }),
+  putForm: <T>(path: string, data: FormData) =>
+    request<T>(path, { method: "PUT", body: data }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
@@ -35,7 +42,7 @@ export const api = {
 export interface ProviderConfig {
   id: string;
   name: string;
-  provider_type: "openai" | "tencent_ocr" | "tencent_ima" | "custom";
+  provider_type: "openai" | "custom";
   base_url: string | null;
   api_key_masked: string | null;
   default_models: Record<string, string> | null;
@@ -81,6 +88,33 @@ export interface FunctionBindings {
   bindings: Record<string, FunctionBinding>;
 }
 
+export interface RuntimeCheck {
+  key: string;
+  label: string;
+  ok: boolean;
+  status: string;
+  detail: string | null;
+}
+
+export interface ProviderBindingDiagnostic {
+  function: string;
+  label: string;
+  ok: boolean;
+  provider_id: string | null;
+  provider_name: string | null;
+  model: string | null;
+  detail: string | null;
+}
+
+export interface ProviderDiagnostics {
+  checks: RuntimeCheck[];
+  bindings: ProviderBindingDiagnostic[];
+}
+
+export interface ProviderApiKeyResponse {
+  api_key: string | null;
+}
+
 // ── Provider API ──
 
 export const providerApi = {
@@ -90,6 +124,8 @@ export const providerApi = {
   update: (id: string, data: ProviderUpdate) => api.put<ProviderConfig>(`/providers/${id}`, data),
   delete: (id: string) => api.delete<void>(`/providers/${id}`),
   test: (id: string) => api.post<TestResult>(`/providers/${id}/test`),
+  revealApiKey: (id: string) => api.get<ProviderApiKeyResponse>(`/providers/${id}/api-key`),
   getBindings: () => api.get<FunctionBindings>("/providers/bindings"),
   updateBindings: (data: FunctionBindings) => api.put<FunctionBindings>("/providers/bindings", data),
+  diagnostics: () => api.get<ProviderDiagnostics>("/providers/diagnostics"),
 };

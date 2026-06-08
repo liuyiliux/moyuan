@@ -7,8 +7,12 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import VersionHistoryPanel from "../../components/VersionHistoryPanel";
+import ConfirmDialog from "../../components/ConfirmDialog";
+import Toast from "../../components/Toast";
 import { Card, Button } from "../../components";
 import { notesCopy, useCopy } from "../../lib/copywriting";
+import { useBrain } from "../../lib/brain-context";
+import { api } from "../../api/provider";
 
 interface Note {
   id: string;
@@ -16,6 +20,7 @@ interface Note {
   content: string;
   is_starred: boolean;
   is_pinned: boolean;
+  brain_id?: string | null;
   created_at: string | null;
   updated_at: string | null;
   version_count: number;
@@ -23,28 +28,24 @@ interface Note {
 }
 
 const noteApi = {
-  list: (page = 1, star = false) =>
-    fetch(`/api/notes?page=${page}&page_size=50&star=${star}`).then((r) => r.json()),
-  get: (id: string) => fetch(`/api/notes/${id}`).then((r) => r.json()),
-  create: (title: string, content = "") =>
-    fetch("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, content }),
-    }).then((r) => r.json()),
+  list: (page = 1, star = false, brainId?: string | null) => {
+    const qs = new URLSearchParams({ page: String(page), page_size: "50", star: String(star) });
+    if (brainId) qs.set("brain_id", brainId);
+    return api.get<{ items: Note[] }>(`/notes?${qs.toString()}`);
+  },
+  get: (id: string) => api.get<Note>(`/notes/${id}`),
+  create: (title: string, content = "", brainId?: string | null) =>
+    api.post<Note>("/notes", { title, content, brain_id: brainId || undefined }),
   update: (id: string, data: { title?: string; content?: string; create_version?: boolean }) =>
-    fetch(`/api/notes/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }).then((r) => r.json()),
-  delete: (id: string) => fetch(`/api/notes/${id}`, { method: "DELETE" }).then((r) => r.json()),
+    api.put<Note>(`/notes/${id}`, data),
+  delete: (id: string) => api.delete<unknown>(`/notes/${id}`),
 };
 
 export default function NotesPage() {
   const nt = useCopy(notesCopy);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { currentBrainId } = useBrain();
   const noteId = searchParams.get("id");
 
   const [notes, setNotes] = useState<Note[]>([]);
@@ -57,21 +58,28 @@ export default function NotesPage() {
   const [viewMode, setViewMode] = useState<"edit" | "split" | "preview">("edit");
   const [starOnly, setStarOnly] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Note | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
   const loadList = useCallback(async () => {
     setLoading(true);
-    const data = await noteApi.list(1, starOnly);
+    const data = await noteApi.list(1, starOnly, currentBrainId);
     setNotes(data.items || []);
     setLoading(false);
-  }, [starOnly]);
+  }, [starOnly, currentBrainId]);
 
   const loadNote = useCallback(async (id: string) => {
     const note = await noteApi.get(id);
+    if (currentBrainId && note.brain_id && note.brain_id !== currentBrainId) {
+      navigate("/notes");
+      return;
+    }
     setEditing(note);
     setTitle(note.title);
     setContent(note.content || "");
     setShowVersions(false);
-  }, []);
+  }, [currentBrainId, navigate]);
 
   useEffect(() => {
     if (noteId) {
@@ -81,7 +89,7 @@ export default function NotesPage() {
       setTitle("");
       setContent("");
     }
-  }, [noteId]);
+  }, [noteId, loadNote]);
 
   useEffect(() => { loadList(); }, [loadList]);
 
@@ -106,14 +114,15 @@ export default function NotesPage() {
       if (editing) {
         result = await noteApi.update(editing.id, { title, content, create_version: createVersion });
       } else {
-        result = await noteApi.create(title, content);
+        result = await noteApi.create(title, content, currentBrainId);
       }
       setEditing(result);
       setLastSaved(new Date().toLocaleTimeString("zh-CN"));
       await loadList();
       if (!editing) navigate(`/notes?id=${result.id}`);
+      setToast({ type: "success", message: createVersion ? "已保存新版本" : "笔记已保存" });
     } catch (e) {
-      alert((e as Error).message);
+      setToast({ type: "error", message: (e as Error).message });
     } finally {
       setSaving(false);
     }
@@ -131,30 +140,41 @@ export default function NotesPage() {
       setEditing(r2);
       setLastSaved(new Date().toLocaleTimeString("zh-CN"));
       await loadList();
+      setToast({ type: "success", message: "已保存新版本" });
     } catch (e) {
-      alert((e as Error).message);
+      setToast({ type: "error", message: (e as Error).message });
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("确定要将此墨宝归入归墟吗？")) return;
-    await noteApi.delete(id);
-    if (editing?.id === id) {
-      setEditing(null);
-      navigate("/notes");
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await noteApi.delete(deleteTarget.id);
+      if (editing?.id === deleteTarget.id) {
+        setEditing(null);
+        navigate("/notes");
+      }
+      setDeleteTarget(null);
+      setToast({ type: "success", message: "已归入归墟" });
+      await loadList();
+    } catch (e) {
+      setToast({ type: "error", message: "删除失败: " + (e as Error).message });
+    } finally {
+      setDeleting(false);
     }
-    loadList();
   }
 
   async function handleNew() {
     try {
-      const result = await noteApi.create("新笔记", "");
+      const result = await noteApi.create("新笔记", "", currentBrainId);
       await loadList();
       navigate(`/notes?id=${result.id}`);
+      setToast({ type: "success", message: "新笔记已创建" });
     } catch (e) {
-      alert("创建失败: " + (e as Error).message);
+      setToast({ type: "error", message: "创建失败: " + (e as Error).message });
     }
   }
 
@@ -314,7 +334,7 @@ export default function NotesPage() {
                         {saving ? nt.saving : nt.btnSaveVersion}
                       </Button>
                       <button
-                        onClick={() => handleDelete(editing?.id || "")}
+                        onClick={() => editing && setDeleteTarget(editing)}
                         className="p-2 rounded-lg bg-bg-secondary text-text-muted hover:text-danger hover:bg-danger-soft transition-all"
                         title="归入归墟"
                       >
@@ -384,6 +404,18 @@ export default function NotesPage() {
           </div>
         </>
       )}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="归入归墟"
+        message={`确定要将「${deleteTarget?.title || "无题"}」归入归墟吗？`}
+        confirmLabel="确认归入"
+        cancelLabel="取消"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => { if (!deleting) setDeleteTarget(null); }}
+      />
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

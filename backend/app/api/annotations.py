@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,8 @@ class AnnotationCreate(BaseModel):
 
 
 class AnnotationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     content_id: str
     selected_text: str
@@ -30,9 +32,6 @@ class AnnotationResponse(BaseModel):
     end_offset: int
     annotation_text: str
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 @router.get("", response_model=list[AnnotationResponse])

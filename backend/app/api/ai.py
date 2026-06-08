@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 
 from app.core.database import get_db
-from app.models.models import Content, ContentRelation, ContentChunk, FunctionBindingConfig, ProviderConfig, Question, QuestionRecord, PromptTemplate, Collection
+from app.models.models import Brain, Content, ContentRelation, ContentChunk, FunctionBindingConfig, ProviderConfig, Question, QuestionRecord, PromptTemplate, Collection
 from app.core.crypto import crypto_service
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class QuizRequest(BaseModel):
     scope_id: str | None = None  # category_id 或 collection_id
     min_difficulty: int | None = None  # 最低难度 1-5
     max_difficulty: int | None = None  # 最高难度 1-5
+    brain_id: str | None = None
 
 
 class WrongQuizRequest(BaseModel):
@@ -44,6 +45,7 @@ class WrongQuizRequest(BaseModel):
     scope_type: str = "manual"  # "category" | "collection" | "content"
     scope_id: str | None = None
     question_types: list[str] = ["single", "multiple", "truefalse", "open"]
+    brain_id: str | None = None
 
 
 class QuizRecordRequest(BaseModel):
@@ -63,14 +65,32 @@ class AskRequest(BaseModel):
     top_k: int = 5
     scope_type: str | None = None  # "category" | "collection" | "content"
     scope_id: str | None = None
+    brain_id: str | None = None
 
 
 # ── 获取 AI provider ──
 
-async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | None:
+async def _brain_uuid_or_404(db: AsyncSession, brain_id: str | UUID | None) -> UUID | None:
+    if brain_id is None:
+        return None
+    try:
+        brain_uuid = brain_id if isinstance(brain_id, UUID) else UUID(str(brain_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid brain_id")
+    if await db.get(Brain, brain_uuid) is None:
+        raise HTTPException(status_code=404, detail="Brain not found")
+    return brain_uuid
+
+
+async def _get_ai_provider(db: AsyncSession, fn: str = "summarize", brain_id: UUID | str | None = None) -> dict | None:
     """获取指定功能绑定的 AI 提供商。
-    优先级：FunctionBindingConfig（设置页面显式绑定）> Provider.default_models > 无
+    优先级：Brain.config > FunctionBindingConfig（设置页面显式绑定）> Provider.default_models > 无
     """
+    if brain_id:
+        provider = await _get_brain_ai_provider(db, brain_id, fn)
+        if provider:
+            return provider
+
     # 1. 优先检查 FunctionBindingConfig（设置页面的功能绑定，优先级最高）
     binding_result = await db.execute(
         select(FunctionBindingConfig).where(FunctionBindingConfig.function == fn)
@@ -120,6 +140,66 @@ async def _get_ai_provider(db: AsyncSession, fn: str = "summarize") -> dict | No
     return None
 
 
+async def _get_brain_ai_provider(db: AsyncSession, brain_id: UUID | str, fn: str) -> dict | None:
+    """从工作区配置读取指定功能的 provider/model。"""
+    try:
+        uid = brain_id if isinstance(brain_id, UUID) else UUID(str(brain_id))
+    except ValueError:
+        return None
+
+    brain = await db.get(Brain, uid)
+    config = brain.config if brain else None
+    if not isinstance(config, dict):
+        return None
+
+    provider_id = config.get("provider_id")
+    if not provider_id:
+        return None
+    try:
+        provider_uuid = UUID(str(provider_id))
+    except ValueError:
+        return None
+
+    model_key = f"{fn}_model"
+    model = config.get(model_key)
+    if fn == "qa":
+        model = model or config.get("summarize_model")
+    if fn == "judge":
+        model = model or config.get("quiz_model")
+
+    provider_result = await db.execute(
+        select(ProviderConfig).where(
+            ProviderConfig.id == provider_uuid,
+            ProviderConfig.is_active == True,
+        )
+    )
+    p = provider_result.scalar_one_or_none()
+    if not p:
+        return None
+
+    models = p.default_models or {}
+    model = model or models.get(fn)
+    if fn == "qa":
+        model = model or models.get("summarize")
+    if fn == "judge":
+        model = model or models.get("quiz")
+    if not model:
+        return None
+
+    try:
+        api_key = crypto_service.decrypt(p.api_key_encrypted) if p.api_key_encrypted else None
+    except Exception:
+        logger.warning(f"Failed to decrypt API key for brain provider {p.id} ({p.name})")
+        return None
+    logger.info(f"[provider] using Brain.config: brain={brain_id}, {fn} -> {model} (provider={p.name})")
+    return {
+        "provider_id": str(p.id),
+        "model": model,
+        "api_key": api_key,
+        "base_url": p.base_url,
+    }
+
+
 # ── 摘要 ──
 
 @router.post("/summarize")
@@ -134,7 +214,7 @@ async def summarize(body: SummarizeRequest, db: AsyncSession = Depends(get_db)):
     if not text.strip():
         return {"summary": "暂无文本内容可供摘要", "content_id": body.content_id}
 
-    provider = await _get_ai_provider(db, "summarize")
+    provider = await _get_ai_provider(db, "summarize", content.brain_id)
     if provider is None:
         # Fallback: 简单提取前 N 个字符
         return {
@@ -202,6 +282,35 @@ async def get_related(
         "reference": 0.2,
         "similar": 0.1,
     }
+    cid = UUID(content_id)
+    explicit_relation_result = await db.execute(
+        select(ContentRelation, Content)
+        .join(
+            Content,
+            ((ContentRelation.source_id == cid) & (Content.id == ContentRelation.target_id))
+            | ((ContentRelation.target_id == cid) & (Content.id == ContentRelation.source_id)),
+        )
+        .where(
+            ContentRelation.relation_type.in_(["series", "reference"]),
+            Content.is_deleted == False,
+        )
+    )
+    explicit_related: dict[str, dict] = {}
+    for rel, related_content in explicit_relation_result.all():
+        related_id = str(related_content.id)
+        weight = RELATION_WEIGHTS.get(rel.relation_type, 0)
+        existing = explicit_related.get(related_id)
+        if existing is None or weight > existing["relation_bonus"]:
+            explicit_related[related_id] = {
+                "id": related_id,
+                "title": related_content.title,
+                "content_type": related_content.content_type,
+                "similarity": 0.0,
+                "relation_bonus": weight,
+                "relation_type": rel.relation_type,
+                "score": weight,
+                "matched_chunk": None,
+            }
 
     # Step 1: 获取候选内容
     # 优先使用内容级向量，否则使用分块级向量
@@ -239,7 +348,11 @@ async def get_related(
         current_chunks = chunk_res.scalars().all()
         
         if not current_chunks:
-            return {"related": [], "content_id": content_id, "note": "No embedding available"}
+            return {
+                "related": sorted(explicit_related.values(), key=lambda x: x["score"], reverse=True)[:top_k],
+                "content_id": content_id,
+                "note": "No embedding available",
+            }
 
         query_chunk = current_chunks[0]
         vec_str = str(query_chunk.embedding)
@@ -269,13 +382,11 @@ async def get_related(
         finally:
             await conn.close()
 
-    if not rows:
+    if not rows and not explicit_related:
         return {"related": [], "content_id": content_id}
 
     # Step 2: 查询候选内容与当前内容的关系
     candidate_ids = [r[0] if isinstance(r, (tuple, list)) else r.id for r in rows]
-    cid = UUID(content_id)
-
     relations_result = await db.execute(
         select(ContentRelation).where(
             (ContentRelation.relation_type.in_(["series", "reference", "similar"]))
@@ -297,7 +408,7 @@ async def get_related(
             relation_types[related_id] = rel.relation_type
 
     # Step 3: 综合排序（按 content_id 聚合，取最高相似度）
-    content_results: dict[str, dict] = {}
+    content_results: dict[str, dict] = dict(explicit_related)
     for r in rows:
         if isinstance(r, (tuple, list)):
             rid = str(r[0])
@@ -419,30 +530,54 @@ async def _expand_scope(
     content_ids: list[str],
     scope_type: str,
     scope_id: str | None,
+    brain_id: str | None = None,
 ) -> list[UUID]:
     """根据 scope_type 和 scope_id 展开出题范围为 content_id 列表"""
+    brain_uuid = UUID(brain_id) if brain_id else None
     if scope_type == "manual" or not scope_id:
         if content_ids:
-            return [UUID(cid) for cid in content_ids if cid]
+            manual_ids = [UUID(cid) for cid in content_ids if cid]
+            if brain_uuid is None:
+                return manual_ids
+            result = await db.execute(
+                select(Content.id, Content.brain_id)
+                .where(Content.id.in_(manual_ids), Content.is_deleted == False)
+            )
+            rows = result.all()
+            wrong_workspace = [cid for cid, row_brain_id in rows if row_brain_id != brain_uuid]
+            if wrong_workspace:
+                raise HTTPException(status_code=400, detail="Content does not belong to this Brain")
+            return [cid for cid, _ in rows]
         # 没传 content_ids 也没传 scope_id → 返回所有内容（"全部"范围）
-        result = await db.execute(select(Content.id).where(Content.is_deleted == False))
+        query = select(Content.id).where(Content.is_deleted == False)
+        if brain_uuid:
+            query = query.where(Content.brain_id == brain_uuid)
+        result = await db.execute(query)
         return [r[0] for r in result.all()]
 
     sid = UUID(scope_id)
     expanded: list[UUID] = []
 
     if scope_type == "category":
-        cache_key = f"quiz:scope:category:{sid}"
+        from app.models.models import Category, ContentCategory
+
+        category = await db.get(Category, sid)
+        if category is None:
+            return []
+        if brain_uuid is not None and category.brain_id != brain_uuid:
+            raise HTTPException(status_code=400, detail="Category does not belong to this Brain")
+
+        cache_key = f"quiz:scope:category:{brain_uuid or 'global'}:{sid}"
         cached = await load_scope_from_cache(cache_key)
         if cached is not None:
             logger.info(f"[quiz] scope cache HIT: category={sid}, {len(cached)} content_ids")
             return [UUID(cid) for cid in cached]
 
-        from app.models.models import Category, ContentCategory
         async def _get_child_category_ids(cat_id: UUID) -> list[UUID]:
-            result = await db.execute(
-                select(Category.id).where(Category.parent_id == cat_id)
-            )
+            child_query = select(Category.id).where(Category.parent_id == cat_id)
+            if brain_uuid is not None:
+                child_query = child_query.where(Category.brain_id == brain_uuid)
+            result = await db.execute(child_query)
             children = [r[0] for r in result.all()]
             for child_id in list(children):
                 children.extend(await _get_child_category_ids(child_id))
@@ -455,6 +590,13 @@ async def _expand_scope(
             .join(Content, Content.id == ContentCategory.content_id)
             .where(Content.is_deleted == False)
         )
+        if brain_uuid is not None:
+            result = await db.execute(
+                select(ContentCategory.content_id)
+                .where(ContentCategory.category_id.in_(cat_ids))
+                .join(Content, Content.id == ContentCategory.content_id)
+                .where(Content.is_deleted == False, Content.brain_id == brain_uuid)
+            )
         expanded = [r[0] for r in result.all()]
         await save_scope_to_cache(cache_key, expanded)
 
@@ -464,11 +606,13 @@ async def _expand_scope(
         coll = coll_result.scalar_one_or_none()
         if coll is None:
             return []
+        if brain_uuid is not None and coll.brain_id != brain_uuid:
+            raise HTTPException(status_code=400, detail="Collection does not belong to this Brain")
         if not getattr(coll, 'enable', True):
             logger.info(f"[quiz] collection {sid} is disabled, returning empty scope")
             return []
 
-        cache_key = f"quiz:scope:collection:{sid}"
+        cache_key = f"quiz:scope:collection:{brain_uuid or 'global'}:{sid}"
         cached = await load_scope_from_cache(cache_key)
         if cached is not None:
             logger.info(f"[quiz] scope cache HIT: collection={sid}, {len(cached)} content_ids")
@@ -481,10 +625,23 @@ async def _expand_scope(
             .join(Content, Content.id == CollectionItem.content_id)
             .where(Content.is_deleted == False)
         )
+        if brain_uuid is not None:
+            result = await db.execute(
+                select(CollectionItem.content_id)
+                .where(CollectionItem.collection_id == sid)
+                .join(Content, Content.id == CollectionItem.content_id)
+                .where(Content.is_deleted == False, Content.brain_id == brain_uuid)
+            )
         expanded = [r[0] for r in result.all()]
         await save_scope_to_cache(cache_key, expanded)
 
     elif scope_type == "content":
+        if brain_uuid is not None:
+            content = await db.get(Content, sid)
+            if content is None or content.is_deleted:
+                return []
+            if content.brain_id != brain_uuid:
+                raise HTTPException(status_code=400, detail="Content does not belong to this Brain")
         expanded = [sid]
 
     logger.info(f"[quiz] scope expansion: type={scope_type}, scope_id={scope_id}, expanded to {len(expanded)} content_ids")
@@ -724,12 +881,20 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
     - scope: manual(单书/多书) / category(按分类) / collection(按合集)
     - 干扰项增加相似度阈值 0.75，题目入库前向量查重
     """
+    requested_brain_id = await _brain_uuid_or_404(db, body.brain_id)
     # 展开出题范围
-    content_ids = await _expand_scope(db, body.content_ids, body.scope_type, body.scope_id)
+    content_ids = await _expand_scope(db, body.content_ids, body.scope_type, body.scope_id, body.brain_id)
     if not content_ids:
         if not body.content_ids and (body.scope_type == "manual" or not body.scope_id):
             raise HTTPException(status_code=400, detail="No content_ids provided")
         return {"questions": [], "note": "所选范围内没有可用的内容"}
+
+    brain_id = requested_brain_id
+    if brain_id is None and content_ids:
+        content_res = await db.execute(select(Content).where(Content.id == content_ids[0]))
+        content = content_res.scalar_one_or_none()
+        if content and content.brain_id:
+            brain_id = content.brain_id
 
     logger.info(f"[quiz] start quiz generation: content_ids={[str(c) for c in content_ids[:5]]}..., mode={body.mode}, topic={body.topic}, question_count={body.question_count}, scope={body.scope_type}")
 
@@ -750,7 +915,7 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
 
     if body.mode == "topic" and body.topic:
         from app.services.embedding import embed_texts
-        topic_vecs = await embed_texts(db, [body.topic])
+        topic_vecs = await embed_texts(db, [body.topic], brain_id=brain_id)
         topic_vec = topic_vecs[0] if topic_vecs else None
         if topic_vec is None:
             return {"questions": [], "error": "无法为关键词生成嵌入向量，请检查 embedding 配置"}
@@ -861,15 +1026,8 @@ async def generate_quiz(body: QuizRequest, db: AsyncSession = Depends(get_db)):
     }
 
     # 加载模板
-    provider = await _get_ai_provider(db, "quiz")
+    provider = await _get_ai_provider(db, "quiz", brain_id)
     logger.info(f"[quiz] AI provider={'found (' + provider['model'] + ')' if provider else 'not found (fallback)'}")
-
-    brain_id = None
-    first_cid = content_ids[0]
-    content_res = await db.execute(select(Content).where(Content.id == first_cid))
-    content = content_res.scalar_one_or_none()
-    if content and content.brain_id:
-        brain_id = content.brain_id
 
     template = await _get_or_create_quiz_template(db, brain_id)
     if template:
@@ -1242,19 +1400,48 @@ def _render_template(template_str: str, variables: dict[str, str]) -> str:
 class TemplateUpdateRequest(BaseModel):
     system_prompt: str
     user_prompt_template: str
+    brain_id: str | None = None
+
+
+def _template_brain_uuid(brain_id: str | None) -> UUID | None:
+    return UUID(brain_id) if brain_id else None
+
+
+async def _ensure_template_brain_exists(db: AsyncSession, brain_id: UUID | None) -> None:
+    if brain_id is None:
+        return
+    if await db.get(Brain, brain_id) is None:
+        raise HTTPException(status_code=404, detail="Brain not found")
+
+
+def _template_payload(template: PromptTemplate) -> dict:
+    return {
+        "id": str(template.id),
+        "brain_id": str(template.brain_id) if template.brain_id else None,
+        "name": template.name,
+        "description": template.description,
+        "system_prompt": template.system_prompt,
+        "user_prompt_template": template.user_prompt_template,
+    }
 
 
 @router.get("/quiz-template")
-async def get_quiz_template(db: AsyncSession = Depends(get_db)):
+async def get_quiz_template(
+    brain_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     """获取当前工作区的默认 quiz 模板"""
+    brain_uuid = _template_brain_uuid(brain_id)
+    await _ensure_template_brain_exists(db, brain_uuid)
     result = await db.execute(
         select(PromptTemplate).where(
+            PromptTemplate.brain_id == brain_uuid,
             PromptTemplate.template_type == "quiz",
             PromptTemplate.is_default == True,
-        ).order_by(PromptTemplate.brain_id.nulls_first())
+        )
     )
-    template_row = result.first()
-    if template_row is None:
+    t = result.scalar_one_or_none()
+    if t is None:
         from app.api.brains import DEFAULT_PROMPT_TEMPLATES
         quiz_default = DEFAULT_PROMPT_TEMPLATES.get("quiz", {})
         return {
@@ -1264,17 +1451,7 @@ async def get_quiz_template(db: AsyncSession = Depends(get_db)):
             },
             "note": "using system default (no template in DB)",
         }
-    t = template_row[0]
-    return {
-        "template": {
-            "id": str(t.id),
-            "brain_id": str(t.brain_id) if t.brain_id else None,
-            "name": t.name,
-            "description": t.description,
-            "system_prompt": t.system_prompt,
-            "user_prompt_template": t.user_prompt_template,
-        }
-    }
+    return {"template": _template_payload(t)}
 
 
 @router.get("/quiz-templates")
@@ -1306,8 +1483,11 @@ async def list_quiz_templates(db: AsyncSession = Depends(get_db)):
 @router.put("/quiz-template")
 async def update_quiz_template(body: TemplateUpdateRequest, db: AsyncSession = Depends(get_db)):
     """更新默认 quiz 模板"""
+    brain_uuid = _template_brain_uuid(body.brain_id)
+    await _ensure_template_brain_exists(db, brain_uuid)
     result = await db.execute(
         select(PromptTemplate).where(
+            PromptTemplate.brain_id == brain_uuid,
             PromptTemplate.template_type == "quiz",
             PromptTemplate.is_default == True,
         )
@@ -1316,7 +1496,7 @@ async def update_quiz_template(body: TemplateUpdateRequest, db: AsyncSession = D
 
     if template is None:
         template = PromptTemplate(
-            brain_id=None,
+            brain_id=brain_uuid,
             template_type="quiz",
             name="默认quiz模板",
             system_prompt=body.system_prompt,
@@ -1331,23 +1511,25 @@ async def update_quiz_template(body: TemplateUpdateRequest, db: AsyncSession = D
     await db.commit()
     await db.refresh(template)
     return {
-        "template": {
-            "id": str(template.id),
-            "system_prompt": template.system_prompt,
-            "user_prompt_template": template.user_prompt_template,
-        },
+        "template": _template_payload(template),
         "message": "Template saved",
     }
 
 
 @router.post("/quiz-template/reset")
-async def reset_quiz_template(db: AsyncSession = Depends(get_db)):
+async def reset_quiz_template(
+    brain_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     """恢复为系统默认模板"""
     from app.api.brains import DEFAULT_PROMPT_TEMPLATES
     quiz_default = DEFAULT_PROMPT_TEMPLATES.get("quiz", {})
+    brain_uuid = _template_brain_uuid(brain_id)
+    await _ensure_template_brain_exists(db, brain_uuid)
 
     result = await db.execute(
         select(PromptTemplate).where(
+            PromptTemplate.brain_id == brain_uuid,
             PromptTemplate.template_type == "quiz",
             PromptTemplate.is_default == True,
         )
@@ -1359,7 +1541,7 @@ async def reset_quiz_template(db: AsyncSession = Depends(get_db)):
         template.user_prompt_template = quiz_default.get("user_prompt_template", "")
     else:
         template = PromptTemplate(
-            brain_id=None,
+            brain_id=brain_uuid,
             template_type="quiz",
             name="默认quiz模板",
             system_prompt=quiz_default.get("system_prompt", ""),
@@ -1371,11 +1553,7 @@ async def reset_quiz_template(db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(template)
     return {
-        "template": {
-            "id": str(template.id),
-            "system_prompt": template.system_prompt,
-            "user_prompt_template": template.user_prompt_template,
-        },
+        "template": _template_payload(template),
         "message": "Template reset to default",
     }
 
@@ -1383,16 +1561,22 @@ async def reset_quiz_template(db: AsyncSession = Depends(get_db)):
 # ── QA 模板管理（与 quiz 模板对称）──
 
 @router.get("/qa-template")
-async def get_qa_template(db: AsyncSession = Depends(get_db)):
+async def get_qa_template(
+    brain_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     """获取当前工作区的默认 qa 模板"""
+    brain_uuid = _template_brain_uuid(brain_id)
+    await _ensure_template_brain_exists(db, brain_uuid)
     result = await db.execute(
         select(PromptTemplate).where(
+            PromptTemplate.brain_id == brain_uuid,
             PromptTemplate.template_type == "qa",
             PromptTemplate.is_default == True,
-        ).order_by(PromptTemplate.brain_id.nulls_first())
+        )
     )
-    template_row = result.first()
-    if template_row is None:
+    t = result.scalar_one_or_none()
+    if t is None:
         from app.api.brains import DEFAULT_PROMPT_TEMPLATES
         qa_default = DEFAULT_PROMPT_TEMPLATES.get("qa", {})
         return {
@@ -1402,24 +1586,17 @@ async def get_qa_template(db: AsyncSession = Depends(get_db)):
             },
             "note": "using system default (no template in DB)",
         }
-    t = template_row[0]
-    return {
-        "template": {
-            "id": str(t.id),
-            "brain_id": str(t.brain_id) if t.brain_id else None,
-            "name": t.name,
-            "description": t.description,
-            "system_prompt": t.system_prompt,
-            "user_prompt_template": t.user_prompt_template,
-        }
-    }
+    return {"template": _template_payload(t)}
 
 
 @router.put("/qa-template")
 async def update_qa_template(body: TemplateUpdateRequest, db: AsyncSession = Depends(get_db)):
     """更新默认 qa 模板"""
+    brain_uuid = _template_brain_uuid(body.brain_id)
+    await _ensure_template_brain_exists(db, brain_uuid)
     result = await db.execute(
         select(PromptTemplate).where(
+            PromptTemplate.brain_id == brain_uuid,
             PromptTemplate.template_type == "qa",
             PromptTemplate.is_default == True,
         )
@@ -1427,7 +1604,7 @@ async def update_qa_template(body: TemplateUpdateRequest, db: AsyncSession = Dep
     template = result.scalar_one_or_none()
     if template is None:
         template = PromptTemplate(
-            brain_id=None,
+            brain_id=brain_uuid,
             template_type="qa",
             name="默认qa模板",
             system_prompt=body.system_prompt,
@@ -1441,22 +1618,24 @@ async def update_qa_template(body: TemplateUpdateRequest, db: AsyncSession = Dep
     await db.commit()
     await db.refresh(template)
     return {
-        "template": {
-            "id": str(template.id),
-            "system_prompt": template.system_prompt,
-            "user_prompt_template": template.user_prompt_template,
-        },
+        "template": _template_payload(template),
         "message": "Template saved",
     }
 
 
 @router.post("/qa-template/reset")
-async def reset_qa_template(db: AsyncSession = Depends(get_db)):
+async def reset_qa_template(
+    brain_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     """恢复为系统默认 qa 模板"""
     from app.api.brains import DEFAULT_PROMPT_TEMPLATES
     qa_default = DEFAULT_PROMPT_TEMPLATES.get("qa", {})
+    brain_uuid = _template_brain_uuid(brain_id)
+    await _ensure_template_brain_exists(db, brain_uuid)
     result = await db.execute(
         select(PromptTemplate).where(
+            PromptTemplate.brain_id == brain_uuid,
             PromptTemplate.template_type == "qa",
             PromptTemplate.is_default == True,
         )
@@ -1467,7 +1646,7 @@ async def reset_qa_template(db: AsyncSession = Depends(get_db)):
         template.user_prompt_template = qa_default.get("user_prompt_template", "")
     else:
         template = PromptTemplate(
-            brain_id=None,
+            brain_id=brain_uuid,
             template_type="qa",
             name="默认qa模板",
             system_prompt=qa_default.get("system_prompt", ""),
@@ -1478,11 +1657,7 @@ async def reset_qa_template(db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(template)
     return {
-        "template": {
-            "id": str(template.id),
-            "system_prompt": template.system_prompt,
-            "user_prompt_template": template.user_prompt_template,
-        },
+        "template": _template_payload(template),
         "message": "Template reset to default",
     }
 
@@ -1703,10 +1878,18 @@ async def generate_wrong_quiz(body: WrongQuizRequest, db: AsyncSession = Depends
     if not body.wrong_question_texts:
         return {"questions": [], "error": "至少需要一条错题文本"}
 
+    requested_brain_id = await _brain_uuid_or_404(db, body.brain_id)
     # 展开出题范围
-    content_ids = await _expand_scope(db, [], body.scope_type, body.scope_id)
+    content_ids = await _expand_scope(db, [], body.scope_type, body.scope_id, body.brain_id)
     if not content_ids:
         return {"questions": [], "note": "所选范围内没有可用的内容"}
+
+    brain_id = requested_brain_id
+    if brain_id is None and content_ids:
+        content_res = await db.execute(select(Content).where(Content.id == content_ids[0]))
+        content = content_res.scalar_one_or_none()
+        if content and content.brain_id:
+            brain_id = content.brain_id
 
     logger.info(f"[wrong_quiz] start: wrong_texts={len(body.wrong_question_texts)}, count={body.question_count}, scope={body.scope_type}")
 
@@ -1716,7 +1899,7 @@ async def generate_wrong_quiz(body: WrongQuizRequest, db: AsyncSession = Depends
     if not wrong_texts:
         return {"questions": [], "error": "错题文本为空"}
 
-    wrong_vecs = await embed_texts(db, wrong_texts)
+    wrong_vecs = await embed_texts(db, wrong_texts, brain_id=brain_id)
     if not wrong_vecs:
         return {"questions": [], "error": "无法为错题文本生成嵌入向量，请检查 embedding 配置"}
 
@@ -1825,19 +2008,11 @@ async def generate_wrong_quiz(body: WrongQuizRequest, db: AsyncSession = Depends
     }
 
     # 获取 provider
-    provider = await _get_ai_provider(db, "quiz")
+    provider = await _get_ai_provider(db, "quiz", brain_id)
     if provider is None:
         return {"questions": [], "error": "未配置 quiz AI 提供商"}
 
     # 加载模板
-    brain_id = None
-    if content_ids:
-        first_cid = content_ids[0]
-        content_res = await db.execute(select(Content).where(Content.id == first_cid))
-        content = content_res.scalar_one_or_none()
-        if content and content.brain_id:
-            brain_id = content.brain_id
-
     template = await _get_or_create_quiz_template(db, brain_id)
     if template:
         system_prompt = _render_template(template.system_prompt, template_vars)
@@ -1910,22 +2085,27 @@ async def rag_ask(body: AskRequest, db: AsyncSession = Depends(get_db)):
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
 
+    requested_brain_id = await _brain_uuid_or_404(db, body.brain_id)
     # 确定检索范围
-    content_ids = await _expand_scope(db, [], body.scope_type, body.scope_id)
-    if content_ids:
-        if not content_ids:
-            return {"answer": "所选范围内没有可用的内容", "sources": []}
-    else:
+    content_ids = await _expand_scope(db, [], body.scope_type, body.scope_id, body.brain_id)
+    if not content_ids and body.scope_id:
+        return {"answer": "所选范围内没有可用的内容", "sources": []}
+    if not content_ids and not body.scope_id:
         # 全部范围：获取所有未删除的 content_id
-        result = await db.execute(select(Content.id).where(Content.is_deleted == False))
+        all_query = select(Content.id).where(Content.is_deleted == False)
+        if requested_brain_id is not None:
+            all_query = all_query.where(Content.brain_id == requested_brain_id)
+        result = await db.execute(all_query)
         content_ids = [r[0] for r in result.all()]
+    if not content_ids:
+        return {"answer": "所选范围内没有可用的内容", "sources": []}
 
     logger.info(f"[qa] question='{question[:60]}...', top_k={body.top_k}, scope={body.scope_type}, content_count={len(content_ids)}")
 
     # 1. 问题向量化
     from app.services.embedding import embed_texts
     try:
-        vecs = await embed_texts(db, [question])
+        vecs = await embed_texts(db, [question], brain_id=body.brain_id)
     except Exception as e:
         logger.warning(f"[qa] embedding failed: {e}")
         return {"answer": "无法生成问题嵌入向量，请检查 embedding 配置", "sources": []}
@@ -2000,18 +2180,18 @@ async def rag_ask(body: AskRequest, db: AsyncSession = Depends(get_db)):
     logger.info(f"[qa] retrieved {len(rows)} chunks, context length={len(context_combined)}")
 
     # 4. 获取 AI provider
-    provider = await _get_ai_provider(db, "qa")
+    provider = await _get_ai_provider(db, "qa", body.brain_id)
     if provider is None:
-        provider = await _get_ai_provider(db, "summarize")  # fallback to summarize provider
+        provider = await _get_ai_provider(db, "summarize", body.brain_id)  # fallback to summarize provider
     if provider is None:
         return {"answer": "未配置 AI 提供商，请在设置中配置 LLM 服务", "sources": sources}
 
     # 5. 加载 Prompt 模板
-    brain_id = None
+    brain_id = requested_brain_id
     if content_ids:
         content_res = await db.execute(select(Content).where(Content.id == content_ids[0]))
         content = content_res.scalar_one_or_none()
-        if content and content.brain_id:
+        if brain_id is None and content and content.brain_id:
             brain_id = content.brain_id
 
     template = await _get_or_create_qa_template(db, brain_id)

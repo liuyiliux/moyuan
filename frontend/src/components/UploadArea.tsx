@@ -1,7 +1,7 @@
 import { useRef, useState, type DragEvent, type ChangeEvent } from "react";
 import { fileApi, type DuplicateInfo } from "../api/content";
 import DuplicateModal from "./DuplicateModal";
-import { UploadCloud, FileText, FileAudio, FileVideo, FileSpreadsheet, CheckCircle } from "lucide-react";
+import { UploadCloud, FileText, FileAudio, FileVideo, FileSpreadsheet, CheckCircle, FolderUp } from "lucide-react";
 
 interface UploadAreaProps {
   onUploaded?: (files: UploadResult[]) => void;
@@ -13,7 +13,7 @@ export interface UploadResult {
   title: string;
   content_type: string;
   is_duplicate: boolean;
-  action: "uploaded" | "skipped" | "kept_both";
+  action: "uploaded" | "skipped" | "kept_both" | "overwritten";
 }
 
 const TYPE_ICON_MAP: Record<string, React.ReactNode> = {
@@ -28,10 +28,17 @@ function getFileIcon(contentType: string) {
   return TYPE_ICON_MAP[contentType] ?? <FileText className="w-5 h-5 text-[var(--text-muted)]" />;
 }
 
+function getImportRelativePath(file: File): string | undefined {
+  const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  return path || undefined;
+}
+
 export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState<UploadResult[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,13 +64,19 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     setError(null);
+    setResults([]);
+    setProgress({ done: 0, total: files.length });
 
     const res: UploadResult[] = [];
+    const fileArray = Array.from(files);
+    const hasFolderPaths = fileArray.some((file) => getImportRelativePath(file));
+    const importBatchId = hasFolderPaths ? crypto.randomUUID() : undefined;
 
-    for (const file of Array.from(files)) {
+    for (const file of fileArray) {
       try {
+        const importRelativePath = getImportRelativePath(file);
         // 先检查重复
-        const check = await fileApi.checkDuplicate(file);
+        const check = await fileApi.checkDuplicate(file, brainId, importRelativePath);
 
         let overwriteTargetId: string | undefined;
 
@@ -86,19 +99,20 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
 
         // 实际开始上传
         setUploading(true);
-        const data = await fileApi.upload(file, brainId, overwriteTargetId);
+        const data = await fileApi.upload(file, brainId, overwriteTargetId, importRelativePath, importBatchId);
         res.push({
           content_id: data.content_id,
           title: data.title,
           content_type: data.content_type,
           is_duplicate: data.is_duplicate,
-          action: overwriteTargetId ? "kept_both" : check.is_duplicate ? "kept_both" : "uploaded",
+          action: overwriteTargetId ? "overwritten" : check.is_duplicate ? "kept_both" : "uploaded",
         });
       } catch (err) {
         setError((err as Error).message);
         break;
       } finally {
         setUploading(false);
+        setProgress(prev => ({ ...prev, done: Math.min(prev.done + 1, prev.total) }));
       }
     }
 
@@ -123,6 +137,10 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
     handleFiles(e.target.files);
     e.target.value = "";
   }
+  function onFolderInputChange(e: ChangeEvent<HTMLInputElement>) {
+    handleFiles(e.target.files);
+    e.target.value = "";
+  }
 
   return (
     <div className="w-full">
@@ -141,10 +159,10 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
         <UploadCloud className="w-10 h-10 mx-auto text-[var(--text-muted)] dark:text-[var(--text-muted)] mb-3" />
         <p className="text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)]">
           拖拽文件到这里，或{" "}
-          <span className="text-[var(--accent-text)] dark:text-[var(--accent-text)] font-medium">点击选择</span>
+          <span className="text-[var(--accent-text)] dark:text-[var(--accent-text)] font-medium">选择文件</span>
         </p>
         <p className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-1">
-          支持图片、音频、视频、PDF、文档等格式
+          支持图片、音频、视频、PDF 和文档
         </p>
         <input
           ref={inputRef}
@@ -155,17 +173,54 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
         />
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={() => folderInputRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-md border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent-text)] transition-colors"
+        >
+          <FolderUp className="w-4 h-4" />
+          导入文件夹
+        </button>
+        <input
+          ref={(el) => {
+            folderInputRef.current = el;
+            if (el) {
+              const folderInput = el as HTMLInputElement & {
+                webkitdirectory?: boolean;
+                directory?: boolean;
+              };
+              folderInput.webkitdirectory = true;
+              folderInput.directory = true;
+            }
+          }}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={onFolderInputChange}
+        />
+      </div>
+
       {/* Uploading indicator */}
-      {uploading && (
-        <div className="mt-4 flex items-center gap-2 text-sm text-[var(--text-muted)]">
-          <span className="animate-spin">⏳</span> 上传中...
+      {progress.total > 0 && (uploading || progress.done < progress.total) && (
+        <div className="mt-4 space-y-2 text-sm text-[var(--text-muted)]">
+          <div className="flex items-center justify-between gap-3">
+            <span>{uploading ? "上传中..." : "处理中..."}</span>
+            <span>{Math.min(progress.done, progress.total)} / {progress.total}</span>
+          </div>
+          <div className="h-2 rounded-full bg-[var(--bg-secondary)] overflow-hidden">
+            <div
+              className="h-full bg-[var(--accent)] transition-all"
+              style={{ width: `${progress.total ? Math.min(100, (progress.done / progress.total) * 100) : 0}%` }}
+            />
+          </div>
         </div>
       )}
 
       {/* Error */}
       {error && (
         <div className="mt-3 text-sm text-[var(--danger)] bg-[var(--danger-soft)] dark:bg-red-950/30 rounded-lg px-3 py-2">
-          ❌ {error}
+          错误：{error}
         </div>
       )}
 
@@ -186,6 +241,8 @@ export default function UploadArea({ onUploaded, brainId }: UploadAreaProps) {
               </span>
               {r.action === "skipped" ? (
                 <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">已跳过</span>
+              ) : r.action === "overwritten" ? (
+                <span className="text-xs text-amber-700 dark:text-amber-300 whitespace-nowrap">已覆盖</span>
               ) : r.action === "kept_both" ? (
                 <span className="text-xs text-[var(--accent-text)] dark:text-[var(--accent-text)] whitespace-nowrap">
                   + 已保留

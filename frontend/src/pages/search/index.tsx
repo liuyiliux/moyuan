@@ -10,7 +10,12 @@ import {
 } from "lucide-react";
 import { Button, Card } from "../../components";
 import PromptEditor from "../../components/PromptEditor";
+import Toast from "../../components/Toast";
 import { searchCopy, useCopy } from "../../lib/copywriting";
+import { tagApi, categoryApi, type Tag, type Category } from "../../api/organization";
+import { brainApi, type Brain } from "../../api/brains";
+import { useBrain } from "../../lib/brain-context";
+import { api } from "../../api/provider";
 
 const TYPE_LABELS: Record<string, string> = {
   note: "墨宝", image: "图录", video: "影集", audio: "音箓",
@@ -26,6 +31,21 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   doc: <FileSpreadsheet className="w-4 h-4 text-indigo-500" />,
   web: <Globe className="w-4 h-4 text-cyan-500" />,
 };
+
+const DATE_FILTERS = [
+  { value: "all", label: "全部时间" },
+  { value: "7d", label: "最近 7 天" },
+  { value: "30d", label: "最近 30 天" },
+  { value: "365d", label: "最近一年" },
+];
+
+function dateFilterToIso(value: string): string | undefined {
+  const days = value === "7d" ? 7 : value === "30d" ? 30 : value === "365d" ? 365 : 0;
+  if (!days) return undefined;
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString();
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -86,6 +106,7 @@ export default function SearchPage() {
   const st = useCopy(searchCopy);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { currentBrainId } = useBrain();
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [activeQuery, setActiveQuery] = useState("");
   const [results, setResults] = useState<SearchResultItem[]>([]);
@@ -93,6 +114,13 @@ export default function SearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [contentType, setContentType] = useState<string>("all");
+  const [dateFilter, setDateFilter] = useState<string>("all");
+  const [categoryId, setCategoryId] = useState<string>("");
+  const [brainId, setBrainId] = useState<string>(currentBrainId || "");
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [brains, setBrains] = useState<Brain[]>([]);
   const [enableVector, setEnableVector] = useState(true);
   const [enableKeyword, setEnableKeyword] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
@@ -106,6 +134,20 @@ export default function SearchPage() {
   const [qaSources, setQaSources] = useState<Array<{ chunk_id: string; content_id: string; content_title: string; content_type: string; page_number: number | null; chunk_text: string }>>([]);
   const [savingNote, setSavingNote] = useState(false);
   const [showQaPromptEditor, setShowQaPromptEditor] = useState(false);
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+
+  function flattenCategories(items: Category[], depth = 0): Array<Category & { depth: number }> {
+    return items.flatMap((item) => [
+      { ...item, depth },
+      ...flattenCategories(item.children || [], depth + 1),
+    ]);
+  }
+
+  function toggleTag(tagId: string) {
+    setSelectedTagIds((prev) => (
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    ));
+  }
 
   async function handleSaveToNote() {
     if (!qaAnswer || !activeQuery) return;
@@ -117,14 +159,11 @@ export default function SearchPage() {
           ).join("\n")
         : "";
       const content = `${qaAnswer}${sourcesMd}`;
-      const res = await fetch("/api/notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: activeQuery, content }),
-      });
-      const note = await res.json();
-      alert("已保存到笔记");
-    } catch { alert("保存失败"); }
+      await api.post<unknown>("/notes", { title: activeQuery, content, brain_id: brainId || undefined });
+      setToast({ type: "success", message: "已保存到笔记" });
+    } catch (err) {
+      setToast({ type: "error", message: (err as Error).message || "保存失败" });
+    }
     finally { setSavingNote(false); }
   }
 
@@ -137,6 +176,10 @@ export default function SearchPage() {
       const res = await searchApi.search({
         query: q,
         content_type: contentType === "all" ? undefined : contentType,
+        tag_ids: selectedTagIds.length ? selectedTagIds : undefined,
+        category_id: categoryId || undefined,
+        brain_id: brainId || undefined,
+        created_after: dateFilterToIso(dateFilter),
         enable_vector: enableVector,
         enable_keyword: enableKeyword,
         top_k: 20,
@@ -159,12 +202,14 @@ export default function SearchPage() {
     setQaAnswer(null);
     setQaSources([]);
     try {
-      const res = await fetch("/api/ai/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, top_k: 5 }),
+      const data = await api.post<{
+        answer?: string | null;
+        sources?: Array<{ chunk_id: string; content_id: string; content_title: string; content_type: string; page_number: number | null; chunk_text: string }>;
+      }>("/ai/ask", {
+        question: q,
+        top_k: 5,
+        brain_id: brainId || undefined,
       });
-      const data = await res.json();
       setQaAnswer(data.answer || null);
       setQaSources(data.sources || []);
     } catch (err) {
@@ -191,12 +236,35 @@ export default function SearchPage() {
 
   async function loadHistory() {
     try {
-      const res = await searchApi.getHistory({ page: 1, page_size: 20 });
+      const res = await searchApi.getHistory({ page: 1, page_size: 20, brain_id: brainId || undefined });
       setHistory(res.items);
     } catch { /* ignore */ }
   }
 
-  useEffect(() => { if (showHistory) loadHistory(); }, [showHistory]);
+  useEffect(() => {
+    setBrainId(currentBrainId || "");
+    setCategoryId("");
+    setSelectedTagIds([]);
+  }, [currentBrainId]);
+
+  useEffect(() => { if (showHistory) loadHistory(); }, [showHistory, brainId]);
+  useEffect(() => {
+    Promise.all([
+      tagApi.list(1, 200, brainId || undefined),
+      categoryApi.tree(brainId || undefined),
+      brainApi.list(false),
+    ])
+      .then(([tagData, categoryData, brainData]) => {
+        setTags(tagData);
+        setCategories(categoryData);
+        setBrains(brainData);
+      })
+      .catch(() => {
+        setTags([]);
+        setCategories([]);
+        setBrains([]);
+      });
+  }, [brainId]);
   useEffect(() => {
     const q = searchParams.get("q");
     if (q?.trim()) { setQuery(q); doSearch(q); }
@@ -283,6 +351,80 @@ export default function SearchPage() {
                   </label>
                 ))}
               </div>
+              <div className="flex items-center gap-4 flex-wrap">
+                <span className="text-sm font-medium text-text-secondary">时间范围</span>
+                {DATE_FILTERS.map((item) => (
+                  <label key={item.value} className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="dateRange"
+                      checked={dateFilter === item.value}
+                      onChange={() => setDateFilter(item.value)}
+                      className="accent-jade"
+                    />
+                    <span className="text-sm">{item.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-text-secondary">分类</label>
+                  <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="dao-input w-full">
+                    <option value="">全部分类</option>
+                    {flattenCategories(categories).map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {"　".repeat(category.depth)}{category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-text-secondary">工作区</label>
+                  <select value={brainId} onChange={(e) => setBrainId(e.target.value)} className="dao-input w-full">
+                    <option value="">全部工作区</option>
+                    {brains.map((brain) => (
+                      <option key={brain.id} value={brain.id}>{brain.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {tags.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-text-secondary">标签</span>
+                    {(selectedTagIds.length > 0 || categoryId || brainId) && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedTagIds([]); setCategoryId(""); setBrainId(""); }}
+                        className="text-xs text-text-muted hover:text-jade transition-colors"
+                      >
+                        清空组织筛选
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {tags.map((tag) => (
+                      <label
+                        key={tag.id}
+                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs cursor-pointer transition-colors ${
+                          selectedTagIds.includes(tag.id)
+                            ? "border-jade text-jade bg-jade/10"
+                            : "border-border-subtle text-text-secondary hover:border-jade/40"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedTagIds.includes(tag.id)}
+                          onChange={() => toggleTag(tag.id)}
+                          className="sr-only"
+                        />
+                        {tag.color && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: tag.color }} />}
+                        {tag.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-text-secondary">
                   <input type="checkbox" checked={enableVector} onChange={(e) => setEnableVector(e.target.checked)} className="accent-jade" />
@@ -479,6 +621,7 @@ export default function SearchPage() {
     </div>
 
     {showQaPromptEditor && <PromptEditor templateType="qa" onClose={() => setShowQaPromptEditor(false)} />}
+    {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </>
   );
 }

@@ -54,6 +54,14 @@ class RelationDetailResponse(BaseModel):
     target_content_type: str
 
 
+class RelationSuggestionResponse(BaseModel):
+    id: str
+    title: str
+    content_type: str
+    similarity: float
+    reason: str
+
+
 class SeriesItemResponse(BaseModel):
     id: str
     title: str
@@ -72,11 +80,10 @@ class SeriesInfoResponse(BaseModel):
 # ── Helpers ──
 
 
-def _validate_uuid(value: str) -> str:
+def _validate_uuid(value: str) -> uuid.UUID:
     """Validate and normalize a UUID string."""
-    from uuid import UUID
     try:
-        return str(UUID(value))
+        return uuid.UUID(value)
     except Exception:
         raise HTTPException(status_code=400, detail=f"Invalid UUID: {value}")
 
@@ -121,13 +128,17 @@ async def create_relation(body: RelationCreate, db: AsyncSession = Depends(get_d
 
     # 验证源内容存在
     src_res = await db.execute(select(Content).where(Content.id == source_id))
-    if not src_res.scalar_one_or_none():
+    source = src_res.scalar_one_or_none()
+    if not source:
         raise HTTPException(status_code=404, detail="Source content not found")
 
     # 验证目标内容存在
     tgt_res = await db.execute(select(Content).where(Content.id == target_id))
-    if not tgt_res.scalar_one_or_none():
+    target = tgt_res.scalar_one_or_none()
+    if not target:
         raise HTTPException(status_code=404, detail="Target content not found")
+    if source.brain_id != target.brain_id:
+        raise HTTPException(status_code=400, detail="Cannot create relation across different brains")
 
     # 检查是否已存在（唯一约束）
     existing = await db.execute(
@@ -165,7 +176,7 @@ async def list_relations(
     cid = _validate_uuid(content_id)
 
     # 验证内容存在
-    c_res = await db.execute(select(Content).where(Content.id == cid))
+    c_res = await db.execute(select(Content).where(Content.id == cid, Content.is_deleted == False))
     if not c_res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Content not found")
 
@@ -192,7 +203,7 @@ async def list_relations(
     related_ids.discard(cid)  # 排除自身
 
     contents_result = await db.execute(
-        select(Content).where(Content.id.in_(related_ids))
+        select(Content).where(Content.id.in_(related_ids), Content.is_deleted == False)
     )
     content_map = {c.id: c for c in contents_result.scalars().all()}
 
@@ -202,6 +213,8 @@ async def list_relations(
         # 确定关联内容的 ID
         related_id = rel.target_id if rel.source_id == cid else rel.source_id
         related_content = content_map.get(related_id)
+        if related_content is None:
+            continue
         items.append({
             "id": str(rel.id),
             "source_id": str(rel.source_id),
@@ -215,6 +228,71 @@ async def list_relations(
         })
 
     return items
+
+
+@router.get("/suggestions", response_model=list[RelationSuggestionResponse])
+async def suggest_relations(
+    content_id: str = Query(..., description="内容 ID"),
+    limit: int = Query(5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return similar content candidates that are not already related."""
+    cid = _validate_uuid(content_id)
+
+    content_result = await db.execute(select(Content).where(Content.id == cid, Content.is_deleted == False))
+    content = content_result.scalar_one_or_none()
+    if content is None:
+        raise HTTPException(status_code=404, detail="Content not found")
+    if content.embedding is None:
+        return []
+
+    relation_result = await db.execute(
+        select(ContentRelation).where(
+            (ContentRelation.source_id == cid) | (ContentRelation.target_id == cid)
+        )
+    )
+    related_ids: set[uuid.UUID] = set()
+    for rel in relation_result.scalars().all():
+        related_ids.add(rel.source_id)
+        related_ids.add(rel.target_id)
+    related_ids.add(cid)
+
+    distance = Content.embedding.cosine_distance(content.embedding)
+    conditions = [
+        Content.embedding.is_not(None),
+        Content.is_deleted == False,
+        Content.id.notin_(list(related_ids)),
+    ]
+    if content.brain_id is None:
+        conditions.append(Content.brain_id.is_(None))
+    else:
+        conditions.append(Content.brain_id == content.brain_id)
+
+    rows = await db.execute(
+        select(
+            Content.id,
+            Content.title,
+            Content.content_type,
+            (1 - distance).label("similarity"),
+        )
+        .where(*conditions)
+        .order_by(distance)
+        .limit(limit)
+    )
+
+    suggestions = []
+    for row in rows:
+        similarity = float(row.similarity or 0)
+        suggestions.append(
+            RelationSuggestionResponse(
+                id=str(row.id),
+                title=row.title,
+                content_type=row.content_type,
+                similarity=round(similarity, 4),
+                reason=f"Vector similarity {similarity:.2%}",
+            )
+        )
+    return suggestions
 
 
 @router.delete("/{relation_id}")
@@ -240,7 +318,7 @@ async def get_series_info(
     cid = _validate_uuid(content_id)
 
     # 验证内容存在
-    c_res = await db.execute(select(Content).where(Content.id == cid))
+    c_res = await db.execute(select(Content).where(Content.id == cid, Content.is_deleted == False))
     content = c_res.scalar_one_or_none()
     if content is None:
         raise HTTPException(status_code=404, detail="Content not found")
@@ -332,18 +410,22 @@ async def get_series_info(
     # 查询这些内容的标题
     sorted_uuids = [uuid.UUID(sid) for sid in sorted_ids]
     contents_result = await db.execute(
-        select(Content).where(Content.id.in_(sorted_uuids))
+        select(Content).where(Content.id.in_(sorted_uuids), Content.is_deleted == False)
     )
     content_map = {str(c.id): c for c in contents_result.scalars().all()}
 
     items = []
     for sid in sorted_ids:
         c = content_map.get(sid)
+        if c is None:
+            continue
         items.append(SeriesItemResponse(
             id=sid,
-            title=c.title if c else "",
+            title=c.title,
             sort_order=sort_map.get(sid, 0),
         ))
+    if not items:
+        items = [SeriesItemResponse(id=str(content.id), title=content.title, sort_order=0)]
 
     # 找到当前内容的位置
     current_index = 0

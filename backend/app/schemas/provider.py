@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class ProviderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    provider_type: str = Field(default="openai", pattern=r"^(openai|tencent_ocr|tencent_ima|custom)$")
+    provider_type: str = Field(default="openai", pattern=r"^(openai|custom)$")
     base_url: str | None = None
     api_key: str | None = None
     default_models: dict[str, str] | None = None  # {"summarize": "gpt-4o", "embedding": "text-embedding-3-small"}
@@ -16,7 +16,7 @@ class ProviderCreate(BaseModel):
 
 class ProviderUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
-    provider_type: str | None = Field(None, pattern=r"^(openai|tencent_ocr|tencent_ima|custom)$")
+    provider_type: str | None = Field(None, pattern=r"^(openai|custom)$")
     base_url: str | None = None
     api_key: str | None = None
     default_models: dict[str, str] | None = None
@@ -43,6 +43,33 @@ class ProviderTestResult(BaseModel):
     success: bool
     message: str
     latency_ms: float | None = None
+
+
+class ProviderApiKeyResponse(BaseModel):
+    api_key: str | None = None
+
+
+class RuntimeCheck(BaseModel):
+    key: str
+    label: str
+    ok: bool
+    status: str
+    detail: str | None = None
+
+
+class ProviderBindingDiagnostic(BaseModel):
+    function: str
+    label: str
+    ok: bool
+    provider_id: uuid.UUID | None = None
+    provider_name: str | None = None
+    model: str | None = None
+    detail: str | None = None
+
+
+class ProviderDiagnosticsResponse(BaseModel):
+    checks: list[RuntimeCheck]
+    bindings: list[ProviderBindingDiagnostic]
 
 
 # ── Function Bindings ──

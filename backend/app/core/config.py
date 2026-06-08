@@ -20,8 +20,6 @@ class Settings(BaseSettings):
     # AI Providers (optional, can be configured via Web UI)
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
-    tencent_secret_id: str = ""
-    tencent_secret_key: str = ""
 
     # Server
     host: str = "0.0.0.0"

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { RefreshCw, Filter, Copy, Check, AlertCircle, Info, XCircle, Clock } from "lucide-react";
 import { Card, Button } from "../components";
 import { logsCopy, useCopy } from "../lib/copywriting";
+import { api } from "../api/provider";
 
 export default function LogsPage() {
   const lt = useCopy(logsCopy);
@@ -10,23 +11,24 @@ export default function LogsPage() {
   const [contentIdFilter, setContentIdFilter] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
   async function loadLogs() {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       params.set("lines", "200");
       if (contentIdFilter.trim()) {
         params.set("content_id", contentIdFilter.trim());
       }
-      const res = await fetch(`/api/analytics/logs?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data.logs || []);
-      }
+      const data = await api.get<{ logs?: string[] }>(`/analytics/logs?${params}`);
+      setLogs(data.logs || []);
     } catch (err) {
       console.error("Failed to load logs:", err);
+      setError((err as Error).message);
+      setLogs([]);
     } finally {
       setLoading(false);
     }
@@ -131,6 +133,11 @@ export default function LogsPage() {
             <div className="flex items-center justify-center py-12 text-text-muted">
               <RefreshCw className="w-5 h-5 animate-spin mr-2" />
               加载中...
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-danger">
+              <AlertCircle className="h-4 w-4" />
+              加载失败: {error}
             </div>
           ) : logs.length === 0 ? (
             <div className="text-center py-12 text-text-muted">

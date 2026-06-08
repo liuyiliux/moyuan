@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { collectionApi } from "../../api/organization";
 import type { Collection, CollectionItem } from "../../api/organization";
+import { contentApi } from "../../api/content";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import ContentPicker from "../../components/ContentPicker";
+import Toast from "../../components/Toast";
 import { collectionsCopy, useCopy } from "../../lib/copywriting";
 import {
   FolderOpen,
@@ -16,26 +19,110 @@ import {
   X,
   BookOpen,
   Pencil,
+  Circle,
+  PlayCircle,
+  CheckCircle2,
 } from "lucide-react";
 import QuizGenerator from "../../components/QuizGenerator";
+import { useBrain } from "../../lib/brain-context";
+import { compareCollectionItems } from "../../lib/collection-sort";
 
 // ── Types ──
 
 type ViewMode = "list" | "detail";
+type ProgressFilter = "all" | "not_done" | "in_progress" | "completed";
+type StudyStatus = "not_started" | "in_progress" | "completed";
+type ToastState = { type: "success" | "error" | "info"; message: string };
+const COLLECTION_PAGE_SIZE = 24;
+
+function normalizeProgressFilter(value: string | null): ProgressFilter {
+  return value === "not_done" || value === "in_progress" || value === "completed" ? value : "all";
+}
+
+function normalizePage(value: string | null): number {
+  const page = Number(value || "1");
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
 
 interface CreateFormData {
   name: string;
   description: string;
 }
 
+function getStudyStatusLabel(status?: string | null) {
+  if (status === "completed") return "已学完";
+  if (status === "in_progress") return "学习中";
+  return "未学";
+}
+
+function getStudyStatusClass(status?: string | null) {
+  if (status === "completed") return "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
+  if (status === "in_progress") return "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
+  return "bg-[var(--bg-secondary)] text-[var(--text-muted)]";
+}
+
+function buildStudyExtraMeta(status: StudyStatus, now: string, startedAt?: string | null): Record<string, unknown> {
+  return {
+    study_status: status,
+    study_started_at: status === "not_started" ? null : startedAt || now,
+    study_completed_at: status === "completed" ? now : null,
+  };
+}
+
+function getGroupStudyStats(entries: { item: CollectionItem; index: number }[]) {
+  const total = entries.length;
+  const completed = entries.filter(({ item }) => item.study_status === "completed").length;
+  const inProgress = entries.filter(({ item }) => item.study_status === "in_progress").length;
+  return {
+    total,
+    completed,
+    inProgress,
+    percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+  };
+}
+
+function GroupStatusButton({
+  label,
+  title,
+  icon,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  icon: React.ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] px-2 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
 // ── Component ──
 
 export default function CollectionsPage() {
   const t = useCopy(collectionsCopy);
+  const { currentBrainId } = useBrain();
+  const navigate = useNavigate();
+  const { id: routeCollectionId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   // ── State ──
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") || "");
+  const [progressFilter, setProgressFilter] = useState<ProgressFilter>(() => normalizeProgressFilter(searchParams.get("progress")));
+  const [listPage, setListPage] = useState(() => normalizePage(searchParams.get("page")));
+  const [listTotal, setListTotal] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
@@ -54,20 +141,81 @@ export default function CollectionsPage() {
   const [editCollection, setEditCollection] = useState<Collection | null>(null);
   const [editForm, setEditForm] = useState<CreateFormData>({ name: "", description: "" });
   const [updating, setUpdating] = useState(false);
+  const [updatingStudyItem, setUpdatingStudyItem] = useState<string | null>(null);
+  const [updatingStudyGroup, setUpdatingStudyGroup] = useState<string | null>(null);
+  const [openingStudyItem, setOpeningStudyItem] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
+
+  function showToast(type: ToastState["type"], message: string) {
+    setToast({ type, message });
+  }
 
   // ── Data Loading ──
+
+  const updateListSearchParams = useCallback((next: { q?: string; progress?: ProgressFilter; page?: number }) => {
+    const params = new URLSearchParams(searchParams);
+    const q = next.q ?? searchQuery;
+    const progress = next.progress ?? progressFilter;
+    const page = next.page ?? listPage;
+    if (q.trim()) {
+      params.set("q", q.trim());
+    } else {
+      params.delete("q");
+    }
+    if (progress !== "all") {
+      params.set("progress", progress);
+    } else {
+      params.delete("progress");
+    }
+    if (page > 1) {
+      params.set("page", String(page));
+    } else {
+      params.delete("page");
+    }
+    setSearchParams(params, { replace: true });
+  }, [listPage, progressFilter, searchParams, searchQuery, setSearchParams]);
+
+  const listQueryString = useCallback(() => {
+    const params = new URLSearchParams();
+    if (searchQuery.trim()) params.set("q", searchQuery.trim());
+    if (progressFilter !== "all") params.set("progress", progressFilter);
+    if (listPage > 1) params.set("page", String(listPage));
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  }, [listPage, progressFilter, searchQuery]);
+
+  const clearListFilters = useCallback(() => {
+    setSearchQuery("");
+    setProgressFilter("all");
+    setListPage(1);
+    const params = new URLSearchParams(searchParams);
+    params.delete("q");
+    params.delete("progress");
+    params.delete("page");
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const loadCollections = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await collectionApi.list(1, 100);
-      setCollections(data);
+      const data = await collectionApi.list(listPage, COLLECTION_PAGE_SIZE, currentBrainId, {
+        q: searchQuery,
+        progress: progressFilter,
+      });
+      const maxPage = Math.max(1, Math.ceil(data.total / data.page_size));
+      if (listPage > maxPage) {
+        setListPage(maxPage);
+        updateListSearchParams({ page: maxPage });
+        return;
+      }
+      setCollections(data.items);
+      setListTotal(data.total);
     } catch (err) {
       console.error("Failed to load collections:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentBrainId, listPage, progressFilter, searchQuery, updateListSearchParams]);
 
   const loadCollectionDetail = useCallback(async (colId: string) => {
     setItemsLoading(true);
@@ -85,20 +233,68 @@ export default function CollectionsPage() {
   }, []);
 
   useEffect(() => {
-    loadCollections();
-  }, [loadCollections]);
+    setDetailError(null);
+    void loadCollections();
+    if (routeCollectionId) {
+      setViewMode("detail");
+      void loadCollectionDetail(routeCollectionId);
+    } else {
+      setViewMode("list");
+      setSelectedCollection(null);
+      setCollectionItems([]);
+    }
+  }, [loadCollections, loadCollectionDetail, routeCollectionId]);
+
+  useEffect(() => {
+    const nextQuery = searchParams.get("q") || "";
+    const nextProgress = normalizeProgressFilter(searchParams.get("progress"));
+    const nextPage = normalizePage(searchParams.get("page"));
+    if (nextQuery !== searchQuery) setSearchQuery(nextQuery);
+    if (nextProgress !== progressFilter) setProgressFilter(nextProgress);
+    if (nextPage !== listPage) setListPage(nextPage);
+  }, [listPage, progressFilter, searchParams, searchQuery]);
 
   // ── Filtered Collections ──
 
-  const filteredCollections = useMemo(() => {
-    if (!searchQuery.trim()) return collections;
-    const query = searchQuery.toLowerCase();
-    return collections.filter(
-      (col) =>
-        col.name.toLowerCase().includes(query) ||
-        (col.description && col.description.toLowerCase().includes(query))
+  const groupedCollectionItems = useMemo(() => {
+    const sorted = [...collectionItems].sort(compareCollectionItems);
+    const showGroups = sorted.some((item) => item.folder_path);
+    if (!showGroups) {
+      return [{ folderPath: null as string | null, entries: sorted.map((item, index) => ({ item, index })) }];
+    }
+    const groups: { folderPath: string | null; entries: { item: CollectionItem; index: number }[] }[] = [];
+    sorted.forEach((item, index) => {
+      const folderPath = item.folder_path || null;
+      const last = groups[groups.length - 1];
+      if (!last || last.folderPath !== folderPath) {
+        groups.push({ folderPath, entries: [] });
+      }
+      groups[groups.length - 1].entries.push({ item, index });
+    });
+    return groups;
+  }, [collectionItems]);
+
+  const collectionStudyProgress = useMemo(() => {
+    const total = collectionItems.length;
+    const completed = collectionItems.filter((item) => item.study_status === "completed").length;
+    const inProgress = collectionItems.filter((item) => item.study_status === "in_progress").length;
+    return {
+      total,
+      completed,
+      inProgress,
+      percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+    };
+  }, [collectionItems]);
+
+  const nextStudyItem = useMemo(() => {
+    const sorted = [...collectionItems].sort(compareCollectionItems);
+    return (
+      sorted.find((item) => item.study_status === "in_progress") ||
+      sorted.find((item) => item.study_status !== "completed") ||
+      sorted[0] ||
+      null
     );
-  }, [collections, searchQuery]);
+  }, [collectionItems]);
 
   // ── Handlers ──
 
@@ -107,13 +303,14 @@ export default function CollectionsPage() {
     if (!createForm.name.trim()) return;
     setCreating(true);
     try {
-      await collectionApi.create(createForm.name.trim(), createForm.description.trim() || undefined);
+      await collectionApi.create(createForm.name.trim(), createForm.description.trim() || undefined, currentBrainId);
       setShowCreateModal(false);
       setCreateForm({ name: "", description: "" });
       await loadCollections();
+      showToast("success", "合集已创建");
     } catch (err) {
       console.error("Failed to create collection:", err);
-      alert("创建失败");
+      showToast("error", `创建失败: ${(err as Error).message}`);
     } finally {
       setCreating(false);
     }
@@ -127,11 +324,13 @@ export default function CollectionsPage() {
       if (selectedCollection?.id === deleteDialog.id) {
         setSelectedCollection(null);
         setCollectionItems([]);
-        setViewMode("list");
+        navigate("/collections");
       }
       await loadCollections();
+      showToast("success", "合集已删除");
     } catch (err) {
       console.error("Failed to delete collection:", err);
+      showToast("error", `删除失败: ${(err as Error).message}`);
     } finally {
       setDeleting(null);
       setDeleteDialog(null);
@@ -151,8 +350,10 @@ export default function CollectionsPage() {
             : c
         )
       );
+      showToast("success", "已从合集中移除");
     } catch (err) {
       console.error("Failed to remove item:", err);
+      showToast("error", `移除失败: ${(err as Error).message}`);
     } finally {
       setRemovingItem(null);
       setRemoveDialog(null);
@@ -172,27 +373,139 @@ export default function CollectionsPage() {
           )
         );
       }
+      showToast("success", "已加入合集");
     } catch (err) {
       console.error("Failed to add item:", err);
+      showToast("error", `加入合集失败: ${(err as Error).message}`);
     }
     setShowContentPicker(false);
   };
 
+  const handleCycleStudyStatus = async (item: CollectionItem) => {
+    const nextStatus: StudyStatus =
+      item.study_status === "completed"
+        ? "not_started"
+        : item.study_status === "in_progress"
+          ? "completed"
+          : "in_progress";
+    setUpdatingStudyItem(item.id);
+    try {
+      const now = new Date().toISOString();
+      const extraMeta = buildStudyExtraMeta(nextStatus, now, item.study_started_at);
+      await contentApi.update(item.content_id, { extra_meta: extraMeta });
+      setCollectionItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                study_status: nextStatus,
+                study_started_at: nextStatus === "not_started" ? null : entry.study_started_at || now,
+                study_completed_at: nextStatus === "completed" ? now : null,
+              }
+            : entry
+        )
+      );
+    } catch (err) {
+      console.error("Failed to update study status:", err);
+      showToast("error", `更新学习状态失败: ${(err as Error).message}`);
+    } finally {
+      setUpdatingStudyItem(null);
+    }
+  };
+
+  const handleSetGroupStudyStatus = async (
+    groupKey: string,
+    entries: { item: CollectionItem; index: number }[],
+    status: StudyStatus,
+  ) => {
+    const items = entries.map(({ item }) => item);
+    if (items.length === 0) return;
+    setUpdatingStudyGroup(groupKey);
+    try {
+      const now = new Date().toISOString();
+      await contentApi.batchStudyStatus(items.map((item) => item.content_id), status, selectedCollection?.brain_id || currentBrainId);
+      const ids = new Set(items.map((item) => item.id));
+      setCollectionItems((prev) =>
+        prev.map((entry) =>
+          ids.has(entry.id)
+            ? {
+                ...entry,
+                study_status: status,
+                study_started_at: status === "not_started" ? null : entry.study_started_at || now,
+                study_completed_at: status === "completed" ? now : null,
+              }
+            : entry
+        )
+      );
+      showToast("success", "已更新学习状态");
+    } catch (err) {
+      console.error("Failed to update group study status:", err);
+      showToast("error", `更新学习状态失败: ${(err as Error).message}`);
+    } finally {
+      setUpdatingStudyGroup(null);
+    }
+  };
+
+  const handleOpenStudyItem = async (
+    contentId: string,
+    collectionId: string,
+    status?: string | null,
+    startedAt?: string | null,
+  ) => {
+    if (openingStudyItem) return;
+    setOpeningStudyItem(contentId);
+    try {
+      if (status !== "in_progress" && status !== "completed") {
+        const now = new Date().toISOString();
+        try {
+          await contentApi.update(contentId, {
+            extra_meta: {
+              study_status: "in_progress",
+              study_started_at: startedAt || now,
+              study_completed_at: null,
+            },
+          });
+          setCollectionItems((prev) =>
+            prev.map((item) =>
+              item.content_id === contentId
+                ? {
+                    ...item,
+                    study_status: "in_progress",
+                    study_started_at: item.study_started_at || now,
+                    study_completed_at: null,
+                  }
+                : item
+            )
+          );
+          setCollections((prev) =>
+            prev.map((col) =>
+              col.id === collectionId
+                ? { ...col, resume_study_status: "in_progress" }
+                : col
+            )
+          );
+        } catch (err) {
+          console.error("Failed to mark content as in progress:", err);
+        }
+      }
+      navigate(`/contents/${contentId}?collection_id=${collectionId}`);
+    } finally {
+      setOpeningStudyItem(null);
+    }
+  };
+
   const handleViewDetail = async (col: Collection) => {
-    setViewMode("detail");
-    await loadCollectionDetail(col.id);
+    navigate(`/collections/${col.id}${listQueryString()}`);
   };
 
   const handleBackToList = () => {
-    setViewMode("list");
-    setSelectedCollection(null);
-    setCollectionItems([]);
+    navigate(`/collections${listQueryString()}`);
   };
 
   // ── Close dropdown on outside click ──
   useEffect(() => {
     if (!menuCollection) return;
-    const handleClick = (e: MouseEvent) => setMenuCollection(null);
+    const handleClick = () => setMenuCollection(null);
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, [menuCollection]);
@@ -220,9 +533,10 @@ export default function CollectionsPage() {
       if (selectedCollection?.id === editCollection.id) {
         await loadCollectionDetail(editCollection.id);
       }
+      showToast("success", "合集已更新");
     } catch (err) {
       console.error("Failed to update collection:", err);
-      alert("更新失败");
+      showToast("error", `更新失败: ${(err as Error).message}`);
     } finally {
       setUpdating(false);
     }
@@ -398,12 +712,17 @@ export default function CollectionsPage() {
   // ── Render: List View ──
 
   const renderListView = () => {
+    const hasListFilters = Boolean(searchQuery.trim() || progressFilter !== "all");
     if (loading) {
       return (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
         </div>
       );
+    }
+
+    if (collections.length === 0 && hasListFilters) {
+      return null;
     }
 
     if (collections.length === 0) {
@@ -427,14 +746,19 @@ export default function CollectionsPage() {
       );
     }
 
+    const pageCount = Math.max(1, Math.ceil(listTotal / COLLECTION_PAGE_SIZE));
+    const pageStart = listTotal === 0 ? 0 : (listPage - 1) * COLLECTION_PAGE_SIZE + 1;
+    const pageEnd = Math.min(listTotal, listPage * COLLECTION_PAGE_SIZE);
+
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredCollections.map((col) => (
-          <div
-            key={col.id}
-            className="dao-card dao-glow-hover p-4 cursor-pointer group"
-            onClick={() => handleViewDetail(col)}
-          >
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {collections.map((col) => (
+            <div
+              key={col.id}
+              className="dao-card dao-glow-hover p-4 cursor-pointer group"
+              onClick={() => handleViewDetail(col)}
+            >
             {/* Header */}
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2.5">
@@ -457,6 +781,43 @@ export default function CollectionsPage() {
               <p className="text-sm text-[var(--text-secondary)] dark:text-[var(--text-muted)] line-clamp-2 mb-3">
                 {col.description}
               </p>
+            )}
+
+            {col.item_count > 0 && (
+              <div className="mb-3">
+                <div className="mb-1.5 flex items-center justify-between text-xs text-[var(--text-muted)]">
+                  <span>已学完 {col.completed_count || 0} / {col.item_count}</span>
+                  <span>{col.progress_percent || 0}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-secondary)]">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{ width: `${col.progress_percent || 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {col.resume_content_id && (
+              <button
+                type="button"
+                disabled={openingStudyItem === col.resume_content_id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleOpenStudyItem(col.resume_content_id!, col.id, col.resume_study_status);
+                }}
+                className="mb-3 flex w-full items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-left text-sm text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-70 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+              >
+                {openingStudyItem === col.resume_content_id ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                ) : (
+                  <PlayCircle className="h-4 w-4 shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 truncate">{col.resume_content_title || "继续学习"}</span>
+                <span className="shrink-0 text-xs">
+                  {col.resume_study_status === "in_progress" ? "学习中" : "未学"}
+                </span>
+              </button>
             )}
 
             {/* Footer */}
@@ -522,7 +883,45 @@ export default function CollectionsPage() {
               </div>
             </div>
           </div>
-        ))}
+          ))}
+        </div>
+
+        {pageCount > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--text-muted)]">
+            <span>
+              {pageStart}-{pageEnd} / {listTotal}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={listPage <= 1}
+                onClick={() => {
+                  const nextPage = Math.max(1, listPage - 1);
+                  setListPage(nextPage);
+                  updateListSearchParams({ page: nextPage });
+                }}
+                className="rounded-md border border-[var(--border-subtle)] px-3 py-1.5 font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                上一页
+              </button>
+              <span className="min-w-16 text-center">
+                {listPage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                disabled={listPage >= pageCount}
+                onClick={() => {
+                  const nextPage = Math.min(pageCount, listPage + 1);
+                  setListPage(nextPage);
+                  updateListSearchParams({ page: nextPage });
+                }}
+                className="rounded-md border border-[var(--border-subtle)] px-3 py-1.5 font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -531,6 +930,8 @@ export default function CollectionsPage() {
 
   const renderDetailView = () => {
     if (!selectedCollection) return null;
+    const collectionStatusEntries = collectionItems.map((item, index) => ({ item, index }));
+    const isCollectionStatusUpdating = updatingStudyGroup === "__collection__";
 
     return (
       <div>
@@ -553,10 +954,71 @@ export default function CollectionsPage() {
                   {selectedCollection.description}
                 </p>
               )}
+              {collectionStudyProgress.total > 0 && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
+                    <span>
+                      已学完 {collectionStudyProgress.completed} / {collectionStudyProgress.total}
+                    </span>
+                    {collectionStudyProgress.inProgress > 0 && (
+                      <span>学习中 {collectionStudyProgress.inProgress}</span>
+                    )}
+                    <span>{collectionStudyProgress.percent}%</span>
+                    <div className="h-1.5 w-32 overflow-hidden rounded-full bg-[var(--bg-secondary)]">
+                      <div
+                        className="h-full rounded-full bg-emerald-500 transition-all"
+                        style={{ width: `${collectionStudyProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <GroupStatusButton
+                      label="整套未学"
+                      title="标记整套合集为未学"
+                      icon={<Circle className="w-3.5 h-3.5" />}
+                      disabled={isCollectionStatusUpdating}
+                      onClick={() => void handleSetGroupStudyStatus("__collection__", collectionStatusEntries, "not_started")}
+                    />
+                    <GroupStatusButton
+                      label="整套学习中"
+                      title="标记整套合集为学习中"
+                      icon={<PlayCircle className="w-3.5 h-3.5" />}
+                      disabled={isCollectionStatusUpdating}
+                      onClick={() => void handleSetGroupStudyStatus("__collection__", collectionStatusEntries, "in_progress")}
+                    />
+                    <GroupStatusButton
+                      label="整套已学完"
+                      title="标记整套合集为已学完"
+                      icon={isCollectionStatusUpdating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                      disabled={isCollectionStatusUpdating}
+                      onClick={() => void handleSetGroupStudyStatus("__collection__", collectionStatusEntries, "completed")}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {nextStudyItem && (
+              <button
+                disabled={openingStudyItem === nextStudyItem.content_id}
+                onClick={() => void handleOpenStudyItem(
+                  nextStudyItem.content_id,
+                  selectedCollection.id,
+                  nextStudyItem.study_status,
+                  nextStudyItem.study_started_at,
+                )}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-[var(--accent-text)] hover:bg-[var(--accent-soft)] rounded-lg transition-colors disabled:cursor-wait disabled:opacity-70"
+              >
+                {openingStudyItem === nextStudyItem.content_id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <BookOpen className="w-4 h-4" />
+                )}
+                继续学习
+              </button>
+            )}
             <button
               onClick={() => setQuizCollection({ id: selectedCollection.id, name: selectedCollection.name })}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
@@ -616,49 +1078,131 @@ export default function CollectionsPage() {
             </div>
           ) : (
             <div className="divide-y divide-[var(--border-subtle)]">
-              {collectionItems
-                .sort((a, b) => a.sort_order - b.sort_order)
-                .map((item, index) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between px-5 py-3.5 hover:bg-[var(--bg-secondary)] transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-mono text-[var(--text-muted)] dark:text-[var(--text-muted)] w-6">
-                        {index + 1}.
-                      </span>
-                      <div>
-                        <p className="text-sm font-medium text-[var(--text-primary)] dark:text-[var(--text-primary)]">
-                          {item.title}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
-                            {item.content_type}
-                          </span>
-                          <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
-                            •
-                          </span>
-                          <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
-                            {formatDate(item.added_at)}
-                          </span>
+              {groupedCollectionItems.map((group) => {
+                const groupKey = group.folderPath || "__root__";
+                const groupStats = getGroupStudyStats(group.entries);
+                const isGroupUpdating = updatingStudyGroup === groupKey;
+                return (
+                <div key={groupKey}>
+                  {group.folderPath && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 bg-[var(--bg-secondary)] px-5 py-2.5 text-xs text-[var(--text-secondary)]">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{group.folderPath}</div>
+                        <div className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                          <span>已学完 {groupStats.completed} / {groupStats.total}</span>
+                          {groupStats.inProgress > 0 && <span>学习中 {groupStats.inProgress}</span>}
+                          <span>{groupStats.percent}%</span>
                         </div>
                       </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <GroupStatusButton
+                          label="未学"
+                          title="标记本文件夹为未学"
+                          icon={<Circle className="w-3.5 h-3.5" />}
+                          disabled={isGroupUpdating}
+                          onClick={() => void handleSetGroupStudyStatus(groupKey, group.entries, "not_started")}
+                        />
+                        <GroupStatusButton
+                          label="学习中"
+                          title="标记本文件夹为学习中"
+                          icon={<PlayCircle className="w-3.5 h-3.5" />}
+                          disabled={isGroupUpdating}
+                          onClick={() => void handleSetGroupStudyStatus(groupKey, group.entries, "in_progress")}
+                        />
+                        <GroupStatusButton
+                          label="已学完"
+                          title="标记本文件夹为已学完"
+                          icon={isGroupUpdating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          disabled={isGroupUpdating}
+                          onClick={() => void handleSetGroupStudyStatus(groupKey, group.entries, "completed")}
+                        />
+                      </div>
                     </div>
-
-                    <button
-                      onClick={() => setRemoveDialog(item)}
-                      disabled={removingItem === item.id}
-                      className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 transition-colors"
-                      title="从合集中移除"
-                    >
-                      {removingItem === item.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <X className="w-4 h-4" />
+                  )}
+                  {group.entries.map(({ item, index }) => (
+                    <div
+                      key={item.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void handleOpenStudyItem(
+                        item.content_id,
+                        selectedCollection.id,
+                        item.study_status,
+                        item.study_started_at,
                       )}
-                    </button>
-                  </div>
-                ))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          void handleOpenStudyItem(
+                            item.content_id,
+                            selectedCollection.id,
+                            item.study_status,
+                            item.study_started_at,
+                          );
+                        }
+                      }}
+                      className={`flex cursor-pointer items-center justify-between px-5 py-3.5 hover:bg-[var(--bg-secondary)] transition-colors ${
+                        openingStudyItem === item.content_id ? "opacity-70" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-sm font-mono text-[var(--text-muted)] dark:text-[var(--text-muted)] w-6 flex-shrink-0">
+                          {index + 1}.
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-[var(--text-primary)] dark:text-[var(--text-primary)] truncate">
+                            {item.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
+                              {item.content_type}
+                            </span>
+                            <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
+                              •
+                            </span>
+                            <span className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">
+                              {formatDate(item.added_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="ml-3 flex flex-shrink-0 items-center gap-2">
+                        {openingStudyItem === item.content_id && (
+                          <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleCycleStudyStatus(item);
+                          }}
+                          disabled={updatingStudyItem === item.id}
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-60 ${getStudyStatusClass(item.study_status)}`}
+                          title="切换学习状态"
+                        >
+                          {getStudyStatusLabel(item.study_status)}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRemoveDialog(item);
+                          }}
+                          disabled={removingItem === item.id}
+                          className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] dark:hover:bg-red-900/20 transition-colors"
+                          title="从合集中移除"
+                        >
+                          {removingItem === item.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <X className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -695,16 +1239,45 @@ export default function CollectionsPage() {
 
         {/* Search (only in list view) */}
         {viewMode === "list" && collections.length > 0 && (
-          <div className="mb-6">
+          <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setListPage(1);
+                  updateListSearchParams({ q: e.target.value, page: 1 });
+                }}
                 placeholder={t.searchPlaceholder}
                 className="dao-input w-full pl-10"
               />
+            </div>
+            <div className="flex flex-wrap items-center gap-1 rounded-lg bg-[var(--bg-secondary)] p-1">
+              {[
+                ["all", "全部"],
+                ["not_done", "未完成"],
+                ["in_progress", "学习中"],
+                ["completed", "已完成"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => {
+                    const nextProgress = value as ProgressFilter;
+                    setProgressFilter(nextProgress);
+                    setListPage(1);
+                    updateListSearchParams({ progress: nextProgress, page: 1 });
+                  }}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    progressFilter === value
+                      ? "bg-[var(--bg-card)] text-[var(--accent-text)] shadow-sm"
+                      : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -714,9 +1287,8 @@ export default function CollectionsPage() {
 
         {/* No search results */}
         {viewMode === "list" &&
-          searchQuery.trim() &&
-          filteredCollections.length === 0 &&
-          collections.length > 0 && (
+          (searchQuery.trim() || progressFilter !== "all") &&
+          collections.length === 0 && (
             <div className="text-center py-12">
               <Search className="w-12 h-12 mx-auto text-[var(--text-muted)] dark:text-[var(--text-secondary)] mb-3" />
               <p className="text-sm text-[var(--text-muted)] dark:text-[var(--text-muted)]">
@@ -725,6 +1297,14 @@ export default function CollectionsPage() {
               <p className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)] mt-1">
                 {t.emptySearchHint}
               </p>
+              <button
+                type="button"
+                onClick={clearListFilters}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--bg-secondary)] px-3 py-1.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
+              >
+                <X className="h-3.5 w-3.5" />
+                清空筛选
+              </button>
             </div>
           )}
       </div>
@@ -772,8 +1352,11 @@ export default function CollectionsPage() {
         <ContentPicker
           onSelect={handleAddContent}
           onClose={() => setShowContentPicker(false)}
+          brainId={selectedCollection?.brain_id ?? currentBrainId ?? null}
+          excludeIds={collectionItems.map((item) => item.content_id)}
         />
       )}
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );
 }

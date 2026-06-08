@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import type { ProviderConfig, FunctionBindings } from "../../api/provider";
-import { providerApi } from "../../api/provider";
+import type { ProviderConfig, FunctionBindings, ProviderDiagnostics } from "../../api/provider";
+import { api, providerApi } from "../../api/provider";
+import { brainApi, type BrainConfig } from "../../api/brains";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { ProviderModal } from "../../components/ProviderModal";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { settingsCopy, useCopy } from "../../lib/copywriting";
-import { Check, Plus, Pencil, Trash2, Loader2, Server, Settings2, HardDrive, AlertCircle, CheckCircle2, X, Zap, BarChart3, RefreshCw } from "lucide-react";
+import { useBrain } from "../../lib/brain-context";
+import { Check, Plus, Pencil, Trash2, Loader2, Server, Settings2, HardDrive, AlertCircle, CheckCircle2, X, Zap, BarChart3, RefreshCw, Activity, Eye, EyeOff } from "lucide-react";
 
 const FUNCTION_LABELS: Record<string, string> = {
   summarize: "摘要生成",
@@ -21,6 +23,7 @@ const FUNCTION_LABELS: Record<string, string> = {
 
 export default function SettingsPage() {
   const st = useCopy(settingsCopy);
+  const { currentBrainId } = useBrain();
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [bindings, setBindings] = useState<FunctionBindings | null>(null);
   const [bindingDrafts, setBindingDrafts] = useState<FunctionBindings | null>(null);
@@ -31,7 +34,14 @@ export default function SettingsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"providers" | "bindings" | "storage" | "embeddings">("providers");
+  const [visibleApiKeys, setVisibleApiKeys] = useState<Record<string, string | null>>({});
+  const [loadingApiKey, setLoadingApiKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"providers" | "bindings" | "brain" | "storage" | "embeddings" | "diagnostics">("providers");
+  const [brainConfig, setBrainConfig] = useState<BrainConfig>({});
+  const [brainDraft, setBrainDraft] = useState<BrainConfig>({});
+  const [brainConfigLoading, setBrainConfigLoading] = useState(false);
+  const [brainConfigSaving, setBrainConfigSaving] = useState(false);
+  const [brainConfigMsg, setBrainConfigMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Storage config
   const [storageConfig, setStorageConfig] = useState<{
@@ -42,8 +52,10 @@ export default function SettingsPage() {
     disk_free: number;
   } | null>(null);
   const [storageLoading, setStorageLoading] = useState(false);
+  const [storageMigrating, setStorageMigrating] = useState(false);
   const [storagePath, setStoragePath] = useState("");
   const [storageMsg, setStorageMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"migrate_storage" | "reindex" | null>(null);
 
   // Embedding stats
   const [embedStats, setEmbedStats] = useState<{
@@ -55,6 +67,9 @@ export default function SettingsPage() {
   } | null>(null);
   const [embedLoading, setEmbedLoading] = useState(false);
   const [embedMsg, setEmbedMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const [diagnostics, setDiagnostics] = useState<ProviderDiagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -72,16 +87,36 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const loadBrainConfig = useCallback(async () => {
+    setBrainConfigMsg(null);
+    if (!currentBrainId) {
+      setBrainConfig({});
+      setBrainDraft({});
+      return;
+    }
+    setBrainConfigLoading(true);
+    try {
+      const data = await brainApi.getConfig(currentBrainId);
+      setBrainConfig(data);
+      setBrainDraft(data);
+    } catch (e) {
+      console.error("Failed to load brain config:", e);
+      setBrainConfigMsg({ type: "error", text: (e as Error).message || "加载工作区模型配置失败" });
+    } finally {
+      setBrainConfigLoading(false);
+    }
+  }, [currentBrainId]);
+
   const loadStorageConfig = useCallback(async () => {
     setStorageLoading(true);
     setStorageMsg(null);
     try {
-      const res = await fetch("/api/storage/config");
-      const data = await res.json();
+      const data = await api.get<NonNullable<typeof storageConfig>>("/storage/config");
       setStorageConfig(data);
       setStoragePath(data.storage_root);
     } catch (e) {
       console.error("Failed to load storage config:", e);
+      setStorageMsg({ type: "error", text: (e as Error).message });
     } finally {
       setStorageLoading(false);
     }
@@ -93,14 +128,9 @@ export default function SettingsPage() {
     try {
       const formData = new FormData();
       formData.append("path", storagePath);
-      const res = await fetch("/api/storage/config", { method: "PUT", body: formData });
-      const data = await res.json();
-      if (res.ok) {
-        setStorageConfig(data);
-        setStorageMsg({ type: "success", text: data.note || "存储路径已更新" });
-      } else {
-        setStorageMsg({ type: "error", text: data.detail || "更新失败" });
-      }
+      const data = await api.putForm<{ note?: string; storage_root: string; exists: boolean; disk_total: number; disk_used: number; disk_free: number }>("/storage/config", formData);
+      setStorageConfig(data);
+      setStorageMsg({ type: "success", text: data.note || "存储路径已更新" });
     } catch (e) {
       setStorageMsg({ type: "error", text: (e as Error).message });
     } finally {
@@ -108,31 +138,62 @@ export default function SettingsPage() {
     }
   };
 
-  const loadEmbedStats = useCallback(async () => {
-    setEmbedLoading(true);
+  const handleMigrateStorage = async () => {
+    if (!storageConfig || storagePath === storageConfig.storage_root) return;
+
+    setStorageMigrating(true);
+    setStorageMsg(null);
     try {
-      const res = await fetch("/api/embeddings/stats");
-      const data = await res.json();
+      const formData = new FormData();
+      formData.append("path", storagePath);
+      formData.append("old_path", storageConfig.storage_root);
+      const data = await api.postForm<{ storage_root: string; copied: number; skipped: number; missing: number }>("/storage/migrate", formData);
+      setStorageConfig((prev) => prev ? { ...prev, storage_root: data.storage_root, exists: true } : prev);
+      setStoragePath(data.storage_root);
+      setStorageMsg({
+        type: "success",
+        text: `迁移完成：复制 ${data.copied} 个，跳过 ${data.skipped} 个，缺失 ${data.missing} 个。旧路径文件已保留。`,
+      });
+    } catch (e) {
+      setStorageMsg({ type: "error", text: (e as Error).message });
+    } finally {
+      setStorageMigrating(false);
+    }
+  };
+
+  const loadEmbedStats = useCallback(async () => {
+      setEmbedLoading(true);
+    try {
+      const qs = currentBrainId ? `?brain_id=${currentBrainId}` : "";
+      const data = await api.get<NonNullable<typeof embedStats>>(`/embeddings/stats${qs}`);
       setEmbedStats(data);
     } catch (e) {
       console.error("Failed to load embed stats:", e);
+      setEmbedMsg({ type: "error", text: (e as Error).message });
     } finally {
       setEmbedLoading(false);
+    }
+  }, [currentBrainId]);
+
+  const loadDiagnostics = useCallback(async () => {
+    setDiagnosticsLoading(true);
+    try {
+      const data = await providerApi.diagnostics();
+      setDiagnostics(data);
+    } catch (e) {
+      console.error("Failed to load diagnostics:", e);
+    } finally {
+      setDiagnosticsLoading(false);
     }
   }, []);
 
   const handleReindex = async () => {
-    if (!confirm("确定要重新索引所有内容吗？这将清空现有嵌入并重新生成。")) return;
     setEmbedLoading(true);
-    setEmbedMsg(null);
+      setEmbedMsg(null);
     try {
-      const res = await fetch("/api/embeddings/reindex", { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        setEmbedMsg({ type: "success", text: `已清空 ${data.cleared} 条，已入队 ${data.queued} 条` });
-      } else {
-        setEmbedMsg({ type: "error", text: data.detail || "操作失败" });
-      }
+      const qs = currentBrainId ? `?brain_id=${currentBrainId}` : "";
+      const data = await api.post<{ cleared: number; queued: number }>(`/embeddings/reindex${qs}`);
+      setEmbedMsg({ type: "success", text: `已清空 ${data.cleared} 条，已入队 ${data.queued} 条` });
     } catch (e) {
       setEmbedMsg({ type: "error", text: (e as Error).message });
     } finally {
@@ -141,6 +202,9 @@ export default function SettingsPage() {
   };
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    if (activeTab === "brain") void loadBrainConfig();
+  }, [activeTab, loadBrainConfig]);
 
   const handleEdit = (p: ProviderConfig) => {
     setEditingProvider(p);
@@ -160,6 +224,34 @@ export default function SettingsPage() {
     } catch (e) {
       console.error("Delete failed:", e);
     }
+  };
+
+  const handleToggleApiKey = async (provider: ProviderConfig) => {
+    if (Object.prototype.hasOwnProperty.call(visibleApiKeys, provider.id)) {
+      setVisibleApiKeys((prev) => {
+        const next = { ...prev };
+        delete next[provider.id];
+        return next;
+      });
+      return;
+    }
+    setLoadingApiKey(provider.id);
+    try {
+      const data = await providerApi.revealApiKey(provider.id);
+      setVisibleApiKeys((prev) => ({ ...prev, [provider.id]: data.api_key }));
+    } catch (e) {
+      console.error("Reveal API key failed:", e);
+      setVisibleApiKeys((prev) => ({ ...prev, [provider.id]: null }));
+    } finally {
+      setLoadingApiKey(null);
+    }
+  };
+
+  const handleConfirmAction = () => {
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (action === "migrate_storage") void handleMigrateStorage();
+    if (action === "reindex") void handleReindex();
   };
 
   const handleModalSaved = () => {
@@ -193,6 +285,31 @@ export default function SettingsPage() {
       },
     };
     setBindingDrafts(updated);
+  };
+
+  const handleBrainDraftChange = (field: keyof BrainConfig, value: string | null) => {
+    setBrainDraft((prev) => ({
+      ...prev,
+      [field]: value || undefined,
+    }));
+  };
+
+  const handleSaveBrainConfig = async () => {
+    if (!currentBrainId) return;
+    setBrainConfigSaving(true);
+    setBrainConfigMsg(null);
+    try {
+      await brainApi.updateConfig(currentBrainId, brainDraft);
+      const saved = await brainApi.getConfig(currentBrainId);
+      setBrainConfig(saved);
+      setBrainDraft(saved);
+      setBrainConfigMsg({ type: "success", text: "工作区模型配置已保存" });
+    } catch (e) {
+      console.error("Failed to update brain config:", e);
+      setBrainConfigMsg({ type: "error", text: (e as Error).message || "保存工作区模型配置失败" });
+    } finally {
+      setBrainConfigSaving(false);
+    }
   };
 
   const handleSaveBinding = async (fn: string) => {
@@ -234,7 +351,31 @@ export default function SettingsPage() {
         onCancel={() => setDeleteConfirm(null)}
       />
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <ConfirmDialog
+        open={confirmAction === "migrate_storage"}
+        title="迁移存储文件"
+        message="确定要把现有文件复制到新的存储路径吗？原路径文件会保留。"
+        confirmLabel="确认迁移"
+        cancelLabel="取消"
+        variant="warning"
+        loading={storageMigrating}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmAction === "reindex"}
+        title="重新索引知识库"
+        message="确定要重新索引当前知识库的内容吗？这将清空当前知识库的现有嵌入并重新生成。"
+        confirmLabel="确认重建"
+        cancelLabel="取消"
+        variant="warning"
+        loading={embedLoading}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
+
+      <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -244,7 +385,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 p-1 bg-[var(--bg-secondary)] rounded-lg w-fit">
+        <div className="flex flex-wrap gap-1 mb-6 p-1 bg-[var(--bg-secondary)] rounded-lg w-fit">
           <button
             onClick={() => setActiveTab("providers")}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -266,6 +407,16 @@ export default function SettingsPage() {
             <Settings2 className="w-4 h-4" /> 功能绑定
           </button>
           <button
+            onClick={() => setActiveTab("brain")}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeTab === "brain"
+                ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            }`}
+          >
+            <Settings2 className="w-4 h-4" /> 工作区模型
+          </button>
+          <button
             onClick={() => { setActiveTab("storage"); loadStorageConfig(); }}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               activeTab === "storage"
@@ -284,6 +435,16 @@ export default function SettingsPage() {
             }`}
           >
             <Zap className="w-4 h-4" /> 嵌入管理
+          </button>
+          <button
+            onClick={() => { setActiveTab("diagnostics"); loadDiagnostics(); }}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeTab === "diagnostics"
+                ? "bg-[var(--bg-card)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            }`}
+          >
+            <Activity className="w-4 h-4" /> 环境诊断
           </button>
         </div>
 
@@ -324,7 +485,28 @@ export default function SettingsPage() {
                           <span>{p.provider_type}</span>
                           {p.base_url && <span>{p.base_url}</span>}
                           {p.api_key_masked && (
-                            <span className="font-mono text-[var(--text-muted)]">{p.api_key_masked}</span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="font-mono text-[var(--text-muted)]">
+                                {Object.prototype.hasOwnProperty.call(visibleApiKeys, p.id)
+                                  ? (visibleApiKeys[p.id] || "读取失败")
+                                  : p.api_key_masked}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void handleToggleApiKey(p)}
+                                disabled={loadingApiKey === p.id}
+                                className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                                title={Object.prototype.hasOwnProperty.call(visibleApiKeys, p.id) ? "隐藏密钥" : "显示完整密钥"}
+                              >
+                                {loadingApiKey === p.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : Object.prototype.hasOwnProperty.call(visibleApiKeys, p.id) ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </span>
                           )}
                         </div>
                         {p.default_models && Object.keys(p.default_models).length > 0 && (
@@ -432,6 +614,101 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {activeTab === "brain" && (
+          <div className="space-y-4">
+            {!currentBrainId ? (
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-6 text-sm text-[var(--text-muted)]">
+                请先选择一个工作区，再配置该工作区专属模型。
+              </div>
+            ) : brainConfigLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-[var(--text-muted)]">
+                  这里的配置只覆盖当前工作区；留空时会继续使用全局功能绑定。
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  OCR 和语音转写仍在“功能绑定”中配置，避免不同入口产生不一致。
+                </p>
+                {brainConfigMsg && (
+                  <div
+                    className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                      brainConfigMsg.type === "success"
+                        ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+                        : "bg-[var(--danger-soft)] dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                    }`}
+                  >
+                    {brainConfigMsg.type === "success" ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4" />
+                    )}
+                    {brainConfigMsg.text}
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5">
+                  <div className="grid gap-4">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
+                        服务提供商
+                      </label>
+                      <select
+                        value={brainDraft.provider_id || ""}
+                        onChange={(e) => handleBrainDraftChange("provider_id", e.target.value || null)}
+                        disabled={brainConfigSaving}
+                        className="dao-input w-full"
+                      >
+                        <option value="">跟随全局功能绑定</option>
+                        {providers.filter((p) => p.is_active).map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {[
+                      ["summarize_model", "摘要模型", "例如 gpt-4.1-mini"],
+                      ["qa_model", "问答模型", "例如 gpt-4.1"],
+                      ["quiz_model", "出题模型", "例如 gpt-4.1"],
+                      ["judge_model", "答题判定模型", "例如 gpt-4.1-mini"],
+                      ["embedding_model", "嵌入模型", "例如 text-embedding-3-large"],
+                    ].map(([field, label, placeholder]) => (
+                      <div key={field}>
+                        <label className="mb-1 block text-sm font-medium text-[var(--text-secondary)]">
+                          {label}
+                        </label>
+                        <input
+                          value={(brainDraft[field as keyof BrainConfig] as string | undefined) || ""}
+                          onChange={(e) => handleBrainDraftChange(field as keyof BrainConfig, e.target.value || null)}
+                          disabled={brainConfigSaving}
+                          placeholder={placeholder}
+                          className="dao-input w-full"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => { setBrainDraft(brainConfig); setBrainConfigMsg(null); }}
+                      disabled={brainConfigSaving}
+                    >
+                      重置
+                    </Button>
+                    <Button onClick={handleSaveBrainConfig} disabled={brainConfigSaving}>
+                      {brainConfigSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      保存工作区配置
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Storage Tab */}
         {activeTab === "storage" && (
           <div className="space-y-6">
@@ -496,7 +773,7 @@ export default function SettingsPage() {
                       )}
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <input
                         type="text"
                         value={storagePath}
@@ -506,12 +783,24 @@ export default function SettingsPage() {
                       />
                       <button
                         onClick={handleUpdateStorage}
-                        disabled={storageLoading || storagePath === storageConfig.storage_root}
+                        disabled={storageLoading || storageMigrating || storagePath === storageConfig.storage_root}
                         className="dao-btn dao-btn-primary text-sm"
                       >
                         {storageLoading ? st.storageUpdating : st.storageUpdate}
                       </button>
+                      <button
+                        onClick={() => setConfirmAction("migrate_storage")}
+                        disabled={storageLoading || storageMigrating || storagePath === storageConfig.storage_root}
+                        className="dao-btn dao-btn-ghost text-sm flex items-center justify-center gap-2"
+                      >
+                        {storageMigrating ? <Loader2 className="w-4 h-4 animate-spin" /> : <HardDrive className="w-4 h-4" />}
+                        {storageMigrating ? "迁移中..." : "迁移文件"}
+                      </button>
                     </div>
+
+                    <p className="text-xs text-[var(--text-muted)]">
+                      迁移会复制现有文件和派生截图到新路径，原路径文件不会自动删除。
+                    </p>
 
                     {storageMsg && (
                       <div
@@ -604,7 +893,7 @@ export default function SettingsPage() {
                   </p>
                   <div className="flex items-center gap-4">
                     <button
-                      onClick={handleReindex}
+                      onClick={() => setConfirmAction("reindex")}
                       disabled={embedLoading}
                       className="dao-btn dao-btn-primary text-sm flex items-center gap-2"
                     >
@@ -639,6 +928,89 @@ export default function SettingsPage() {
                       {embedMsg.text}
                     </div>
                   )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {activeTab === "diagnostics" && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-[var(--text-muted)]">
+                检查多模态处理所需的本地工具、Python 包和功能绑定。
+              </p>
+              <button
+                onClick={loadDiagnostics}
+                disabled={diagnosticsLoading}
+                className="dao-btn dao-btn-ghost text-sm flex items-center gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${diagnosticsLoading ? "animate-spin" : ""}`} />
+                刷新
+              </button>
+            </div>
+
+            {diagnosticsLoading && !diagnostics && (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-6 h-6 animate-spin text-[var(--text-muted)]" />
+              </div>
+            )}
+
+            {diagnostics && (
+              <>
+                <div className="p-6 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-xl border border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">运行环境</h3>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {diagnostics.checks.map((check) => (
+                      <div
+                        key={check.key}
+                        className="p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)]"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-[var(--text-primary)]">{check.label}</p>
+                          {check.ok ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 text-[var(--warning)] shrink-0" />
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">{check.status}</p>
+                        {check.detail && (
+                          <p className="mt-2 text-xs leading-relaxed text-[var(--text-secondary)]">{check.detail}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-6 bg-[var(--bg-card)] dark:bg-[var(--bg-card)] rounded-xl border border-[var(--border-subtle)] dark:border-[var(--border-subtle)]">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">功能绑定</h3>
+                  <div className="space-y-2">
+                    {diagnostics.bindings.map((binding) => (
+                      <div
+                        key={binding.function}
+                        className="grid grid-cols-[minmax(120px,1fr)_minmax(140px,1.2fr)_minmax(160px,1.4fr)_24px] items-center gap-3 p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)] dark:bg-[var(--bg-elevated)]"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-[var(--text-primary)]">{binding.label}</p>
+                          {binding.detail && (
+                            <p className="mt-0.5 text-xs text-[var(--warning)]">{binding.detail}</p>
+                          )}
+                        </div>
+                        <p className="text-xs text-[var(--text-secondary)] truncate">
+                          {binding.provider_name || "未选择提供商"}
+                        </p>
+                        <p className="text-xs font-mono text-[var(--text-muted)] truncate">
+                          {binding.model || "未配置模型"}
+                        </p>
+                        {binding.ok ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-[var(--warning)]" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </>
             )}

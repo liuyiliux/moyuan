@@ -1,13 +1,15 @@
 """文件管理 Service"""
 
 import hashlib
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from fastapi import UploadFile
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -15,6 +17,7 @@ from app.models.models import Content
 
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _compute_md5(file_path: Path) -> str:
@@ -55,24 +58,56 @@ def _infer_content_type(filename: str) -> str:
     return "other"
 
 
+def _normalize_import_relative_path(relative_path: str | None) -> PurePosixPath | None:
+    if not relative_path:
+        return None
+    raw = relative_path.replace("\\", "/").strip().strip("/")
+    if not raw:
+        return None
+    path = PurePosixPath(raw)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("Invalid import_relative_path")
+    return path
+
+
+def _normalize_import_batch_id(batch_id: str | None) -> str:
+    if not batch_id:
+        return uuid.uuid4().hex
+    clean = "".join(ch for ch in batch_id if ch.isalnum() or ch in {"-", "_"}).strip("-_")
+    return clean[:64] or uuid.uuid4().hex
+
+
 class FileService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def upload(self, file: UploadFile, brain_id: uuid.UUID | None = None) -> Content:
+    async def upload(
+        self,
+        file: UploadFile,
+        brain_id: uuid.UUID | None = None,
+        import_relative_path: str | None = None,
+        import_batch_id: str | None = None,
+    ) -> Content:
         """上传文件：存储到磁盘 + 写入数据库"""
         storage_dir = _get_storage_dir()
+        relative_import_path = _normalize_import_relative_path(import_relative_path)
 
         # 按日期分目录
         today = datetime.now().strftime("%Y-%m-%d")
-        date_dir = storage_dir / today
-        date_dir.mkdir(parents=True, exist_ok=True)
-
-        # 生成唯一文件名
-        ext = Path(file.filename).suffix if file.filename else ""
-        unique_name = f"{uuid.uuid4().hex}{ext}"
-        file_path = date_dir / unique_name
+        if relative_import_path:
+            batch_id = _normalize_import_batch_id(import_batch_id)
+            file_path = storage_dir / "imports" / today / batch_id / Path(*relative_import_path.parts)
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            if file_path.exists():
+                file_path = file_path.with_name(f"{file_path.stem}-{uuid.uuid4().hex[:8]}{file_path.suffix}")
+        else:
+            date_dir = storage_dir / today
+            date_dir.mkdir(parents=True, exist_ok=True)
+            ext = Path(file.filename).suffix if file.filename else ""
+            unique_name = f"{uuid.uuid4().hex}{ext}"
+            file_path = date_dir / unique_name
+            batch_id = None
 
         # 写入磁盘
         content_bytes = await file.read()
@@ -91,12 +126,25 @@ class FileService:
         )
         duplicate = existing.scalar_one_or_none()
 
-        content_type = _infer_content_type(file.filename or "unknown")
-        title = Path(file.filename).stem if file.filename else "untitled"
+        display_name = relative_import_path.name if relative_import_path else (file.filename or "unknown")
+        content_type = _infer_content_type(display_name)
+        title = Path(display_name).stem if display_name else "untitled"
+        extra_meta = {"original_filename": file.filename} if file.filename else {}
+        if relative_import_path:
+            extra_meta.update({
+                "import_relative_path": relative_import_path.as_posix(),
+                "import_root": relative_import_path.parts[0],
+                "import_batch_id": batch_id,
+            })
+        if not extra_meta:
+            extra_meta = None
 
         if duplicate:
             # 复用已有文件路径，删除刚写入的重复文件
-            file_path.unlink(missing_ok=True)
+            try:
+                file_path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Failed to remove duplicate upload temp file %s: %s", file_path, exc)
 
             content = Content(
                 id=uuid.uuid4(),
@@ -107,6 +155,7 @@ class FileService:
                 file_size=duplicate.file_size,
                 file_md5=file_md5,
                 brain_id=brain_id,
+                extra_meta=extra_meta,
             )
         else:
             content = Content(
@@ -118,10 +167,20 @@ class FileService:
                 file_size=file_size,
                 file_md5=file_md5,
                 brain_id=brain_id,
+                extra_meta=extra_meta,
             )
 
         self.db.add(content)
         await self.db.flush()
+        if relative_import_path:
+            collection_id = await self._attach_import_collection(content, relative_import_path.parts[0], brain_id)
+            category_id = await self._attach_import_categories(content, relative_import_path.parts[:-1], brain_id)
+            content.extra_meta = {
+                **(content.extra_meta or {}),
+                "import_collection_id": str(collection_id),
+                "import_category_id": str(category_id) if category_id else None,
+            }
+            await self.db.flush()
         await self.db.refresh(content)
 
         # 不再自动加入处理队列，用户需要手动触发智能分块
@@ -129,11 +188,103 @@ class FileService:
 
         return content
 
+    async def _attach_import_collection(
+        self,
+        content: Content,
+        collection_name: str,
+        brain_id: uuid.UUID | None,
+    ) -> uuid.UUID:
+        from app.models.models import Collection, CollectionItem
+
+        conditions = [Collection.name == collection_name]
+        if brain_id is None:
+            conditions.append(Collection.brain_id.is_(None))
+        else:
+            conditions.append(Collection.brain_id == brain_id)
+
+        result = await self.db.execute(select(Collection).where(*conditions).limit(1))
+        collection = result.scalar_one_or_none()
+        if collection is None:
+            collection = Collection(
+                name=collection_name,
+                description="Auto-created from folder import",
+                brain_id=brain_id,
+            )
+            self.db.add(collection)
+            await self.db.flush()
+
+        existing = await self.db.execute(
+            select(CollectionItem.id).where(
+                CollectionItem.collection_id == collection.id,
+                CollectionItem.content_id == content.id,
+            )
+        )
+        if existing.scalar_one_or_none() is None:
+            max_order = await self.db.execute(
+                select(func.coalesce(func.max(CollectionItem.sort_order), 0)).where(
+                    CollectionItem.collection_id == collection.id
+                )
+            )
+            self.db.add(
+                CollectionItem(
+                    collection_id=collection.id,
+                    content_id=content.id,
+                    sort_order=(max_order.scalar() or 0) + 1,
+                )
+            )
+        return collection.id
+
+    async def _attach_import_categories(
+        self,
+        content: Content,
+        folder_parts: tuple[str, ...],
+        brain_id: uuid.UUID | None,
+    ) -> uuid.UUID | None:
+        from app.models.models import Category, ContentCategory
+
+        parent_id: uuid.UUID | None = None
+        category: Category | None = None
+
+        for name in folder_parts:
+            conditions = [Category.name == name]
+            if parent_id is None:
+                conditions.append(Category.parent_id.is_(None))
+            else:
+                conditions.append(Category.parent_id == parent_id)
+            if brain_id is None:
+                conditions.append(Category.brain_id.is_(None))
+            else:
+                conditions.append(Category.brain_id == brain_id)
+
+            result = await self.db.execute(select(Category).where(*conditions).limit(1))
+            category = result.scalar_one_or_none()
+            if category is None:
+                category = Category(name=name, parent_id=parent_id, brain_id=brain_id)
+                self.db.add(category)
+                await self.db.flush()
+            parent_id = category.id
+
+        if category is None:
+            return None
+
+        existing = await self.db.execute(
+            select(ContentCategory.content_id).where(
+                ContentCategory.content_id == content.id,
+                ContentCategory.category_id == category.id,
+            )
+        )
+        if existing.scalar_one_or_none() is None:
+            self.db.add(ContentCategory(content_id=content.id, category_id=category.id))
+        return category.id
+
     async def list_files(
         self,
         content_type: str | None = None,
         brain_id: uuid.UUID | None = None,
         category_id: uuid.UUID | None = None,
+        processing_status: str | None = None,
+        study_status: str | None = None,
+        q: str | None = None,
         is_deleted: bool = False,
         page: int = 1,
         page_size: int = 20,
@@ -143,6 +294,26 @@ class FileService:
         conditions = [Content.is_deleted == is_deleted]
         if content_type:
             conditions.append(Content.content_type == content_type)
+        if processing_status:
+            conditions.append(Content.processing_status == processing_status)
+        if study_status:
+            study_status_value = Content.extra_meta["study_status"].astext
+            if study_status == "not_started":
+                conditions.append(or_(
+                    Content.extra_meta.is_(None),
+                    study_status_value.is_(None),
+                    study_status_value == "not_started",
+                ))
+            else:
+                conditions.append(study_status_value == study_status)
+        if q and q.strip():
+            keyword = f"%{q.strip()}%"
+            conditions.append(or_(
+                Content.title.ilike(keyword),
+                Content.text_content.ilike(keyword),
+                Content.source_url.ilike(keyword),
+                Content.file_path.ilike(keyword),
+            ))
         if brain_id is not None:
             conditions.append(Content.brain_id == brain_id)
 
@@ -210,9 +381,58 @@ class FileService:
         content = await self.get_by_id(content_id)
         if content is None:
             return None
+        if "brain_id" in data and data["brain_id"] != content.brain_id:
+            await self._cleanup_links_for_brain_move(content.id, data["brain_id"])
         for key, value in data.items():
-            if value is not None:
+            if key == "extra_meta":
+                if isinstance(value, dict):
+                    content.extra_meta = {**(content.extra_meta or {}), **value}
+                continue
+            if key == "brain_id" or value is not None:
                 setattr(content, key, value)
         await self.db.flush()
         await self.db.refresh(content)
         return content
+
+    async def _cleanup_links_for_brain_move(self, content_id: uuid.UUID, target_brain_id: uuid.UUID | None) -> None:
+        """移动内容到其他工作区时清理旧工作区的组织关系。"""
+        from app.models.models import Category, Collection, CollectionItem, ContentCategory, ContentRelation, ContentTag, Tag
+
+        if target_brain_id is None:
+            category_ids = select(Category.id).where(Category.brain_id.is_not(None))
+            tag_ids = select(Tag.id).where(Tag.brain_id.is_not(None))
+            collection_ids = select(Collection.id).where(Collection.brain_id.is_not(None))
+        else:
+            category_ids = select(Category.id).where(Category.brain_id.is_not(None), Category.brain_id != target_brain_id)
+            tag_ids = select(Tag.id).where(Tag.brain_id.is_not(None), Tag.brain_id != target_brain_id)
+            collection_ids = select(Collection.id).where(Collection.brain_id.is_not(None), Collection.brain_id != target_brain_id)
+
+        await self.db.execute(
+            delete(ContentCategory).where(
+                ContentCategory.content_id == content_id,
+                ContentCategory.category_id.in_(category_ids),
+            )
+        )
+        await self.db.execute(
+            delete(ContentTag).where(
+                ContentTag.content_id == content_id,
+                ContentTag.tag_id.in_(tag_ids),
+            )
+        )
+        await self.db.execute(
+            delete(CollectionItem).where(
+                CollectionItem.content_id == content_id,
+                CollectionItem.collection_id.in_(collection_ids),
+            )
+        )
+
+        relation_result = await self.db.execute(
+            select(ContentRelation).where(
+                (ContentRelation.source_id == content_id) | (ContentRelation.target_id == content_id)
+            )
+        )
+        for relation in relation_result.scalars().all():
+            other_id = relation.target_id if relation.source_id == content_id else relation.source_id
+            other_content = await self.db.get(Content, other_id)
+            if other_content is None or other_content.brain_id != target_brain_id:
+                await self.db.delete(relation)

@@ -62,10 +62,27 @@ class Tag(Base):
     __tablename__ = "tags"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
     color: Mapped[str | None] = mapped_column(String(7), nullable=True)  # hex color
     brain_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index(
+            "uq_tags_brain_name",
+            "brain_id",
+            "name",
+            unique=True,
+            postgresql_where=brain_id.isnot(None),
+            sqlite_where=brain_id.isnot(None),
+        ),
+        Index(
+            "uq_tags_global_name",
+            "name",
+            unique=True,
+            postgresql_where=brain_id.is_(None),
+            sqlite_where=brain_id.is_(None),
+        ),
+    )
 
 
 class ContentTag(Base):
@@ -108,7 +125,7 @@ class ProviderConfig(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    provider_type: Mapped[str] = mapped_column(String(50), nullable=False)  # openai, tencent_ocr, tencent_ima, custom
+    provider_type: Mapped[str] = mapped_column(String(50), nullable=False)  # openai, custom
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_models: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # {"summarize": "gpt-4o", "embedding": "text-embedding-3-small", ...}

@@ -30,6 +30,11 @@ async def _vector_search(
     top_k: int = TOP_K,
     content_type: str | None = None,
     search_mode: str = "all",
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    tag_ids: list[str] | None = None,
+    category_id: str | None = None,
+    brain_id: str | None = None,
 ) -> list[dict]:
     """在 content_chunks 表上执行 pgvector 余弦相似度搜索
 
@@ -56,6 +61,16 @@ async def _vector_search(
     """
     if content_type:
         base += " AND c.content_type = :ctype"
+    if brain_id:
+        base += " AND c.brain_id = :brain_id"
+    if tag_ids:
+        base += " AND EXISTS (SELECT 1 FROM content_tags ct WHERE ct.content_id = c.id AND ct.tag_id = ANY(:tag_ids))"
+    if category_id:
+        base += " AND EXISTS (SELECT 1 FROM content_categories ccg WHERE ccg.content_id = c.id AND ccg.category_id = :category_id)"
+    if created_after:
+        base += " AND c.created_at >= :created_after"
+    if created_before:
+        base += " AND c.created_at <= :created_before"
     if search_mode == "text":
         base += " AND cc.embedding_type = 'text'"
     elif search_mode == "image":
@@ -67,6 +82,16 @@ async def _vector_search(
     params = {"query_vec": vec_str, "top_k": top_k}
     if content_type:
         params["ctype"] = content_type
+    if brain_id:
+        params["brain_id"] = brain_id
+    if tag_ids:
+        params["tag_ids"] = tag_ids
+    if category_id:
+        params["category_id"] = category_id
+    if created_after:
+        params["created_after"] = created_after
+    if created_before:
+        params["created_before"] = created_before
 
     try:
         # 使用 db.execute 而不是 raw_connection
@@ -106,6 +131,11 @@ async def _keyword_search(
     query: str,
     top_k: int = TOP_K,
     content_type: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    tag_ids: list[str] | None = None,
+    category_id: str | None = None,
+    brain_id: str | None = None,
 ) -> list[dict]:
     """在 chunk_text 上执行 ILIKE 模糊匹配"""
     stmt = (
@@ -134,6 +164,26 @@ async def _keyword_search(
     )
     if content_type:
         stmt = stmt.where(Content.content_type == content_type)
+    if brain_id:
+        stmt = stmt.where(Content.brain_id == brain_id)
+    if tag_ids:
+        from app.models.models import ContentTag
+        stmt = stmt.where(
+            select(ContentTag.content_id)
+            .where(ContentTag.content_id == Content.id, ContentTag.tag_id.in_(tag_ids))
+            .exists()
+        )
+    if category_id:
+        from app.models.models import ContentCategory
+        stmt = stmt.where(
+            select(ContentCategory.content_id)
+            .where(ContentCategory.content_id == Content.id, ContentCategory.category_id == category_id)
+            .exists()
+        )
+    if created_after:
+        stmt = stmt.where(Content.created_at >= created_after)
+    if created_before:
+        stmt = stmt.where(Content.created_at <= created_before)
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -233,6 +283,8 @@ async def search(
     enable_keyword: bool = True,
     search_mode: str = "all",
     query_vector: list[float] | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> dict:
     """执行 chunk 级混合搜索
 
@@ -255,13 +307,18 @@ async def search(
                 qv = query_vector
             else:
                 from app.services.embedding import embed_query
-                qv = await embed_query(db, query)
+                qv = await embed_query(db, query, brain_id=brain_id)
             if qv is not None:
                 logger.info(f"查询向量生成成功，长度={len(qv)}")
                 vector_results = await _vector_search(
                     db, qv, top_k=top_k * 2,
                     content_type=content_type,
                     search_mode=search_mode,
+                    created_after=created_after,
+                    created_before=created_before,
+                    tag_ids=tag_ids,
+                    category_id=category_id,
+                    brain_id=brain_id,
                 )
                 logger.info(f"向量搜索结果数量: {len(vector_results)}")
             else:
@@ -273,6 +330,11 @@ async def search(
         keyword_results = await _keyword_search(
             db, query, top_k=top_k * 2,
             content_type=content_type,
+            created_after=created_after,
+            created_before=created_before,
+            tag_ids=tag_ids,
+            category_id=category_id,
+            brain_id=brain_id,
         )
         logger.info(f"关键词搜索结果数量: {len(keyword_results)}")
 
@@ -321,7 +383,7 @@ async def search(
 
     took_ms = round((time.time() - t0) * 1000, 1)
 
-    log = SearchLog(query=query, result_count=len(results))
+    log = SearchLog(query=query, result_count=len(results), brain_id=brain_id)
     db.add(log)
     await db.flush()
 

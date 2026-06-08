@@ -1,41 +1,25 @@
-﻿const BASE_URL = "/api";
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-    ...options,
-  });
-
-  if (res.status === 204) return undefined as T;
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || `HTTP ${res.status}`);
-  }
-
-  return res.json();
-}
-
-const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, data?: unknown) =>
-    request<T>(path, { method: "POST", body: JSON.stringify(data) }),
-  patch: <T>(path: string, data?: unknown) =>
-    request<T>(path, { method: "PATCH", body: JSON.stringify(data) }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
-};
-
-// ─── Types ───
+import { api } from "./provider";
 
 export interface Collection {
   id: string;
   name: string;
   description: string | null;
+  brain_id?: string | null;
   item_count: number;
+  completed_count?: number;
+  in_progress_count?: number;
+  progress_percent?: number;
+  resume_content_id?: string | null;
+  resume_content_title?: string | null;
+  resume_study_status?: string | null;
   created_at: string;
+}
+
+export interface CollectionListResponse {
+  items: Collection[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface CollectionItem {
@@ -50,6 +34,7 @@ export interface CollectionItem {
 export interface CollectionCreate {
   name: string;
   description?: string;
+  brain_id?: string | null;
 }
 
 export interface CollectionUpdate {
@@ -57,21 +42,38 @@ export interface CollectionUpdate {
   description?: string;
 }
 
-// ─── Collections API ───
-
 export const collectionsApi = {
-  list: (page = 1, pageSize = 20) =>
-    api.get<Collection[]>(`/collections?page=${page}&page_size=${pageSize}`),
+  list: (
+    page = 1,
+    pageSize = 20,
+    options?: {
+      brainId?: string | null;
+      q?: string;
+      progress?: "all" | "not_done" | "in_progress" | "completed";
+    },
+  ) => {
+    const qs = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (options?.brainId) qs.set("brain_id", options.brainId);
+    if (options?.q?.trim()) qs.set("q", options.q.trim());
+    if (options?.progress && options.progress !== "all") qs.set("progress", options.progress);
+    return api.get<CollectionListResponse>(`/collections?${qs.toString()}`);
+  },
+
   get: (id: string) =>
     api.get<{ collection: Collection; items: CollectionItem[] }>(`/collections/${id}`),
+
   create: (data: CollectionCreate) =>
     api.post<Collection>("/collections", data),
+
   update: (id: string, data: CollectionUpdate) =>
     api.patch<Collection>(`/collections/${id}`, data),
+
   delete: (id: string) =>
     api.delete<{ ok: boolean }>(`/collections/${id}`),
+
   addItem: (colId: string, contentId: string) =>
     api.post<{ ok: boolean }>(`/collections/${colId}/add`, { content_id: contentId }),
+
   removeItem: (colId: string, contentId: string) =>
     api.delete<{ ok: boolean }>(`/collections/${colId}/remove/${contentId}`),
 };

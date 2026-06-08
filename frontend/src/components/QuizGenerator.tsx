@@ -8,6 +8,10 @@ import {
   Search,
 } from "lucide-react";
 import { quizCopy, useCopy } from "../lib/copywriting";
+import { useBrain } from "../lib/brain-context";
+import { api } from "../api/provider";
+
+type QuizCopy = (typeof quizCopy)["daoist"];
 
 interface Question {
   type: string;
@@ -45,7 +49,7 @@ function getTypeColor(type: string) {
   return map[type] || "bg-gray-100 dark:bg-zinc-700";
 }
 
-function getTypeLabel(qt: ReturnType<typeof useCopy<typeof quizCopy>>, type: string): string {
+function getTypeLabel(qt: QuizCopy, type: string): string {
   const map: Record<string, string> = {
     single: qt.typeSingle, multiple: qt.typeMultiple,
     truefalse: qt.typeTrueFalse, open: qt.typeOpen,
@@ -62,6 +66,7 @@ export default function QuizGenerator({
   onGenerated,
 }: QuizGeneratorProps) {
   const qt = useCopy(quizCopy);
+  const { currentBrainId } = useBrain();
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [generating, setGenerating] = useState(false);
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
@@ -100,6 +105,7 @@ export default function QuizGenerator({
         mode: quizMode,
         topic: quizMode === "topic" ? quizTopic.trim() : undefined,
         question_types: selectedTypes,
+        brain_id: currentBrainId || undefined,
       };
       if (minDifficulty != null) body.min_difficulty = minDifficulty;
       if (maxDifficulty != null) body.max_difficulty = maxDifficulty;
@@ -107,15 +113,11 @@ export default function QuizGenerator({
         body.scope_type = scopeType;
         body.scope_id = scopeId;
       }
-      const res = await fetch("/api/ai/quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
+      const data = await api.post<{ questions?: Question[] }>("/ai/quiz", body);
+      const generatedQuestions = data.questions || [];
       setRevealed(new Set());
-      setQuestions(data.questions || []);
-      if (data.questions?.length > 0) {
+      setQuestions(generatedQuestions);
+      if (generatedQuestions.length > 0) {
         onGenerated?.();
       }
     } catch (e) {
@@ -123,7 +125,7 @@ export default function QuizGenerator({
     } finally {
       setGenerating(false);
     }
-  }, [quizCount, quizMode, quizTopic, selectedTypes, minDifficulty, maxDifficulty, scopeType, scopeId]);
+  }, [quizCount, quizMode, quizTopic, selectedTypes, minDifficulty, maxDifficulty, scopeType, scopeId, currentBrainId, onGenerated]);
 
   const body = (
     <div className="flex flex-col h-full">

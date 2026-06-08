@@ -1,63 +1,56 @@
 from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
-import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from app.api.provider import router as provider_router
-from app.api.file import router as file_router, contents_router, storage_router, recycle_router
-from app.api.search import router as search_router
-from app.api.tags import router as tags_router
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select, text
+
+from app.api.ai import router as ai_router
+from app.api.analytics import router as analytics_router
+from app.api.annotations import router as annotations_router
+from app.api.backup import router as backup_router
+from app.api.brains import config_router as brain_config_router
+from app.api.brains import router as brains_router
 from app.api.categories import router as categories_router
 from app.api.collections import router as collections_router
-from app.api.preview import router as preview_router
 from app.api.embedding import router as embedding_router
+from app.api.file import router as file_router
+from app.api.file import contents_router, recycle_router, storage_router
 from app.api.notes import router as notes_router
-from app.api.ai import router as ai_router
-from app.api.backup import router as backup_router
-from app.api.analytics import router as analytics_router
+from app.api.preview import router as preview_router
+from app.api.provider import router as provider_router
 from app.api.relations import router as relations_router
-from app.api.brains import router as brains_router
-from app.api.brains import config_router as brain_config_router
-from app.api.annotations import router as annotations_router
-
-from app.services.task_queue import start_worker, stop_worker, subscribe_progress, unsubscribe_progress
-from app.core.logging import setup_logging, get_logger
+from app.api.search import router as search_router
+from app.api.tags import router as tags_router
 from app.core.config import get_settings
+from app.core.logging import get_logger, setup_logging
+from app.middleware.tracing import RequestIdMiddleware
+from app.services.task_queue import start_worker, stop_worker, subscribe_progress, unsubscribe_progress
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 初始化日志
     settings = get_settings()
     setup_logging(log_dir=settings.log_dir, debug=settings.debug)
     logger = get_logger(__name__)
-    
-    logger.info("启动生命周期开始...")
+
+    logger.info("Application startup begins.")
+
+    from app.core.database import async_session_factory, engine
     from app.models.base import Base
-    from app.core.database import engine, async_session_factory
-    from app.models.models import ProcessingTask, Content
-    from sqlalchemy import select, update
-    
+    from app.models.models import Content, ProcessingTask
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        
-        # 创建 pgvector 扩展
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-        
-        # 注意：4096 维向量无法创建 IVFFlat/HNSW 索引（限制 2000 维）
-        # 数据量小时（<10万条）不创建索引性能完全够用
-        # 如需索引，请将向量维度降至 1536 或 2000 以内
-        
-    logger.info("数据库表初始化完成")
-    
-    # 重置卡住的任务
-    logger.info("检查并重置卡住的处理任务...")
+
+    logger.info("Database tables are ready.")
+    logger.info("Checking for stale processing tasks.")
+
     async with async_session_factory() as session:
-        # 重置内容状态：服务重启 + 长时间未推进的任务都兜底处理
         cutoff = datetime.utcnow() - timedelta(minutes=30)
         result = await session.execute(
             select(Content).where(
@@ -65,61 +58,64 @@ async def lifespan(app: FastAPI):
                 Content.updated_at < cutoff,
             )
         )
-        stuck_contents = result.scalars().all()
-        if stuck_contents:
-            for content in stuck_contents:
-                logger.warning(f"重置卡住的内容：{content.id} ({content.title}) - {content.processing_status}")
-                content.processing_status = "failed"
-                content.processing_error = "服务重启，任务被中断"
-        
-        # 重置任务队列状态
-        result_tasks = await session.execute(
-            select(ProcessingTask).where(
-                ProcessingTask.status.in_(["queued", "processing"])
+        stale_contents = result.scalars().all()
+        for content in stale_contents:
+            logger.warning(
+                "Marking stale content as failed: %s (%s) - %s",
+                content.id,
+                content.title,
+                content.processing_status,
             )
+            content.processing_status = "failed"
+            content.processing_error = "Service restarted while the task was running."
+
+        task_result = await session.execute(
+            select(ProcessingTask).where(ProcessingTask.status.in_(["queued", "processing"]))
         )
-        stuck_tasks = result_tasks.scalars().all()
-        if stuck_tasks:
-            for task in stuck_tasks:
-                logger.warning(f"重置卡住的任务：{task.id} (content: {task.content_id}) - {task.status}")
-                task.status = "failed"
-                task.error_message = "服务重启，任务被中断"
-        
+        stale_tasks = task_result.scalars().all()
+        for task in stale_tasks:
+            logger.warning(
+                "Marking stale task as failed: %s (content: %s) - %s",
+                task.id,
+                task.content_id,
+                task.status,
+            )
+            task.status = "failed"
+            task.error_message = "Service restarted while the task was running."
+
         await session.commit()
-        if stuck_contents or stuck_tasks:
-            logger.info(f"已重置 {len(stuck_contents)} 个内容和 {len(stuck_tasks)} 个任务")
+        if stale_contents or stale_tasks:
+            logger.info("Reset %s content items and %s queued tasks.", len(stale_contents), len(stale_tasks))
         else:
-            logger.info("没有发现卡住的任务")
-    
+            logger.info("No stale processing tasks found.")
+
     start_worker()
-    logger.info("后台任务队列 Worker 已启动")
-    yield
-    # 关闭时：停止 Worker
-    logger.info("正在停止后台 Worker...")
-    await stop_worker()
-    logger.info("服务已停止")
+    logger.info("Background task worker started.")
+
+    try:
+        yield
+    finally:
+        logger.info("Stopping background worker.")
+        await stop_worker()
+        logger.info("Application shutdown complete.")
 
 
 app = FastAPI(
-    title="墨渊 Moyuan",
-    description="多模态个人知识库 - 统一管理文本、图片、音视频与网页内容",
+    title="Moyuan",
+    description="Local multimodal personal knowledge base for text, files, images, audio, video, and web content.",
     version="0.1.0",
     lifespan=lifespan,
 )
 
-# 请求追踪中间件（记录日志 + 添加 X-Request-ID 响应头）
-from app.middleware.tracing import RequestIdMiddleware
 app.add_middleware(RequestIdMiddleware)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Routers
 app.include_router(provider_router)
 app.include_router(file_router)
 app.include_router(contents_router)
@@ -140,18 +136,9 @@ app.include_router(brains_router)
 app.include_router(brain_config_router)
 app.include_router(annotations_router)
 
-# Static files (uploaded files)
-from app.core.config import get_settings
+settings = get_settings()
+app.mount("/files", StaticFiles(directory=settings.file_storage_root), name="files")
 
-_stg = get_settings().file_storage_root
-app.mount("/files", StaticFiles(directory=_stg), name="files")
-
-
-# ── WebSocket 进度推送 ──
-
-from fastapi import WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-from pathlib import Path
 
 @app.websocket("/ws/progress/{content_id}")
 async def ws_progress(websocket: WebSocket, content_id: str):
@@ -166,7 +153,6 @@ async def ws_progress(websocket: WebSocket, content_id: str):
     subscribe_progress(content_id, _on_progress)
     try:
         while True:
-            # keep-alive
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Trash2, Loader2, MessageSquare, X } from "lucide-react";
 import { annotationApi, type Annotation } from "../api/annotations";
+import ConfirmDialog from "./ConfirmDialog";
+import Toast from "./Toast";
 
 interface AnnotationPanelProps {
   annotations: Annotation[];
@@ -18,15 +20,19 @@ export default function AnnotationPanel({
   onClose,
 }: AnnotationPanelProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Annotation | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
-  async function handleDelete(id: string) {
-    if (!confirm("确定要删除此批注吗？")) return;
-    setDeletingId(id);
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeletingId(deleteTarget.id);
     try {
-      await annotationApi.delete(id);
-      onDelete(id);
+      await annotationApi.delete(deleteTarget.id);
+      onDelete(deleteTarget.id);
+      setDeleteTarget(null);
+      setToast({ type: "success", message: "批注已删除" });
     } catch (err) {
-      alert("删除失败: " + (err as Error).message);
+      setToast({ type: "error", message: "删除失败: " + (err as Error).message });
     } finally {
       setDeletingId(null);
     }
@@ -114,7 +120,7 @@ export default function AnnotationPanel({
                   {formatTime(ann.created_at)}
                 </span>
                 <button
-                  onClick={() => handleDelete(ann.id)}
+                  onClick={() => setDeleteTarget(ann)}
                   disabled={deletingId === ann.id}
                   className="p-1 text-[var(--text-muted)] hover:text-[var(--danger)] dark:hover:text-red-400 hover:bg-[var(--danger-soft)] dark:hover:bg-red-950/30 rounded-md transition-colors disabled:opacity-50"
                 >
@@ -129,6 +135,18 @@ export default function AnnotationPanel({
           ))
         )}
       </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除批注"
+        message="确定要删除此批注吗？"
+        confirmLabel="删除"
+        cancelLabel="取消"
+        variant="danger"
+        loading={deletingId !== null}
+        onConfirm={handleDelete}
+        onCancel={() => { if (!deletingId) setDeleteTarget(null); }}
+      />
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

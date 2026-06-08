@@ -1,136 +1,166 @@
-# 墨渊 (Moyuan) — 多模态个人知识库
+# Moyuan
 
-本地部署的多模态知识库，支持文本/图片/PDF/音视频/网页统一管理，提供语义检索、AI 问答、题库生成等 AI 辅助能力。
+Moyuan is a local multimodal personal knowledge-base application. It manages text, files, images, PDFs, Word/Excel documents, audio, video, and web pages in one workspace, then supports semantic search, RAG Q&A, notes, quizzes, analytics, backup, and provider configuration.
 
-界面采用赛博道观风格（四色主调、太极八卦装饰、粒子气机背景）。
+## Current Capabilities
 
-## 核心功能
+- Multimodal ingestion: text notes, file uploads, folder imports, web URL capture, images, PDFs, DOCX, XLSX, audio, and video.
+- Content processing: semantic chunking, embeddings, OCR text extraction, audio/video transcription, web text extraction, and optional web/video screenshots.
+- Workspace management: multiple brains, categories, tags, collections, favorites, recycle bin, and per-brain configuration.
+- Search and AI: hybrid search, image search endpoint, RAG Q&A with source context, summaries, quiz generation, wrong-answer review, and prompt templates.
+- Reading and preview: content detail view, PDF/image/audio/video viewers, extracted text editing, chunk list, annotations, and document structure metadata.
+- Data operations: storage settings, analytics dashboard, logs, manual backup, export, restore, and maintenance actions.
+- Provider management: OpenAI-compatible providers, encrypted API keys, connection testing, and function bindings for summarize, embedding, chunking, quiz, judge, OCR, transcription, and QA.
 
-- **多模态录入**：文本笔记 · PDF/Word/Excel 解析 · 图片 OCR · 音视频转写 · 网页抓取
-- **多工作区**：创建多个独立 Brain，各自独立的分类、标签、AI 配置
-- **语义检索**：向量相似度 + 关键词混合检索，结果高亮、跨模态搜索
-- **在线预览**：PDF/图片/视频播放器，字幕时间轴跳转
-- **富文本笔记**：Markdown 编辑、批注、版本历史、编辑/分屏/预览多视图
-- **AI 问答**：基于知识库内容的 RAG 问答，答案可溯源、一键保存为笔记
-- **AI 题库**：RAG 检索出题（单选/多选/判断/简答），支持按分类/合集出题、错题本、弱知识点补强
-- **AI 摘要**：文档/视频自动生成摘要
-- **知识图谱**：内容关联可视化
-- **数据安全**：手动备份、一键导入导出
-- **第三方服务**：兼容 OpenAI API 格式、腾讯云 OCR
-- **Prompt 模板**：出题和问答 Prompt 可自定义编辑
-- **数据统计**：文件数、标签分布、检索热度面板
+## Tech Stack
 
-## 技术栈
+- Backend: Python 3.10+, FastAPI, SQLAlchemy async, asyncpg, Alembic, pgvector, OpenAI-compatible API clients.
+- Frontend: React, TypeScript, Vite, Tailwind CSS, lucide-react, React Router.
+- Database: PostgreSQL 16 with pgvector.
+- Optional services/tools: Redis, ffmpeg, Playwright browsers, OCR/transcription-capable model providers.
 
-- **后端**：Python 3.10+ / FastAPI / asyncpg / pgvector / Alembic
-- **前端**：React 18 / TypeScript / Vite / TailwindCSS v4
-- **数据库**：PostgreSQL 16 + pgvector
-- **缓存**：Redis 7（可选）
+## Quick Start
 
-## 快速开始
-
-### 1. 启动数据库
+### 1. Start PostgreSQL
 
 ```bash
 docker compose up -d postgres
 ```
 
-### 2. 配置环境变量
+Redis is optional:
 
 ```bash
-cd backend
-cp .env.example .env
-# 编辑 .env 填入数据库连接、文件存储路径、加密密钥
+docker compose --profile with-redis up -d
 ```
 
-### 3. 安装依赖
+### 2. Configure the Backend
+
+Create `backend/.env` from your local template if needed, then set database, storage, encryption, and provider values.
+
+Typical development defaults use:
+
+- Backend API: `http://localhost:8005`
+- Frontend app: `http://localhost:5173`
+- PostgreSQL: `postgresql+asyncpg://moyuan:moyuan@localhost:5432/moyuan`
+
+### 3. Install Backend Dependencies
 
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. 初始化数据库
+### 4. Initialize the Database
 
 ```bash
 cd backend
 alembic upgrade head
 ```
 
-### 5. 启动后端
+The app also creates missing tables on startup for local development.
 
-```bash
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 6. 启动前端
+### 5. Install Frontend Dependencies
 
 ```bash
 cd frontend
 npm install
-npm run dev
 ```
 
-访问 http://localhost:5173
+### 6. Run the App
 
-### 一键启动
+Backend:
 
 ```bash
-# Windows
-start.bat
-# 或 PowerShell
+cd backend
+venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8005
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run dev -- --port 5173
+```
+
+Open `http://localhost:5173`.
+
+### One-Command Local Startup
+
+On Windows PowerShell:
+
+```powershell
 .\start.ps1
-# Linux/Mac
-./start.sh
 ```
 
-## 页面导航
+Custom ports:
 
-| 页面 | 路径 | 功能 |
-|------|------|------|
-| 道藏（知识库） | `/contents` | 浏览、搜索、上传内容 |
-| 符印（标签） | `/tags` | 标签管理 |
-| 坤舆（分类） | `/categories` | 树形分类管理 |
-| 珍藏（收藏） | `/favorites` | 收藏的内容 |
-| 藏经（合集） | `/collections` | 合集管理 |
-| 墨宝（笔记） | `/notes` | 富文本笔记编辑 |
-| 丹室（工作区） | `/brains` | 多工作区管理 |
-| 问玄（搜索） | `/search` | 搜索 + AI 问答双模式 |
-| 炼题（题库） | `/quiz` | 出题、答题、错题本 |
-| 卦象（统计） | `/analytics` | 数据统计面板 |
-| 封魔（备份） | `/backup` | 数据备份与恢复 |
-| 玄台（设置） | `/settings` | Provider 配置、功能绑定、存储路径、索引管理 |
-| 归墟（回收站） | `/recycle` | 已删除内容恢复 |
-
-## 项目结构
-
+```powershell
+.\start.ps1 -Frontend 3000 -Backend 8080
 ```
+
+## Main Pages
+
+| Page | Route | Purpose |
+| --- | --- | --- |
+| Contents | `/contents` | Upload, import, browse, process, and manage knowledge-base content. |
+| Search | `/search` | Semantic search and RAG Q&A. |
+| Notes | `/notes` | Markdown notes, version history, and saved excerpts. |
+| Quiz | `/quiz` | Generate questions, answer quizzes, and review wrong answers. |
+| Tags | `/tags` | Manage tags. |
+| Categories | `/categories` | Manage category trees. |
+| Favorites | `/favorites` | Browse favorited content. |
+| Collections | `/collections` | Manage collections and collection items. |
+| Brains | `/brains` | Manage workspaces and per-brain AI settings. |
+| Analytics | `/analytics` | View content, tag, search, and growth statistics. |
+| Logs | `/logs` | Inspect runtime logs. |
+| Backup | `/backup` | Create, export, delete, and restore backups. |
+| Settings | `/settings` | Configure providers, function bindings, storage, and embedding maintenance. |
+| Recycle Bin | `/recycle` | Restore or permanently delete removed content. |
+
+## Project Layout
+
+```text
 moyuan/
-├── backend/               # Python 后端
-│   ├── app/
-│   │   ├── api/           # API 路由（ai/brain/content/file/notes/provider/search）
-│   │   ├── core/          # 核心配置（数据库、加密、日志）
-│   │   ├── models/        # SQLAlchemy 模型
-│   │   ├── schemas/       # Pydantic 数据模型
-│   │   └── services/      # 业务逻辑（embedding/file/provider/search）
-│   ├── alembic/           # 数据库迁移
-│   ├── tests/             # 测试
-│   └── requirements.txt
-├── frontend/              # React 前端
-│   ├── src/
-│   │   ├── api/           # API 客户端
-│   │   ├── components/    # 通用组件
-│   │   ├── lib/           # 工具库、文案系统
-│   │   └── pages/         # 页面组件
-│   └── ...
-├── openspec/              # 项目规格文档
-│   ├── specs/             # 能力规格
-│   └── changes/archive/   # 已归档的变更记录
-├── data/                  # 本地数据存储
-│   ├── files/             # 上传文件
-│   └── backups/           # 备份文件
-└── docker-compose.yml
+  backend/
+    app/
+      api/          FastAPI routers
+      core/         config, database, crypto, logging
+      models/       SQLAlchemy models
+      schemas/      Pydantic schemas
+      services/     processing, providers, search, storage, queue
+    alembic/        database migrations
+    tests/          backend tests
+  frontend/
+    src/
+      api/          frontend API clients
+      components/   shared UI components
+      lib/          theme, copy, brain context
+      pages/        route pages
+  openspec/         capability specs and archived change records
+  data/             local file and backup storage
 ```
+
+## Validation
+
+Backend tests:
+
+```bash
+cd backend
+venv\Scripts\python.exe -m pytest tests -q
+```
+
+Frontend build:
+
+```bash
+cd frontend
+npm run build
+```
+
+## Notes for Multimodal Features
+
+- OCR and transcription require configured providers with compatible models.
+- Web screenshots require Playwright and installed browser binaries.
+- Video screenshots require `ffmpeg` to be available on `PATH`.
+- If these optional dependencies are missing, Moyuan should still save and process the available text/file data where possible.

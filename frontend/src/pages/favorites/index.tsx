@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { collectionApi } from "../../api/organization";
 import type { Collection, CollectionItem } from "../../api/organization";
@@ -6,10 +6,12 @@ import { Plus, Trash2, X, Loader2, Bookmark, FolderOpen } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Toast from "../../components/Toast";
 import { favoritesCopy, useCopy } from "../../lib/copywriting";
+import { useBrain } from "../../lib/brain-context";
 
 export default function FavoritesPage() {
   const t = useCopy(favoritesCopy);
   const navigate = useNavigate();
+  const { currentBrainId } = useBrain();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [activeCol, setActiveCol] = useState<Collection | null>(null);
   const [items, setItems] = useState<CollectionItem[]>([]);
@@ -22,22 +24,7 @@ export default function FavoritesPage() {
   const [deleteColTarget, setDeleteColTarget] = useState<Collection | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  const loadCols = async () => {
-    setLoading(true);
-    try {
-      const data = await collectionApi.list(1, 100);
-      setCollections(data);
-      if (data.length > 0 && !activeCol) {
-        void loadItems(data[0]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { loadCols(); }, []);
-
-  const loadItems = async (col: Collection) => {
+  const loadItems = useCallback(async (col: Collection) => {
     setActiveCol(col);
     setItemsLoading(true);
     try {
@@ -46,14 +33,36 @@ export default function FavoritesPage() {
     } finally {
       setItemsLoading(false);
     }
-  };
+  }, []);
+
+  const loadCols = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await collectionApi.list(1, 100, currentBrainId);
+      setCollections(data.items);
+      if (data.items.length > 0) {
+        void loadItems(data.items[0]);
+      } else {
+        setActiveCol(null);
+        setItems([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [currentBrainId, loadItems]);
+
+  useEffect(() => {
+    setActiveCol(null);
+    setItems([]);
+    loadCols();
+  }, [loadCols]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
     setSaving(true);
     try {
-      await collectionApi.create(newName.trim(), newDesc.trim() || undefined);
+      await collectionApi.create(newName.trim(), newDesc.trim() || undefined, currentBrainId);
       setNewName("");
       setNewDesc("");
       setShowNew(false);

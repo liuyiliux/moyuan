@@ -6,6 +6,7 @@ import { Suspense, lazy } from "react";
 import { Loader2 } from "lucide-react";
 import { Sidebar, QiParticles, PageTransition } from "./components";
 import BrainSwitcher from "./components/BrainSwitcher";
+import SearchBar from "./components/SearchBar";
 import { sidebarCopy, useCopy } from "./lib/copywriting";
 
 const SearchPage = lazy(() => import("./pages/search"));
@@ -23,6 +24,7 @@ const RecyclePage = lazy(() => import("./pages/recycle"));
 const BrainsPage = lazy(() => import("./pages/brains"));
 const LogsPage = lazy(() => import("./pages/logs"));
 const QuizPage = lazy(() => import("./pages/quiz"));
+const ProcessingPage = lazy(() => import("./pages/processing"));
 
 function PageLoader() {
   return (
@@ -53,6 +55,7 @@ function Header() {
             {location.pathname === "/collections" && s.collections}
             {location.pathname === "/brains" && s.brains}
             {location.pathname === "/analytics" && s.analytics}
+            {location.pathname === "/processing" && s.processing}
             {location.pathname === "/logs" && s.logs}
             {location.pathname === "/backup" && s.backup}
             {location.pathname === "/settings" && s.settings}
@@ -69,6 +72,7 @@ function Layout() {
   return (
     <>
       <QiParticles />
+      <SearchBar />
       <div className="min-h-screen relative z-10">
         <Sidebar />
         <div className="ml-16">
@@ -86,7 +90,9 @@ function Layout() {
                   <Route path="/favorites" element={<FavoritesPage />} />
                   <Route path="/notes" element={<NotesPage />} />
                   <Route path="/analytics" element={<AnalyticsPage />} />
+                  <Route path="/processing" element={<ProcessingPage />} />
                   <Route path="/collections" element={<CollectionsPage />} />
+                  <Route path="/collections/:id" element={<CollectionsPage />} />
                   <Route path="/backup" element={<BackupPage />} />
                   <Route path="/recycle" element={<RecyclePage />} />
                   <Route path="/settings" element={<SettingsPage />} />

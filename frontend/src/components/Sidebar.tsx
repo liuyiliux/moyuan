@@ -8,6 +8,7 @@ import {
   Bookmark,
   FolderOpen,
   BarChart3,
+  Activity,
   Brain,
   HardDrive,
   Trash2,
@@ -130,6 +131,7 @@ export default function Sidebar() {
           <span className="dao-sidebar-section-title">{s.sectionDanShi}</span>
           <SidebarLink to="/brains" icon={<Brain className="w-4 h-4" />} label={s.brains} tooltip={s.brainsTip} />
           <SidebarLink to="/analytics" icon={<BarChart3 className="w-4 h-4" />} label={s.analytics} tooltip={s.analyticsTip} />
+          <SidebarLink to="/processing" icon={<Activity className="w-4 h-4" />} label={s.processing} tooltip={s.processingTip} />
           <SidebarLink to="/logs" icon={<ScrollText className="w-4 h-4" />} label={s.logs} tooltip={s.logsTip} />
           <SidebarLink to="/backup" icon={<HardDrive className="w-4 h-4" />} label={s.backup} tooltip={s.backupTip} />
         </div>

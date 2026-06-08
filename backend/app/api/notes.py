@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
-from app.models.models import Content
+from app.models.models import Brain, Content
 from app.schemas.file import FileResponse
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -55,13 +55,15 @@ class NoteVersion:
 @router.post("", response_model=dict)
 async def create_note(body: NoteCreate, db: AsyncSession = Depends(get_db)):
     """创建笔记"""
+    brain_uuid = _parse_brain_uuid(body.brain_id)
+    await _ensure_brain_exists(db, brain_uuid)
     note = Content(
         id=uuid.uuid4(),
         title=body.title,
         content_type="note",
         source_type="manual",
         text_content=body.content,
-        brain_id=uuid.UUID(body.brain_id) if body.brain_id else None,
+        brain_id=brain_uuid,
     )
     # 记录初始版本
     NoteVersion.record(note)
@@ -73,6 +75,7 @@ async def create_note(body: NoteCreate, db: AsyncSession = Depends(get_db)):
         "id": str(note.id),
         "title": note.title,
         "content": note.text_content,
+        "brain_id": str(note.brain_id) if note.brain_id else None,
         "created_at": note.created_at.isoformat() if note.created_at else None,
     }
 
@@ -82,12 +85,17 @@ async def list_notes(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     star: bool = Query(False),
+    brain_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """笔记列表"""
     conds = [Content.content_type == "note", Content.is_deleted == False]
     if star:
         conds.append(Content.is_starred == True)
+    if brain_id:
+        brain_uuid = _parse_brain_uuid(brain_id)
+        await _ensure_brain_exists(db, brain_uuid)
+        conds.append(Content.brain_id == brain_uuid)
 
     count_res = await db.execute(select(func.count(Content.id)).where(*conds))
     total = count_res.scalar() or 0
@@ -109,6 +117,7 @@ async def list_notes(
                 "content": n.text_content,
                 "is_starred": n.is_starred,
                 "is_pinned": n.is_pinned,
+                "brain_id": str(n.brain_id) if n.brain_id else None,
                 "created_at": n.created_at.isoformat() if n.created_at else None,
                 "updated_at": n.updated_at.isoformat() if n.updated_at else None,
                 "version_count": len((n.extra_meta or {}).get("versions", [])),
@@ -170,6 +179,7 @@ async def update_note(note_id: str, body: NoteUpdate, db: AsyncSession = Depends
         "id": str(note.id),
         "title": note.title,
         "content": note.text_content,
+        "brain_id": str(note.brain_id) if note.brain_id else None,
         "versions": (note.extra_meta or {}).get("versions", []),
         "version_count": len((note.extra_meta or {}).get("versions", [])),
         "updated_at": note.updated_at.isoformat() if note.updated_at else None,
@@ -208,6 +218,7 @@ async def create_from_excerpt(
         content_type="note",
         source_type="manual",
         text_content=excerpt_text,
+        brain_id=source.brain_id if source else None,
         extra_meta={"source_content_id": content_id, "source_title": source_name},
     )
     NoteVersion.record(note)
@@ -219,4 +230,21 @@ async def create_from_excerpt(
         "id": str(note.id),
         "title": note.title,
         "content": note.text_content,
+        "brain_id": str(note.brain_id) if note.brain_id else None,
     }
+
+
+async def _ensure_brain_exists(db: AsyncSession, brain_id: uuid.UUID | None) -> None:
+    if brain_id is None:
+        return
+    if await db.get(Brain, brain_id) is None:
+        raise HTTPException(status_code=404, detail="Brain not found")
+
+
+def _parse_brain_uuid(brain_id: str | None) -> uuid.UUID | None:
+    if not brain_id:
+        return None
+    try:
+        return uuid.UUID(brain_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid brain_id")

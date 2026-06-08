@@ -5,6 +5,7 @@ import {
   type AnalyticsOverview,
   type TagStat,
   type SearchTrend,
+  type SearchDailyTrend,
   type GrowthStat,
 } from "../../api/analytics";
 import {
@@ -20,6 +21,7 @@ import {
   Tag,
 } from "lucide-react";
 import { analyticsCopy, useCopy } from "../../lib/copywriting";
+import { useBrain } from "../../lib/brain-context";
 
 // ─── Design Tokens (use CSS variables) ───
 
@@ -101,7 +103,7 @@ function StatCard({
 }
 
 /** Content type distribution — pure CSS horizontal bar chart */
-function ContentTypeChart({ byType }: { byType: Record<string, number> }) {
+function ContentTypeChart({ byType, noDataText }: { byType: Record<string, number>; noDataText: string }) {
   const entries = Object.entries(byType).sort(([, a], [, b]) => b - a);
   const maxCount = entries.length > 0 ? Math.max(...entries.map(([, c]) => c), 1) : 1;
 
@@ -144,7 +146,7 @@ function ContentTypeChart({ byType }: { byType: Record<string, number> }) {
             })}
           </div>
         ) : (
-          <EmptyState text={at.noData} />
+          <EmptyState text={noDataText} />
         )}
       </div>
     </div>
@@ -197,8 +199,9 @@ function TagRanking({ tags }: { tags: TagStat[] }) {
 }
 
 /** Search trends ranking */
-function SearchTrendsRanking({ trends }: { trends: SearchTrend[] }) {
+function SearchTrendsRanking({ trends, daily }: { trends: SearchTrend[]; daily: SearchDailyTrend[] }) {
   const top10 = trends.slice(0, 10);
+  const maxDaily = daily.length > 0 ? Math.max(...daily.map((item) => item.count), 1) : 1;
 
   return (
     <div className={CARD}>
@@ -213,35 +216,51 @@ function SearchTrendsRanking({ trends }: { trends: SearchTrend[] }) {
           </span>
         </div>
         {top10.length > 0 ? (
-          <div className="space-y-1">
-            {top10.map((trend, index) => (
-              <div
-                key={trend.query}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors hover:bg-[var(--bg-secondary)] transition-colors`}
-              >
-                <span
-                  className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                    index < 3 ? "text-[var(--text-inverse)]" : `${TEXT_SECONDARY}`
-                  }`}
-                  style={{
-                    backgroundColor:
-                      index === 0 ? "var(--accent)"
-                      : index === 1 ? "var(--accent-hover)"
-                      : index === 2 ? "var(--accent-text)"
-                      : undefined,
-                  }}
+          <div className="space-y-5">
+            <div className="space-y-1">
+              {top10.map((trend, index) => (
+                <div
+                  key={trend.query}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors hover:bg-[var(--bg-secondary)] transition-colors`}
                 >
-                  {index >= 3 && (index + 1)}
-                  {index < 3 && (index + 1)}
-                </span>
-                <span className={`flex-1 text-sm truncate ${TEXT_PRIMARY}`}>
-                  {trend.query}
-                </span>
-                <span className={`text-xs tabular-nums ${TEXT_MUTED}`}>
-                  {trend.count} 次
-                </span>
+                  <span
+                    className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                      index < 3 ? "text-[var(--text-inverse)]" : `${TEXT_SECONDARY}`
+                    }`}
+                    style={{
+                      backgroundColor:
+                        index === 0 ? "var(--accent)"
+                        : index === 1 ? "var(--accent-hover)"
+                        : index === 2 ? "var(--accent-text)"
+                        : undefined,
+                    }}
+                  >
+                    {index + 1}
+                  </span>
+                  <span className={`flex-1 text-sm truncate ${TEXT_PRIMARY}`}>
+                    {trend.query}
+                  </span>
+                  <span className={`text-xs tabular-nums ${TEXT_MUTED}`}>
+                    {trend.count} 次
+                  </span>
+                </div>
+              ))}
+            </div>
+            {daily.length > 0 && (
+              <div className="border-t border-[var(--border-subtle)] pt-4">
+                <div className={`text-xs font-semibold mb-3 ${TEXT_MUTED}`}>最近 30 天趋势</div>
+                <div className="flex items-end gap-1 h-20">
+                  {daily.map((item) => (
+                    <div key={item.day} className="flex-1 flex items-end h-full group relative">
+                      <div
+                        className="w-full rounded-t-sm bg-[var(--accent)] opacity-80 group-hover:opacity-100 transition-opacity"
+                        style={{ height: `${Math.max((item.count / maxDaily) * 100, item.count > 0 ? 8 : 0)}%` }}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            )}
           </div>
         ) : (
           <EmptyState text="暂无搜索记录" />
@@ -361,9 +380,11 @@ function ErrorState({
 
 export default function AnalyticsPage() {
   const at = useCopy(analyticsCopy);
+  const { currentBrainId } = useBrain();
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [tags, setTags] = useState<TagStat[]>([]);
   const [trends, setTrends] = useState<SearchTrend[]>([]);
+  const [dailyTrends, setDailyTrends] = useState<SearchDailyTrend[]>([]);
   const [growth, setGrowth] = useState<GrowthStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -374,14 +395,15 @@ export default function AnalyticsPage() {
     try {
       const [overviewData, tagsData, trendsData, growthData] =
         await Promise.all([
-          analyticsApi.overview(),
-          analyticsApi.tags(20),
-          analyticsApi.searchTrends(10),
-          analyticsApi.growth(),
+          analyticsApi.overview(currentBrainId),
+          analyticsApi.tags(20, currentBrainId),
+          analyticsApi.searchTrends(10, 30, currentBrainId),
+          analyticsApi.growth(currentBrainId),
         ]);
       setOverview(overviewData);
       setTags(tagsData.tags);
       setTrends(trendsData.trends);
+      setDailyTrends(trendsData.daily ?? []);
       // Sort growth data chronologically (oldest first)
       const sorted = [...growthData.growth].sort((a, b) =>
         a.week.localeCompare(b.week)
@@ -392,7 +414,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentBrainId]);
 
   useEffect(() => {
     fetchData();
@@ -465,13 +487,13 @@ export default function AnalyticsPage() {
 
         {/* Row 1: Content Distribution + Tag Ranking */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ContentTypeChart byType={overview?.by_type ?? {}} />
+          <ContentTypeChart byType={overview?.by_type ?? {}} noDataText={at.noData} />
           <TagRanking tags={tags} />
         </div>
 
         {/* Row 2: Search Trends + Growth Trend */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <SearchTrendsRanking trends={trends} />
+          <SearchTrendsRanking trends={trends} daily={dailyTrends} />
           <GrowthTrendChart growth={growth} />
         </div>
       </div>

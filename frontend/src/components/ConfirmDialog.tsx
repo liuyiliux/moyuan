@@ -1,9 +1,11 @@
 import { Loader2, AlertCircle, AlertTriangle } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: string;
+  children?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "danger" | "warning";
@@ -16,6 +18,7 @@ export default function ConfirmDialog({
   open,
   title,
   message,
+  children,
   confirmLabel = "确认",
   cancelLabel = "取消",
   variant = "danger",
@@ -56,6 +59,7 @@ export default function ConfirmDialog({
             <h2 className="text-xl font-semibold text-[var(--text-primary)] tracking-wide">{title}</h2>
           </div>
           <p className="text-base text-[var(--text-secondary)] leading-relaxed">{message}</p>
+          {children}
         </div>
         <div className="flex justify-end gap-3 px-7 py-5 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/70 backdrop-blur-sm">
           <button

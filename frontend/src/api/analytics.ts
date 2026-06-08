@@ -21,6 +21,11 @@ export interface SearchTrend {
   count: number;
 }
 
+export interface SearchDailyTrend {
+  day: string;
+  count: number;
+}
+
 export interface GrowthStat {
   week: string;
   count: number;
@@ -29,8 +34,14 @@ export interface GrowthStat {
 // ─── Analytics API ───
 
 export const analyticsApi = {
-  overview: () => api.get<AnalyticsOverview>("/analytics/overview"),
-  tags: (limit = 20) => api.get<{ tags: TagStat[] }>(`/analytics/tags?limit=${limit}`),
-  searchTrends: (limit = 20) => api.get<{ trends: SearchTrend[] }>(`/analytics/search-trends?limit=${limit}`),
-  growth: () => api.get<{ growth: GrowthStat[] }>("/analytics/growth"),
+  overview: (brainId?: string | null) =>
+    api.get<AnalyticsOverview>(`/analytics/overview${brainId ? `?brain_id=${brainId}` : ""}`),
+  tags: (limit = 20, brainId?: string | null) =>
+    api.get<{ tags: TagStat[] }>(`/analytics/tags?limit=${limit}${brainId ? `&brain_id=${brainId}` : ""}`),
+  searchTrends: (limit = 20, days = 30, brainId?: string | null) =>
+    api.get<{ trends: SearchTrend[]; daily: SearchDailyTrend[]; days: number }>(
+      `/analytics/search-trends?limit=${limit}&days=${days}${brainId ? `&brain_id=${brainId}` : ""}`
+    ),
+  growth: (brainId?: string | null) =>
+    api.get<{ growth: GrowthStat[] }>(`/analytics/growth${brainId ? `?brain_id=${brainId}` : ""}`),
 };
