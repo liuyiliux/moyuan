@@ -4,7 +4,7 @@ Converts uploaded or captured content into searchable chunks:
 - PDF: extract text and embedded images.
 - Image: keep the original image chunk and optionally add OCR text.
 - Audio: transcribe via the configured provider and create timestamped chunks.
-- Video: transcribe via the configured provider and optionally capture a frame.
+- Video: transcribe via the configured provider and capture smart keyframes.
 - Office: extract text plus basic document structure metadata.
 - Web: extract article text and optionally capture a page screenshot.
 """
@@ -14,6 +14,7 @@ import base64
 import hashlib
 import logging
 import mimetypes
+import re
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -384,7 +385,128 @@ async def _transcribe_audio(path: Path, db: AsyncSession | None = None) -> list[
 
 # -- Video processing --
 
-async def _extract_video_screenshots(path: Path, output_dir: Path) -> list[str]:
+VIDEO_KEYFRAME_MAX_FRAMES = 12
+VIDEO_KEYFRAME_SCENE_THRESHOLD = 0.35
+
+
+async def _probe_video_duration(path: Path) -> float | None:
+    import shutil
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode != 0:
+            return None
+        duration = float(stdout.decode(errors="ignore").strip())
+        return duration if duration > 0 else None
+    except Exception:
+        logger.warning(f"Video duration probe failed - path={path}", exc_info=True)
+        return None
+
+
+def _even_video_frame_times(duration: float | None, max_frames: int = VIDEO_KEYFRAME_MAX_FRAMES) -> list[float]:
+    if duration is None or duration <= 0:
+        return [1.0]
+    if duration <= 10:
+        return [max(0.5, duration / 2)]
+
+    count = min(max_frames, max(3, int(duration // 120) + 3))
+    count = max(1, count)
+    start = min(5.0, max(1.0, duration * 0.05))
+    end = max(start, duration * 0.95)
+    if count == 1:
+        return [round(min(duration - 0.5, start), 2)]
+    step = (end - start) / (count - 1)
+    return [round(min(duration - 0.5, start + step * idx), 2) for idx in range(count)]
+
+
+async def _detect_scene_change_times(path: Path, duration: float | None) -> list[float]:
+    import shutil
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return []
+
+    timeout = 45 if duration is None else min(90, max(30, int(duration / 30)))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-i",
+            str(path),
+            "-vf",
+            f"select='gt(scene,{VIDEO_KEYFRAME_SCENE_THRESHOLD})',showinfo",
+            "-an",
+            "-f",
+            "null",
+            "-",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.info(f"Video scene detection timed out; falling back to interval frames - path={path}")
+        return []
+    except Exception:
+        logger.warning(f"Video scene detection failed - path={path}", exc_info=True)
+        return []
+
+    if proc.returncode != 0:
+        logger.info(f"Video scene detection returned {proc.returncode}; falling back to interval frames - path={path}")
+        return []
+
+    text = stderr.decode(errors="ignore")
+    times = []
+    for match in re.finditer(r"pts_time:([0-9]+(?:\.[0-9]+)?)", text):
+        value = float(match.group(1))
+        if value > 0.5 and (duration is None or value < duration - 0.5):
+            times.append(round(value, 2))
+    return times
+
+
+def _select_video_frame_times(
+    scene_times: list[float],
+    duration: float | None,
+    max_frames: int = VIDEO_KEYFRAME_MAX_FRAMES,
+) -> list[tuple[float, str]]:
+    fallback_times = _even_video_frame_times(duration, max_frames=max_frames)
+    min_gap = 20.0
+    if duration:
+        min_gap = max(15.0, min(90.0, duration / max(max_frames * 1.5, 1)))
+
+    selected: list[tuple[float, str]] = []
+    for ts in sorted(set(scene_times)):
+        if len(selected) >= max_frames:
+            break
+        if all(abs(ts - existing) >= min_gap for existing, _reason in selected):
+            selected.append((ts, "scene"))
+
+    for ts in fallback_times:
+        if len(selected) >= max_frames:
+            break
+        if all(abs(ts - existing) >= min_gap * 0.6 for existing, _reason in selected):
+            selected.append((ts, "interval"))
+
+    if not selected:
+        selected = [(1.0, "fallback")]
+    return sorted(selected, key=lambda item: item[0])
+
+
+async def _extract_video_screenshots(path: Path, output_dir: Path) -> list[dict]:
     import shutil
 
     ffmpeg = shutil.which("ffmpeg")
@@ -393,39 +515,57 @@ async def _extract_video_screenshots(path: Path, output_dir: Path) -> list[str]:
         return []
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "frame_0001.jpg"
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            ffmpeg,
-            "-y",
-            "-ss",
-            "1",
-            "-i",
-            str(path),
-            "-frames:v",
-            "1",
-            str(output_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
-        if proc.returncode != 0 or not output_path.exists():
-            logger.warning(
-                f"Video screenshot extraction failed - path={path}, "
-                f"stdout={stdout.decode(errors='ignore')[:300]}, "
-                f"stderr={stderr.decode(errors='ignore')[:300]}"
-            )
-            return []
+    duration = await _probe_video_duration(path)
+    scene_times = await _detect_scene_change_times(path, duration)
+    frame_times = _select_video_frame_times(scene_times, duration)
 
-        storage_root = Path(settings.file_storage_root).resolve()
+    storage_root = Path(settings.file_storage_root).resolve()
+    screenshots: list[dict] = []
+    for index, (timestamp, reason) in enumerate(frame_times, start=1):
+        output_path = output_dir / f"frame_{index:04d}.jpg"
         try:
-            return [output_path.resolve().relative_to(storage_root).as_posix()]
-        except ValueError:
-            return [str(output_path)]
-    except Exception:
-        logger.warning(f"Video screenshot extraction failed - path={path}", exc_info=True)
-        return []
+            proc = await asyncio.create_subprocess_exec(
+                ffmpeg,
+                "-y",
+                "-ss",
+                f"{timestamp:.2f}",
+                "-i",
+                str(path),
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                str(output_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+            if proc.returncode != 0 or not output_path.exists():
+                logger.warning(
+                    f"Video screenshot extraction failed - path={path}, ts={timestamp}, "
+                    f"stdout={stdout.decode(errors='ignore')[:300]}, "
+                    f"stderr={stderr.decode(errors='ignore')[:300]}"
+                )
+                continue
 
+            try:
+                image_path = output_path.resolve().relative_to(storage_root).as_posix()
+            except ValueError:
+                image_path = str(output_path)
+
+            screenshots.append({
+                "path": image_path,
+                "time_start": timestamp,
+                "reason": reason,
+            })
+        except Exception:
+            logger.warning(f"Video screenshot extraction failed - path={path}, ts={timestamp}", exc_info=True)
+
+    logger.info(
+        f"Video keyframes extracted - path={path}, duration={duration}, "
+        f"scene_candidates={len(scene_times)}, saved={len(screenshots)}"
+    )
+    return screenshots
 
 async def _process_video(
     path: Path,
@@ -1029,8 +1169,9 @@ class ContentProcessService:
             logger.warning(f"无转写数据，跳过音频分块 - content_id={content_id}")
             return
 
-        full_text = " ".join(s.get("text", "") for s in segments)
-        content.text_content = full_text
+        if segments:
+            full_text = " ".join(s.get("text", "") for s in segments)
+            content.text_content = full_text
 
         for i, seg in enumerate(segments):
             seg_text = seg.get("text", "").strip()
@@ -1053,7 +1194,8 @@ class ContentProcessService:
         content_id = str(content.id)
 
         segments: list[dict] = []
-        screenshots: list[str] = []
+        screenshots: list[dict | str] = []
+        existing_text = (content.text_content or "").strip()
 
         if content.file_path:
             # Call the module-level implementation to keep tests monkeypatchable.
@@ -1061,17 +1203,20 @@ class ContentProcessService:
             module = sys.modules[__name__]
             file_path = self._resolve_path(content.file_path)
             screenshots_dir = Path(settings.file_storage_root) / "images" / content_id
-            segments, screenshots = await module._process_video(
-                Path(file_path),
-                self.db,
-                screenshots_dir,
-            )
+            if existing_text:
+                screenshots = await module._extract_video_screenshots(Path(file_path), screenshots_dir)
+            else:
+                segments, screenshots = await module._process_video(
+                    Path(file_path),
+                    self.db,
+                    screenshots_dir,
+                )
 
-        if not segments:
+        if not segments and not existing_text and not screenshots:
             logger.warning(f"无转写数据，跳过视频分块 - content_id={content_id}")
             return
 
-        full_text = " ".join(s.get("text", "") for s in segments)
+        full_text = " ".join(s.get("text", "") for s in segments) if segments else existing_text
         content.text_content = full_text
 
         chunk_index = 0
@@ -1090,12 +1235,40 @@ class ContentProcessService:
             chunk_index += 1
 
         # 关键帧截图作为 image chunks
-        for img_path in screenshots:
+        if not segments and existing_text:
+            from app.services.chunking import chunk_text
+
+            text_chunks = await chunk_text(existing_text, self.db)
+            for tc in text_chunks:
+                self.db.add(ContentChunk(
+                    content_id=content.id,
+                    chunk_index=chunk_index,
+                    chunk_type="text",
+                    chunk_text=tc.text,
+                    start_offset=tc.start_offset,
+                    end_offset=tc.end_offset,
+                    extra_meta={"source": "subtitle" if (content.extra_meta or {}).get("subtitle_source") else "existing_text"},
+                ))
+                chunk_index += 1
+
+        for screenshot in screenshots:
+            if isinstance(screenshot, dict):
+                img_path = screenshot.get("path")
+                time_start = screenshot.get("time_start")
+                reason = screenshot.get("reason")
+            else:
+                img_path = screenshot
+                time_start = None
+                reason = None
+            if not img_path:
+                continue
             self.db.add(ContentChunk(
                 content_id=content.id,
                 chunk_index=chunk_index,
                 chunk_type="image",
                 image_path=img_path,
+                time_start=float(time_start) if time_start is not None else None,
+                extra_meta={"frame_reason": reason} if reason else None,
             ))
             chunk_index += 1
 

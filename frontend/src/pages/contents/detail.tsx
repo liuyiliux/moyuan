@@ -90,6 +90,11 @@ function getStringMeta(item: FileItem | null, key: string): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function storageFileUrl(path: string): string {
+  if (/^https?:\/\//i.test(path) || path.startsWith("/")) return path;
+  return `/files/${path.split("/").map(part => encodeURIComponent(part)).join("/")}`;
+}
+
 function DocumentStructurePanel({ structure }: { structure: DocumentStructure }) {
   const format = (structure.format || "document").toUpperCase();
   return (
@@ -1367,7 +1372,18 @@ export default function ContentsDetail() {
                           <p className="text-xs text-[var(--text-secondary)] line-clamp-3 leading-relaxed">{c.chunk_text.slice(0, 300)}</p>
                         )}
                         {c.image_path && (
-                          <p className="text-xs text-[var(--text-muted)] mt-1">图片：{c.image_path}</p>
+                          <div className="mt-2 flex items-start gap-3">
+                            <img
+                              src={storageFileUrl(c.image_path)}
+                              alt={`分块 #${c.chunk_index}`}
+                              loading="lazy"
+                              className="h-24 w-40 rounded-md border border-[var(--border-subtle)] object-cover bg-[var(--bg-secondary)]"
+                            />
+                            <div className="min-w-0 pt-1">
+                              <p className="text-xs font-medium text-[var(--text-secondary)]">关键帧截图</p>
+                              <p className="mt-1 break-all text-xs text-[var(--text-muted)]">{c.image_path}</p>
+                            </div>
+                          </div>
                         )}
                       </div>
                     ))}

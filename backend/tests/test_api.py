@@ -2495,7 +2495,10 @@ async def test_video_processing_adds_transcript_and_screenshot_chunks(client: As
                 {"text": "First video segment", "start": 0.0, "end": 2.0},
                 {"text": "Second video segment", "start": 2.0, "end": 4.0},
             ],
-            ["images/test-video-frame.jpg"],
+            [
+                {"path": "images/test-video-frame-1.jpg", "time_start": 1.0, "reason": "interval"},
+                {"path": "images/test-video-frame-2.jpg", "time_start": 3.0, "reason": "scene"},
+            ],
         )
 
     monkeypatch.setattr(process_module, "_process_video", fake_process_video)
@@ -2519,15 +2522,133 @@ async def test_video_processing_adds_transcript_and_screenshot_chunks(client: As
         chunks_resp = await client.get(f"/api/contents/{content_id}/chunks")
         assert chunks_resp.status_code == 200
         chunks = chunks_resp.json()["chunks"]
-        assert [chunk["chunk_type"] for chunk in chunks] == ["text", "text", "image"]
+        assert [chunk["chunk_type"] for chunk in chunks] == ["text", "text", "image", "image"]
         assert chunks[0]["chunk_text"] == "First video segment"
         assert chunks[1]["time_start"] == 2.0
-        assert chunks[2]["image_path"] == "images/test-video-frame.jpg"
+        assert chunks[2]["image_path"] == "images/test-video-frame-1.jpg"
+        assert chunks[2]["time_start"] == 1.0
+        assert chunks[3]["image_path"] == "images/test-video-frame-2.jpg"
+        assert chunks[3]["time_start"] == 3.0
 
         async with async_session_factory() as db:
             result = await db.execute(select(Content).where(Content.id == uuid.UUID(content_id)))
             refreshed = result.scalar_one()
             assert refreshed.text_content == "First video segment Second video segment"
+    finally:
+        settings.file_storage_root = old_storage_root
+
+
+@pytest.mark.asyncio
+async def test_video_processing_keeps_keyframes_without_transcript(client: AsyncClient, monkeypatch, tmp_path):
+    from app.core.config import get_settings
+    from app.core.database import async_session_factory
+    from app.models.models import Content
+    import app.services.process as process_module
+
+    settings = get_settings()
+    video_dir = tmp_path / "uploads"
+    video_dir.mkdir()
+    video_file = video_dir / "video-frame-only.mp4"
+    video_file.write_bytes(b"fake-video-frame-only")
+
+    old_storage_root = settings.file_storage_root
+    settings.file_storage_root = str(tmp_path)
+
+    async def fake_process_video(path, db=None, screenshot_dir=None):
+        assert path.name == "video-frame-only.mp4"
+        return (
+            [],
+            [
+                {"path": "images/test-video-frame-only-1.jpg", "time_start": 8.0, "reason": "scene"},
+                {"path": "images/test-video-frame-only-2.jpg", "time_start": 32.0, "reason": "interval"},
+            ],
+        )
+
+    monkeypatch.setattr(process_module, "_process_video", fake_process_video)
+
+    try:
+        async with async_session_factory() as db:
+            content = Content(
+                title=f"pytest-video-frame-only-{uuid.uuid4().hex[:8]}",
+                content_type="video",
+                source_type="upload",
+                file_path="uploads/video-frame-only.mp4",
+            )
+            db.add(content)
+            await db.commit()
+            content_id = str(content.id)
+
+        process_resp = await client.post(f"/api/contents/{content_id}/process")
+        assert process_resp.status_code == 200
+        assert process_resp.json()["processing_status"] in {"completed", "chunked"}
+
+        chunks_resp = await client.get(f"/api/contents/{content_id}/chunks")
+        assert chunks_resp.status_code == 200
+        chunks = chunks_resp.json()["chunks"]
+        assert [chunk["chunk_type"] for chunk in chunks] == ["image", "image"]
+        assert chunks[0]["image_path"] == "images/test-video-frame-only-1.jpg"
+        assert chunks[0]["time_start"] == 8.0
+        assert chunks[1]["image_path"] == "images/test-video-frame-only-2.jpg"
+        assert chunks[1]["time_start"] == 32.0
+    finally:
+        settings.file_storage_root = old_storage_root
+
+
+@pytest.mark.asyncio
+async def test_video_processing_uses_existing_subtitle_text(client: AsyncClient, monkeypatch, tmp_path):
+    from app.core.config import get_settings
+    from app.core.database import async_session_factory
+    from app.models.models import Content
+    import app.services.process as process_module
+
+    settings = get_settings()
+    video_dir = tmp_path / "uploads"
+    video_dir.mkdir()
+    video_file = video_dir / "video-with-subtitle.mp4"
+    video_file.write_bytes(b"fake-video-with-subtitle")
+
+    old_storage_root = settings.file_storage_root
+    settings.file_storage_root = str(tmp_path)
+
+    async def fail_transcribe(path, db=None):
+        raise AssertionError("course subtitles should avoid transcription")
+
+    async def fake_extract_screenshots(path, screenshot_dir):
+        assert path.name == "video-with-subtitle.mp4"
+        return [{"path": "images/subtitle-video-frame.jpg", "time_start": 5.0, "reason": "scene"}]
+
+    monkeypatch.setattr(process_module, "_transcribe_audio", fail_transcribe)
+    monkeypatch.setattr(process_module, "_extract_video_screenshots", fake_extract_screenshots)
+
+    try:
+        async with async_session_factory() as db:
+            content = Content(
+                title=f"pytest-video-subtitle-{uuid.uuid4().hex[:8]}",
+                content_type="video",
+                source_type="upload",
+                file_path="uploads/video-with-subtitle.mp4",
+                text_content="Subtitle line one. Subtitle line two.",
+                extra_meta={"subtitle_source": "srt"},
+            )
+            db.add(content)
+            await db.commit()
+            content_id = str(content.id)
+
+        process_resp = await client.post(f"/api/contents/{content_id}/process")
+        assert process_resp.status_code == 200
+
+        chunks_resp = await client.get(f"/api/contents/{content_id}/chunks")
+        assert chunks_resp.status_code == 200
+        chunks = chunks_resp.json()["chunks"]
+        assert any(chunk["chunk_type"] == "text" and "Subtitle line one" in (chunk["chunk_text"] or "") for chunk in chunks)
+        image_chunks = [chunk for chunk in chunks if chunk["chunk_type"] == "image"]
+        assert image_chunks[0]["image_path"] == "images/subtitle-video-frame.jpg"
+        assert image_chunks[0]["time_start"] == 5.0
+
+        async with async_session_factory() as db:
+            result = await db.execute(select(Content).where(Content.id == uuid.UUID(content_id)))
+            refreshed = result.scalar_one()
+            assert refreshed.text_content == "Subtitle line one. Subtitle line two."
     finally:
         settings.file_storage_root = old_storage_root
 
